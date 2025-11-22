@@ -17,7 +17,7 @@ type ConnectionStatus = 'idle' | 'checking' | 'success' | 'error';
 const DEFAULTS: AdminSettings = {
     providers: {
         gemini: {
-            apiKey: 'AIzaSyAuhxoQ4W7EevVz3EUeZQeXdvHAY0jrlEQ',
+            apiKey: '',
             generationModel: 'imagen-4.0-generate-001',
             veoModel: 'veo-3.1-fast-generate-preview',
             safetySettings: {
@@ -28,20 +28,20 @@ const DEFAULTS: AdminSettings = {
             },
         },
         grok: {
-            apiKey: 'xai-Qo6ypDlg1lCk5TvYYjjVKKUiFksKreyHHrCV0IN3Wbx7uiOIBrMRuYHNHKxvGfEjyJ60U60F6QKMIAT5',
+            apiKey: '',
             generationModel: 'grok-2-image-1212',
         },
         moondream_cloud: {
-            apiKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJrZXlfaWQiOiJiZWI0OGYwZS02YmFhLTQ5ZTctYmJjMS04Njg1MDQxZThkY2QiLCJvcmdfaWQiOiJKcjY5UVBuRjFhM0tUNm1EenU0VlpNYjN3bzlFR3dGbyIsImlhdCI6MTc2Mjc3ODY0NCwidmVyIjoxfQ.sqnDOllPIfJHnnbteIlRYO1ArqTg3dAkQ5ZBG1AzMiE',
+            apiKey: '',
         },
         moondream_local: {
             endpoint: 'http://localhost:2021/v1',
         },
         openai: {
-            apiKey: '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',
+            apiKey: '',
             generationModel: 'dall-e-3',
             textGenerationModel: 'gpt-4o',
-            organizationId: 'org-X4U0u6C4oF0T28yZO6Xw8LiP',
+            organizationId: '',
             projectId: 'Default Project',
         },
         comfyui: {
