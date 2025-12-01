@@ -19,7 +19,7 @@ The goal of Image Gallery 2 is to provide a seamless and private way to manage i
 - **Status Dashboard**: Monitor queue depth, active jobs, and processing speed.
 - **Responsive Design**: Works beautifully on desktop and mobile.
 
-![Status Page](docs/images/status-page.png)
+![Image Details](docs/images/image-details.png)
 
 ## Requirements
 
