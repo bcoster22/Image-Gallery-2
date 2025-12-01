@@ -54,6 +54,40 @@ To run this application, you need:
     
     *Note: The application expects Moondream to be running on `http://localhost:2021`.*
 
+## Configuration
+
+The application features a comprehensive Admin Settings panel for configuring AI providers and system behavior. Click the **Gear Icon** in the sidebar to access these settings.
+
+### AI Providers
+
+Configure multiple AI providers to handle different tasks.
+
+#### Local Providers
+-   **Moondream Local**:
+    -   **Endpoint**: Set the URL of your local Moondream server (default: `http://localhost:2021/v1`).
+    -   *Best for: Private, offline image analysis.*
+-   **ComfyUI**:
+    -   **Mode**: Choose 'Local' or 'Hosted'.
+    -   **Endpoint**: URL of your ComfyUI instance (default: `http://127.0.0.1:8188`).
+    -   *Best for: Advanced image generation and editing.*
+
+#### Cloud Providers
+-   **Gemini (Google)**: Requires API Key. Supports Vision, Generation (Imagen), and Video (Veo).
+-   **OpenAI**: Requires API Key. Supports Generation (DALL-E 3) and Text (GPT-4).
+-   **Grok (xAI)**: Requires API Key. Supports Generation (Grok-2).
+-   **Moondream Cloud**: Requires API Key.
+
+### Routing & Fallbacks
+
+You can define which provider handles specific tasks (Vision, Generation, Animation, etc.).
+-   **Fallback Chains**: Assign multiple providers to a capability. If the first fails, the system automatically tries the next one in the list.
+-   **Load Balancing**: Distribute workloads across different models for optimal performance.
+
+### Performance
+
+-   **Image Downscaling**: Automatically resize large images before analysis to improve speed and reduce token usage.
+-   **Max Dimension**: Set the maximum pixel dimension for analyzed images.
+
 ## Running the Application
 
 1.  **Start Moondream Station:**
