@@ -44,42 +44,60 @@ export interface AppSettings {
 }
 
 // New V2 Admin Settings Structure
+export interface PromptStep {
+  id: string;
+  name: string;
+  prompt: string;
+  status: string;
+}
+
+export interface PromptStrategy {
+  id: string;
+  name: string;
+  description: string;
+  steps: PromptStep[];
+}
+
 export interface AdminSettings {
-    providers: {
-        gemini: {
-            apiKey: string | null;
-            generationModel: string | null;
-            veoModel: string | null;
-            safetySettings: GeminiSafetySettings | null;
-        };
-        grok: {
-            apiKey: string | null;
-            generationModel: string | null;
-        };
-        moondream_cloud: {
-            apiKey: string | null;
-        };
-        moondream_local: {
-            endpoint: string | null;
-        };
-        openai: {
-            apiKey: string | null;
-            generationModel: string | null;
-            textGenerationModel: string | null;
-            organizationId: string | null;
-            projectId: string | null;
-        };
-        comfyui: {
-            mode: 'local' | 'hosted';
-            endpoint: string | null;
-            apiKey: string | null;
-        };
+  providers: {
+    gemini: {
+      apiKey: string | null;
+      generationModel: string | null;
+      veoModel: string | null;
+      safetySettings: GeminiSafetySettings | null;
     };
-    routing: Record<Capability, AiProvider[]>;
-    performance: {
-        downscaleImages: boolean;
-        maxAnalysisDimension: number;
+    grok: {
+      apiKey: string | null;
+      generationModel: string | null;
     };
+    moondream_cloud: {
+      apiKey: string | null;
+    };
+    moondream_local: {
+      endpoint: string | null;
+    };
+    openai: {
+      apiKey: string | null;
+      generationModel: string | null;
+      textGenerationModel: string | null;
+      organizationId: string | null;
+      projectId: string | null;
+    };
+    comfyui: {
+      mode: 'local' | 'hosted';
+      endpoint: string | null;
+      apiKey: string | null;
+    };
+  };
+  routing: Record<Capability, AiProvider[]>;
+  performance: {
+    downscaleImages: boolean;
+    maxAnalysisDimension: number;
+  };
+  prompts: {
+    assignments: Record<string, string>; // providerId -> strategyId
+    strategies: PromptStrategy[];
+  };
 }
 
 
@@ -148,15 +166,42 @@ export interface StatusPayload {
 }
 
 export interface UploadProgress {
-    current: number;
-    total: number;
-    eta: number; // in seconds
-    speed: number; // in MB/s
-    fileName: string;
+  current: number;
+  total: number;
+  eta: number; // in seconds
+  speed: number; // in MB/s
+  fileName: string;
 }
 
 export interface AnalysisProgress {
-    current: number;
-    total: number;
-    fileName: string;
+  current: number;
+  total: number;
+  fileName: string;
+}
+export interface ImageAnalysisStats {
+  tokensPerSec: number;
+  device: 'CPU' | 'GPU';
+  totalTokens?: number;
+  duration?: number;
+}
+
+export interface ImageAnalysisResult {
+  keywords: string[];
+  recreationPrompt: string;
+  stats?: ImageAnalysisStats;
+}
+export interface ActiveJob {
+  id: string;
+  fileName: string;
+  size: number; // in bytes
+  startTime: number;
+}
+
+export interface QueueStatus {
+  activeCount: number;
+  pendingCount: number;
+  isPaused: boolean;
+  activeJobs: ActiveJob[];
+  queuedJobs: ActiveJob[];
+  concurrencyLimit: number;
 }

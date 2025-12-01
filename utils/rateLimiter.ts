@@ -16,6 +16,15 @@ export class RateLimitedApiQueue {
     this.processQueue();
   }
 
+  /**
+   * Adds a new API request function to the front of the queue (priority) for retries.
+   * @param requestFn A function that returns a Promise for the API request.
+   */
+  addPriority(requestFn: () => Promise<any>): void {
+    this.queue.unshift(requestFn);
+    this.processQueue();
+  }
+
   private async processQueue(): Promise<void> {
     if (this.isProcessing || this.queue.length === 0) {
       return;
@@ -25,7 +34,7 @@ export class RateLimitedApiQueue {
 
     // Take a batch of requests from the front of the queue
     const batch = this.queue.splice(0, BATCH_SIZE);
-    
+
     try {
       // Process all promises in the batch concurrently
       await Promise.all(batch.map(fn => fn()));

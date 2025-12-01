@@ -68,47 +68,47 @@ const GridItem: React.FC<GridItemProps> = ({ image, onImageClick, isAnalyzing, i
           loading="lazy"
         />
       )}
-      
+
       {!isSelectionMode && (
         <>
-            <div className="absolute top-2 right-2 p-1.5 bg-black/40 backdrop-blur-sm rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                <MoreOptionsIcon className="w-5 h-5 text-white" />
-            </div>
+          <div className="absolute top-2 right-2 p-1.5 bg-black/40 backdrop-blur-sm rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+            <MoreOptionsIcon className="w-5 h-5 text-white" />
+          </div>
 
-            <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 via-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex justify-between items-center">
-                <div className="flex items-center gap-2 min-w-0">
-                    {image.authorAvatarUrl && (
-                        <img src={image.authorAvatarUrl} alt={image.authorName} className="w-6 h-6 rounded-full border border-white/80 flex-shrink-0" />
-                    )}
-                    {image.authorName && (
-                        <p className="text-white text-xs font-semibold truncate">{image.authorName}</p>
-                    )}
-                </div>
-                <div className="flex items-center gap-3 text-white text-xs font-medium flex-shrink-0">
-                    <div className="flex items-center gap-1">
-                        <HeartIcon className="w-4 h-4" />
-                        <span>{image.likes ?? 0}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                        <ChatBubbleIcon className="w-4 h-4" />
-                        <span>{image.commentsCount ?? 0}</span>
-                    </div>
-                </div>
+          <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 via-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex justify-between items-center">
+            <div className="flex items-center gap-2 min-w-0">
+              {image.authorAvatarUrl && (
+                <img src={image.authorAvatarUrl} alt={image.authorName} className="w-6 h-6 rounded-full border border-white/80 flex-shrink-0" />
+              )}
+              {image.authorName && (
+                <p className="text-white text-xs font-semibold truncate">{image.authorName}</p>
+              )}
             </div>
+            <div className="flex items-center gap-3 text-white text-xs font-medium flex-shrink-0">
+              <div className="flex items-center gap-1">
+                <HeartIcon className="w-4 h-4" />
+                <span>{image.likes ?? 0}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <ChatBubbleIcon className="w-4 h-4" />
+                <span>{image.commentsCount ?? 0}</span>
+              </div>
+            </div>
+          </div>
         </>
       )}
-      
+
       {image.isVideo && !isSelectionMode && !isOfflineVideo && (
-         <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-100 group-hover:opacity-0 transition-opacity duration-300 pointer-events-none">
-            <PlayIcon className="w-16 h-16 text-white/70 drop-shadow-lg" />
+        <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-100 group-hover:opacity-0 transition-opacity duration-300 pointer-events-none">
+          <PlayIcon className="w-16 h-16 text-white/70 drop-shadow-lg" />
         </div>
       )}
-      
+
       {isSelected && (
         <div className="absolute inset-0 bg-indigo-700/40 backdrop-blur-sm flex items-center justify-center z-10">
-            <div className="bg-white/90 rounded-full p-1 shadow-lg">
-              <CheckCircleIcon className="w-8 h-8 text-indigo-700" />
-            </div>
+          <div className="bg-white/90 rounded-full p-1 shadow-lg">
+            <CheckCircleIcon className="w-8 h-8 text-indigo-700" />
+          </div>
         </div>
       )}
 
@@ -119,32 +119,32 @@ const GridItem: React.FC<GridItemProps> = ({ image, onImageClick, isAnalyzing, i
       )}
 
       {image.isGenerating && (
-         <div className="absolute inset-0 bg-black/70 backdrop-blur-sm flex flex-col items-center justify-center text-white p-2 text-center z-20">
-            <Spinner />
-            <p className="text-xs font-semibold mt-2">Creating Video...</p>
+        <div className="absolute inset-0 bg-black/70 backdrop-blur-sm flex flex-col items-center justify-center text-white p-2 text-center z-20">
+          <Spinner />
+          <p className="text-xs font-semibold mt-2">Creating Video...</p>
         </div>
       )}
 
-       {isGeneratingSource && (
-         <div className="absolute inset-0 bg-black/70 backdrop-blur-sm flex flex-col items-center justify-center text-white p-2 text-center z-20">
-            <Spinner />
-            <p className="text-xs font-semibold mt-2">Source for Generation...</p>
+      {isGeneratingSource && (
+        <div className="absolute inset-0 bg-black/70 backdrop-blur-sm flex flex-col items-center justify-center text-white p-2 text-center z-20">
+          <Spinner />
+          <p className="text-xs font-semibold mt-2">Source for Generation...</p>
         </div>
       )}
 
       {isOfflineVideo && (
         <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center text-white p-2 text-center pointer-events-none z-20">
-            <VideoCameraIcon className="w-8 h-8 mb-1 text-gray-400" />
-            <p className="text-xs font-semibold">Video Unavailable</p>
-            <p className="text-xs text-gray-500 mt-1">in reloaded session</p>
+          <VideoCameraIcon className="w-8 h-8 mb-1 text-gray-400" />
+          <p className="text-xs font-semibold">Video Unavailable</p>
+          <p className="text-xs text-gray-500 mt-1">in reloaded session</p>
         </div>
       )}
 
       {image.analysisFailed && !isAnalyzing && (
         <div className="absolute inset-0 bg-red-900/80 flex flex-col items-center justify-center p-2 text-center text-white z-20">
-            <WarningIcon className="w-8 h-8 mb-1 text-red-300" />
-            <p className="text-xs font-semibold">AI Analysis Failed</p>
-            <p className="text-xs text-red-300/80 mt-1">Rate limit, quota, or content policy error.</p>
+          <WarningIcon className="w-8 h-8 mb-1 text-red-300" />
+          <p className="text-xs font-semibold">AI Analysis Failed</p>
+          <p className="text-xs text-red-300/80 mt-1">Rate limit, quota, or content policy error.</p>
         </div>
       )}
     </div>
@@ -152,20 +152,147 @@ const GridItem: React.FC<GridItemProps> = ({ image, onImageClick, isAnalyzing, i
 };
 
 
-const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, analyzingIds, generatingIds, disabled, isSelectionMode, selectedIds }) => {
+interface SelectionBox {
+  startX: number;
+  startY: number;
+  currentX: number;
+  currentY: number;
+}
+
+const ImageGrid: React.FC<ImageGridProps & { onSelectionChange?: (ids: Set<string>) => void }> = ({ images, onImageClick, analyzingIds, generatingIds, disabled, isSelectionMode, selectedIds, onSelectionChange }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [selectionBox, setSelectionBox] = React.useState<SelectionBox | null>(null);
+  const isDragging = useRef(false);
+  const dragStartPos = useRef({ x: 0, y: 0 });
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (!isSelectionMode || disabled || !onSelectionChange) return;
+    // Ignore clicks on interactive elements
+    if ((e.target as HTMLElement).closest('button, a, input, video')) return;
+
+    isDragging.current = true;
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    dragStartPos.current = { x, y };
+    setSelectionBox({ startX: x, startY: y, currentX: x, currentY: y });
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging.current || !containerRef.current || !onSelectionChange) return;
+
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    setSelectionBox(prev => prev ? { ...prev, currentX: x, currentY: y } : null);
+
+    // Calculate intersection
+    const boxLeft = Math.min(dragStartPos.current.x, x);
+    const boxTop = Math.min(dragStartPos.current.y, y);
+    const boxRight = Math.max(dragStartPos.current.x, x);
+    const boxBottom = Math.max(dragStartPos.current.y, y);
+
+    const newSelectedIds = new Set(e.shiftKey ? selectedIds : []); // Keep existing if shift is held? Or just add? 
+    // Usually drag select replaces unless Shift/Ctrl is held. Let's assume replace for now, or add if Shift.
+    // User asked for "mouse left click and drag slect images". Usually implies adding or setting.
+    // Let's go with: if Shift, add to existing. If not, replace.
+    // Actually, simpler: just calculate what's in the box and merge with initial selection if needed.
+    // But for a smooth experience, we usually want to start with the selection state at drag start.
+    // Let's just calculate "ids in box" and let the parent handle merging if we want complex logic.
+    // But here we update the parent directly.
+
+    // Let's stick to: Dragging selects items in the box. 
+    // If we want to support "add to selection", we need to know the initial selection at drag start.
+    // For now, let's implement: Dragging selects items in the box.
+
+    const items = containerRef.current.querySelectorAll('[data-id]');
+    const idsInBox = new Set<string>();
+
+    items.forEach(item => {
+      const itemRect = item.getBoundingClientRect();
+      const itemLeft = itemRect.left - rect.left;
+      const itemTop = itemRect.top - rect.top;
+      const itemRight = itemLeft + itemRect.width;
+      const itemBottom = itemTop + itemRect.height;
+
+      // Check intersection
+      if (
+        boxLeft < itemRight &&
+        boxRight > itemLeft &&
+        boxTop < itemBottom &&
+        boxBottom > itemTop
+      ) {
+        const id = item.getAttribute('data-id');
+        if (id) idsInBox.add(id);
+      }
+    });
+
+    // If Shift is pressed, merge with initial selection (we'd need to track initial selection).
+    // For simplicity, let's just set selection to idsInBox for now, or maybe union with existing if we want additive.
+    // Let's do union if Shift is held, otherwise replace.
+    // But `selectedIds` updates as we drag if we call `onSelectionChange`.
+    // So we can't rely on `selectedIds` prop for "initial" state unless we capture it on MouseDown.
+    // Let's capture initial selection on MouseDown.
+
+    // Actually, implementing full drag-select logic with modifier keys is complex.
+    // Let's start with: Dragging creates a new selection of items in the box.
+    // If the user wants to add, they can hold Shift (we can implement that logic).
+
+    onSelectionChange(idsInBox);
+  };
+
+  const handleMouseUp = () => {
+    isDragging.current = false;
+    setSelectionBox(null);
+  };
+
+  // Attach global mouse up listener to handle drag end outside container
+  React.useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      if (isDragging.current) {
+        isDragging.current = false;
+        setSelectionBox(null);
+      }
+    };
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
+  }, []);
+
   return (
-    <div className={`columns-2 sm:columns-3 md:columns-4 lg:columns-5 xl:columns-6 2xl:columns-8 gap-3 sm:gap-4 ${disabled ? 'pointer-events-none opacity-60 transition-opacity' : ''}`}>
+    <div
+      ref={containerRef}
+      className={`relative columns-2 sm:columns-3 md:columns-4 lg:columns-5 xl:columns-6 2xl:columns-8 gap-3 sm:gap-4 ${disabled ? 'pointer-events-none opacity-60 transition-opacity' : ''} ${isSelectionMode ? 'select-none' : ''}`}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+    >
       {images.map((image) => (
-        <GridItem
-          key={image.id}
-          image={image}
-          onImageClick={onImageClick}
-          isAnalyzing={analyzingIds.has(image.id)}
-          isGeneratingSource={generatingIds.has(image.id)}
-          isSelectionMode={isSelectionMode}
-          isSelected={selectedIds.has(image.id)}
-        />
+        <div key={image.id} data-id={image.id} className="break-inside-avoid mb-3 sm:mb-4">
+          <GridItem
+            image={image}
+            onImageClick={onImageClick}
+            isAnalyzing={analyzingIds.has(image.id)}
+            isGeneratingSource={generatingIds.has(image.id)}
+            isSelectionMode={isSelectionMode}
+            isSelected={selectedIds.has(image.id)}
+          />
+        </div>
       ))}
+
+      {selectionBox && (
+        <div
+          className="absolute border-2 border-indigo-500 bg-indigo-500/20 z-50 pointer-events-none"
+          style={{
+            left: Math.min(selectionBox.startX, selectionBox.currentX),
+            top: Math.min(selectionBox.startY, selectionBox.currentY),
+            width: Math.abs(selectionBox.currentX - selectionBox.startX),
+            height: Math.abs(selectionBox.currentY - selectionBox.startY),
+          }}
+        />
+      )}
     </div>
   );
 };

@@ -3,16 +3,18 @@ import React, { useState, useEffect, useRef } from 'react';
 import { HarmBlockThreshold } from '@google/genai';
 import { AdminSettings, AiProvider, Capability } from '../types';
 import { providerCapabilities, capabilityDetails } from '../services/providerCapabilities';
-import { SettingsIcon, CheckCircleIcon, XCircleIcon, ZapIcon } from './icons';
+import { SettingsIcon, CheckCircleIcon, XCircleIcon, ZapIcon, LayoutDashboard, Network, MessageSquare, MenuIcon, CloseIcon } from './icons';
 import { testProviderConnection } from '../services/aiService';
+import PromptEngineeringPage from './PromptEngineeringPage';
 
 interface AdminSettingsPageProps {
-  onSave: (settings: AdminSettings) => void;
-  onCancel: () => void;
-  currentSettings: AdminSettings | null;
+    onSave: (settings: AdminSettings) => void;
+    onCancel: () => void;
+    currentSettings: AdminSettings | null;
 }
 
 type ConnectionStatus = 'idle' | 'checking' | 'success' | 'error';
+type AdminTab = 'providers' | 'routing' | 'performance' | 'prompts';
 
 const DEFAULTS: AdminSettings = {
     providers: {
@@ -61,13 +63,100 @@ const DEFAULTS: AdminSettings = {
         downscaleImages: true,
         maxAnalysisDimension: 1024,
     },
+    prompts: {
+        assignments: {
+            'moondream_local': 'detective',
+        },
+        strategies: [
+            {
+                id: 'detective',
+                name: 'Detective Strategy',
+                description: 'A multi-turn interrogation strategy to build detailed descriptions.',
+                steps: [
+                    {
+                        id: 'subject',
+                        name: "Subject",
+                        prompt: "Describe the main living subject in the image, including their gender, approximate age, clothing, and what action they are performing.",
+                        status: "Analyzing subject..."
+                    },
+                    {
+                        id: 'environment',
+                        name: "Environment",
+                        prompt: "Describe the location and background setting in detail. List at least three prominent objects or architectural features visible behind the main subject.",
+                        status: "Analyzing environment..."
+                    },
+                    {
+                        id: 'lighting',
+                        name: "Lighting",
+                        prompt: "Describe the lighting in the scene. Is it natural or artificial? What time of day does it appear to be, and what is the overall mood created by the light?",
+                        status: "Analyzing lighting..."
+                    },
+                    {
+                        id: 'style',
+                        name: "Style",
+                        prompt: "Describe the style of this image. Is it a candid photo, a professional portrait, a selfie, or a cinematic shot? Mention the camera angle if it's notable.",
+                        status: "Analyzing artistic style..."
+                    },
+                    {
+                        id: 'keywords',
+                        name: "Keywords",
+                        prompt: "List 5-10 descriptive keywords for this image, separated by commas. Do not include any other text.",
+                        status: "Extracting keywords..."
+                    }
+                ]
+            }
+        ]
+    }
 };
 
 
 const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel, currentSettings }) => {
+    const [activeTab, setActiveTab] = useState<AdminTab>('providers');
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
     // Initialize state by deeply merging defaults with current settings.
     const [settings, setSettings] = useState<AdminSettings>(() => {
         if (!currentSettings) return DEFAULTS;
+
+        // Migration logic for old prompts structure if necessary
+        let prompts = DEFAULTS.prompts;
+        if (currentSettings.prompts) {
+            if ('assignments' in currentSettings.prompts) {
+                prompts = {
+                    ...DEFAULTS.prompts,
+                    ...currentSettings.prompts
+                };
+            } else if ('activeStrategyId' in currentSettings.prompts) {
+                // Migrate V2 (activeStrategyId) to V3 (assignments)
+                const oldPrompts = currentSettings.prompts as any;
+                prompts = {
+                    assignments: {
+                        'moondream_local': oldPrompts.activeStrategyId || 'detective'
+                    },
+                    strategies: oldPrompts.strategies || DEFAULTS.prompts.strategies
+                };
+            } else if ('detective' in currentSettings.prompts) {
+                // Migrate V1 (detective array) to V3
+                const oldDetective = (currentSettings.prompts as any).detective;
+                prompts = {
+                    assignments: {
+                        'moondream_local': 'detective'
+                    },
+                    strategies: [
+                        {
+                            id: 'detective',
+                            name: 'Detective Strategy',
+                            description: 'Migrated from previous settings.',
+                            steps: oldDetective.map((step: any, index: number) => ({
+                                id: `step-${index}`,
+                                ...step
+                            }))
+                        }
+                    ]
+                };
+            }
+        }
+
         return {
             ...DEFAULTS,
             ...currentSettings,
@@ -82,7 +171,8 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel,
             performance: {
                 ...DEFAULTS.performance,
                 ...(currentSettings.performance || {})
-            }
+            },
+            prompts: prompts
         };
     });
 
@@ -110,98 +200,86 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel,
         try {
             await testProviderConnection(provider, settings);
             setConnectionStatuses(prev => ({ ...prev, [provider]: 'success' }));
-        } catch (e) {
-            console.error(`Connection check failed for ${provider}:`, e);
+        } catch (error) {
             setConnectionStatuses(prev => ({ ...prev, [provider]: 'error' }));
         }
     };
 
-    const checkAllConnections = () => {
-        (Object.keys(providerCapabilities) as AiProvider[]).forEach(provider => {
-            checkConnection(provider);
-        });
-    };
-
-    // Poll every 30 seconds
+    // Check connections on mount and when settings change
     useEffect(() => {
-        // Check immediately on mount
-        checkAllConnections();
-
-        const intervalId = setInterval(() => {
-            checkAllConnections();
-        }, 30000);
-
-        return () => clearInterval(intervalId);
-    }, []); // Empty dependency array: runs once on mount, loops internally
-
-    // Re-check whenever settings change (debounced)
-    useEffect(() => {
-        if (debounceTimer.current) {
-            window.clearTimeout(debounceTimer.current);
-        }
-
-        debounceTimer.current = window.setTimeout(() => {
-            checkAllConnections();
-        }, 1500); // 1.5s debounce
-
-        return () => {
-            if (debounceTimer.current) {
-                window.clearTimeout(debounceTimer.current);
+        const providersToCheck: AiProvider[] = ['gemini', 'openai', 'grok', 'moondream_cloud', 'moondream_local', 'comfyui'];
+        providersToCheck.forEach(p => {
+            if (isProviderConfigured(p) && connectionStatuses[p] === 'idle') {
+                checkConnection(p);
             }
-        };
-    }, [settings.providers]); // Dependency on settings.providers deep check logic is handled by React
+        });
+    }, [settings.providers]);
 
-
-    const handleProviderChange = <T extends AiProvider, K extends keyof AdminSettings['providers'][T]>(
-        provider: T,
-        field: K,
-        value: AdminSettings['providers'][T][K]
-    ) => {
-        setSettings(prev => ({
-            ...prev,
+    const handleProviderChange = (provider: AiProvider, field: string, value: any) => {
+        const newSettings = {
+            ...settings,
             providers: {
-                ...prev.providers,
+                ...settings.providers,
                 [provider]: {
-                    ...prev.providers[provider],
-                    [field]: value,
+                    ...settings.providers[provider],
+                    [field]: value
                 }
             }
-        }));
-        // The useEffect above will catch this change and trigger a check
+        };
+        setSettings(newSettings);
+
+        // Reset connection status on change
+        setConnectionStatuses(prev => ({ ...prev, [provider]: 'idle' }));
+
+        // Debounce save
+        if (debounceTimer.current) clearTimeout(debounceTimer.current);
+        debounceTimer.current = window.setTimeout(() => {
+            onSave(newSettings);
+        }, 1000);
     };
 
     const handlePerformanceChange = <K extends keyof AdminSettings['performance']>(
         field: K,
         value: AdminSettings['performance'][K]
     ) => {
-        setSettings(prev => ({
-            ...prev,
+        const newSettings = {
+            ...settings,
             performance: {
-                ...(prev.performance || DEFAULTS.performance),
-                [field]: value,
+                ...settings.performance,
+                [field]: value
             }
-        }));
+        };
+        setSettings(newSettings);
+        onSave(newSettings);
     };
-    
+
     const handleRoutingChange = (capability: Capability, provider: AiProvider) => {
-        setSettings(prev => {
-            const currentRoute = prev.routing[capability] || [];
-            const newRoute = currentRoute.includes(provider)
-                ? currentRoute.filter(p => p !== provider)
-                : [...currentRoute, provider];
-            return {
-                ...prev,
-                routing: { ...prev.routing, [capability]: newRoute }
-            };
-        });
+        const currentRoute = settings.routing[capability] || [];
+        let newRoute;
+
+        if (currentRoute.includes(provider)) {
+            newRoute = currentRoute.filter(p => p !== provider);
+        } else {
+            newRoute = [...currentRoute, provider];
+        }
+
+        const newSettings = {
+            ...settings,
+            routing: {
+                ...settings.routing,
+                [capability]: newRoute
+            }
+        };
+        setSettings(newSettings);
+        onSave(newSettings);
     };
-    
+
     const isProviderConfigured = (provider: AiProvider): boolean => {
         const providerSettings = settings.providers[provider];
         if (!providerSettings) return false;
 
         switch (provider) {
-             case 'moondream_cloud': {
+            case 'moondream_cloud': {
                 const s = providerSettings as AdminSettings['providers']['moondream_cloud'];
                 return !!s.apiKey;
             }
@@ -254,18 +332,18 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel,
     }
 
     const CapabilityTag: React.FC<{ capability: Capability, configured: boolean }> = ({ capability, configured }) => {
-      const details = capabilityDetails[capability];
-      if (!details) return null;
-      const Icon = details.icon;
-      return (
-        <div 
-            className={`flex items-center gap-1.5 text-xs py-1 px-2.5 rounded-full border ${configured ? 'bg-green-500/10 text-green-300 border-green-500/30' : 'bg-gray-700/50 text-gray-400 border-gray-600'}`}
-            title={`${details.name} - ${configured ? 'Configured & Ready' : 'Not fully configured'}`}
-        >
-            <Icon className={`w-3.5 h-3.5 ${configured ? 'text-green-400' : 'text-gray-500'}`} />
-            <span>{details.name.split(' ')[0]}</span>
-        </div>
-      );
+        const details = capabilityDetails[capability];
+        if (!details) return null;
+        const Icon = details.icon;
+        return (
+            <div
+                className={`flex items-center gap-1.5 text-xs py-1 px-2.5 rounded-full border ${configured ? 'bg-green-500/10 text-green-300 border-green-500/30' : 'bg-gray-700/50 text-gray-400 border-gray-600'}`}
+                title={`${details.name} - ${configured ? 'Configured & Ready' : 'Not fully configured'}`}
+            >
+                <Icon className={`w-3.5 h-3.5 ${configured ? 'text-green-400' : 'text-gray-500'}`} />
+                <span>{details.name.split(' ')[0]}</span>
+            </div>
+        );
     };
 
     const StatusIndicator: React.FC<{ status: ConnectionStatus }> = ({ status }) => {
@@ -302,7 +380,7 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel,
     const renderProviderFields = (provider: AiProvider, providerSetting: any) => {
         // 1. ComfyUI (Complex Mode Switch)
         if (provider === 'comfyui') {
-             return (
+            return (
                 <>
                     <div className="mb-3">
                         <label className="block text-xs font-medium text-gray-400">Mode</label>
@@ -313,11 +391,11 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel,
                     </div>
                     <div className="mb-2">
                         <label className="block text-xs font-medium text-gray-400">Endpoint URL</label>
-                        <input type="text" value={providerSetting.endpoint || ''} placeholder="e.g., http://localhost:8188" onChange={(e) => handleProviderChange(provider, 'endpoint', e.target.value)} className="w-full mt-1 bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"/>
+                        <input type="text" value={providerSetting.endpoint || ''} placeholder="e.g., http://localhost:8188" onChange={(e) => handleProviderChange(provider, 'endpoint', e.target.value)} className="w-full mt-1 bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500" />
                     </div>
-                     <div className="mb-2">
+                    <div className="mb-2">
                         <label className="block text-xs font-medium text-gray-400">API Key (Optional)</label>
-                        <input type="password" value={providerSetting.apiKey || ''} placeholder="Enter API Key if required" onChange={(e) => handleProviderChange(provider, 'apiKey', e.target.value)} className="w-full mt-1 bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"/>
+                        <input type="password" value={providerSetting.apiKey || ''} placeholder="Enter API Key if required" onChange={(e) => handleProviderChange(provider, 'apiKey', e.target.value)} className="w-full mt-1 bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500" />
                     </div>
                 </>
             );
@@ -328,177 +406,256 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel,
             return (
                 <div className="mb-2">
                     <label className="block text-xs font-medium text-gray-400">Local Endpoint URL</label>
-                    <input 
-                        type="text" 
-                        value={providerSetting.endpoint || ''} 
-                        placeholder="e.g., http://localhost:2021/v1" 
-                        onChange={(e) => handleProviderChange(provider as any, 'endpoint', e.target.value)} 
+                    <input
+                        type="text"
+                        value={providerSetting.endpoint || ''}
+                        placeholder="e.g., http://localhost:2021/v1"
+                        onChange={(e) => handleProviderChange(provider as any, 'endpoint', e.target.value)}
                         className="w-full mt-1 bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     />
                 </div>
             );
         }
 
-        // 3. General Providers (API Key & Models - including Moondream Cloud)
-        return Object.entries(providerSetting).map(([key, value]) => {
-            if (key === 'safetySettings') return null;
-            return (
-                <div key={key} className="mb-2">
-                    <label className="block text-xs font-medium text-gray-400 capitalize">{key.replace(/([A-Z])/g, ' $1')}</label>
+        // 3. Generic (API Key + Models)
+        return (
+            <>
+                <div className="mb-2">
+                    <label className="block text-xs font-medium text-gray-400">API Key</label>
                     <input
-                        type={key.toLowerCase().includes('key') ? 'password' : 'text'}
-                        value={value as string || ''}
-                        placeholder={`Enter ${key.replace(/([A-Z])/g, ' $1')}`}
-                        onChange={(e) => handleProviderChange(provider, key as any, e.target.value)}
+                        type="password"
+                        value={providerSetting.apiKey || ''}
+                        onChange={(e) => handleProviderChange(provider as any, 'apiKey', e.target.value)}
                         className="w-full mt-1 bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     />
                 </div>
-            );
-        });
+                {'generationModel' in providerSetting && (
+                    <div className="mb-2">
+                        <label className="block text-xs font-medium text-gray-400">Generation Model</label>
+                        <input
+                            type="text"
+                            value={providerSetting.generationModel || ''}
+                            onChange={(e) => handleProviderChange(provider as any, 'generationModel', e.target.value)}
+                            className="w-full mt-1 bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        />
+                    </div>
+                )}
+                {'veoModel' in providerSetting && (
+                    <div className="mb-2">
+                        <label className="block text-xs font-medium text-gray-400">Video Model</label>
+                        <input
+                            type="text"
+                            value={providerSetting.veoModel || ''}
+                            onChange={(e) => handleProviderChange(provider as any, 'veoModel', e.target.value)}
+                            className="w-full mt-1 bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        />
+                    </div>
+                )}
+            </>
+        );
     };
 
-    return (
-        <div className="max-w-7xl mx-auto animate-fade-in">
-            <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-                <div className="flex items-center">
-                    <SettingsIcon className="w-8 h-8 mr-3 text-indigo-400" />
-                    <div>
-                        <h1 className="text-3xl font-bold text-white">Administrator Settings</h1>
-                        <p className="text-gray-400">Configure AI providers and routing for all capabilities.</p>
-                    </div>
-                </div>
-                <div className="flex items-center gap-2 self-end">
-                    <button onClick={onCancel} className="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">
-                        Cancel
-                    </button>
-                    <button onClick={() => onSave(settings)} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">
-                        Save and Exit
-                    </button>
-                </div>
-            </header>
-            
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                {/* Providers Column */}
-                <div className="space-y-4">
-                    <h2 className="text-xl font-semibold text-white border-b border-gray-700 pb-2">Providers</h2>
-                    {(Object.keys(providerCapabilities) as AiProvider[]).map(provider => {
-                        const isConfigured = isProviderConfigured(provider);
-                        const providerSetting = settings.providers[provider];
-                        
-                        if (!providerSetting) return null;
+    const renderContent = () => {
+        switch (activeTab) {
+            case 'providers':
+                return (
+                    <div className="space-y-4 animate-fade-in">
+                        <h2 className="text-2xl font-bold text-white mb-4">AI Providers</h2>
+                        {(Object.keys(providerCapabilities) as AiProvider[]).map(provider => {
+                            const isConfigured = isProviderConfigured(provider);
+                            const providerSetting = settings.providers[provider];
 
-                        return (
-                            <div key={provider} className={`p-4 rounded-lg border-2 transition-all ${isConfigured ? 'bg-gray-800/50 border-green-500/50' : 'bg-gray-800/20 border-gray-700'}`}>
-                                <h3 className="text-lg font-bold text-white flex items-center mb-3">
-                                    <div className="flex items-center">
-                                        <ZapIcon className={`w-5 h-5 mr-2 ${isConfigured ? 'text-green-400' : 'text-gray-500'}`} />
-                                        {capabilityDetails[provider]?.name || provider}
-                                    </div>
-                                    <StatusIndicator status={connectionStatuses[provider]} />
-                                </h3>
-                                
-                                {renderProviderFields(provider, providerSetting)}
-                                
-                                <div className="mt-4 pt-3 border-t border-gray-700/50">
-                                    <h4 className="text-xs font-semibold text-gray-400 mb-2">Supported & Configured Capabilities</h4>
-                                     <div className="flex flex-wrap gap-2">
-                                        {(Object.keys(providerCapabilities[provider]) as Capability[]).filter(c => providerCapabilities[provider][c]).map(capability => (
-                                            <CapabilityTag key={capability} capability={capability} configured={isCapabilityConfigured(provider, capability)} />
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
+                            if (!providerSetting) return null;
 
-                <div className="space-y-4">
-                    {/* Capabilities Column */}
-                    <div>
-                        <h2 className="text-xl font-semibold text-white border-b border-gray-700 pb-2">Capabilities Routing</h2>
-                        <p className="text-sm text-gray-400 mt-2">For each capability, add providers to create a fallback chain. The app will try them in order from top to bottom.</p>
-                        <div className="space-y-4 mt-4">
-                        {Object.entries(capabilityDetails).filter(([key]) => key in settings.routing).map(([cap, details]) => {
-                            const capability = cap as Capability;
-                            const route = settings.routing[capability] || [];
                             return (
-                                <div key={capability} className="p-4 bg-gray-800/50 rounded-lg border border-gray-700">
-                                    <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                                        <details.icon className="w-5 h-5 text-indigo-400" />
-                                        {details.name}
+                                <div key={provider} className={`p-4 rounded-lg border-2 transition-all ${isConfigured ? 'bg-gray-800/50 border-green-500/50' : 'bg-gray-800/20 border-gray-700'}`}>
+                                    <h3 className="text-lg font-bold text-white flex items-center mb-3">
+                                        <div className="flex items-center">
+                                            <ZapIcon className={`w-5 h-5 mr-2 ${isConfigured ? 'text-green-400' : 'text-gray-500'}`} />
+                                            {capabilityDetails[provider]?.name || provider}
+                                        </div>
+                                        <StatusIndicator status={connectionStatuses[provider]} />
                                     </h3>
-                                    <p className="text-xs text-gray-400 mt-1 mb-3">{details.description}</p>
-                                    <div className="space-y-2">
-                                        {route.map((providerId, index) => (
-                                            <div key={providerId} className="flex items-center gap-2 bg-gray-700/50 p-2 rounded-md">
-                                                <span className="text-xs font-bold text-indigo-300 bg-indigo-900/50 px-2 py-1 rounded-full">{index + 1}</span>
-                                                <span className="text-sm text-gray-200 flex-grow">{capabilityDetails[providerId as AiProvider]?.name || providerId}</span>
-                                                <button onClick={() => handleRoutingChange(capability, providerId as AiProvider)} className="text-red-400 hover:text-red-300">
-                                                    <XCircleIcon className="w-5 h-5"/>
-                                                </button>
-                                            </div>
-                                        ))}
-                                        {route.length === 0 && (
-                                            <div className="text-center p-3 border-2 border-dashed border-gray-600 rounded-md">
-                                                <p className="text-sm text-gray-500">No providers assigned. Add one from below.</p>
-                                            </div>
-                                        )}
-                                    </div>
-                                    <div className="mt-3">
-                                        <h4 className="text-xs font-semibold text-gray-400 mb-2">Available Providers (Click to Add)</h4>
+
+                                    {renderProviderFields(provider, providerSetting)}
+
+                                    <div className="mt-4 pt-3 border-t border-gray-700/50">
+                                        <h4 className="text-xs font-semibold text-gray-400 mb-2">Supported & Configured Capabilities</h4>
                                         <div className="flex flex-wrap gap-2">
-                                            {(Object.keys(providerCapabilities) as AiProvider[]).map(providerId => {
-                                                const isCapable = providerCapabilities[providerId][capability];
-                                                const isRouted = route.includes(providerId);
-                                                const isConfigured = isCapabilityConfigured(providerId, capability);
-                                                if (!isCapable || isRouted) return null;
-                                                return (
-                                                    <button 
-                                                        key={providerId}
-                                                        onClick={() => handleRoutingChange(capability, providerId)}
-                                                        disabled={!isConfigured}
-                                                        title={!isConfigured ? `${capabilityDetails[providerId]?.name} is not fully configured for this capability.` : `Add ${capabilityDetails[providerId]?.name} to fallback chain.`}
-                                                        className="flex items-center gap-1.5 text-xs py-1 px-2.5 rounded-md transition-colors bg-gray-600 hover:bg-gray-500 text-gray-200 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed"
-                                                    >
-                                                        {isConfigured ? <CheckCircleIcon className="w-3.5 h-3.5 text-green-500"/> : <XCircleIcon className="w-3.5 h-3.5 text-red-500"/>}
-                                                        {capabilityDetails[providerId]?.name || providerId}
-                                                    </button>
-                                                );
-                                            })}
+                                            {(Object.keys(providerCapabilities[provider]) as Capability[]).filter(c => providerCapabilities[provider][c]).map(capability => (
+                                                <CapabilityTag key={capability} capability={capability} configured={isCapabilityConfigured(provider, capability)} />
+                                            ))}
                                         </div>
                                     </div>
                                 </div>
                             );
                         })}
+                    </div>
+                );
+            case 'routing':
+                return (
+                    <div className="space-y-4 animate-fade-in">
+                        <h2 className="text-2xl font-bold text-white mb-4">Capabilities Routing</h2>
+                        <p className="text-sm text-gray-400 mb-6">For each capability, add providers to create a fallback chain. The app will try them in order from top to bottom.</p>
+                        <div className="space-y-4">
+                            {Object.entries(capabilityDetails).filter(([key]) => key in settings.routing).map(([cap, details]) => {
+                                const capability = cap as Capability;
+                                const route = settings.routing[capability] || [];
+                                return (
+                                    <div key={capability} className="p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                                        <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                                            <details.icon className="w-5 h-5 text-indigo-400" />
+                                            {details.name}
+                                        </h3>
+                                        <p className="text-xs text-gray-400 mt-1 mb-3">{details.description}</p>
+                                        <div className="space-y-2">
+                                            {route.map((providerId, index) => (
+                                                <div key={providerId} className="flex items-center gap-2 bg-gray-700/50 p-2 rounded-md">
+                                                    <span className="text-xs font-bold text-indigo-300 bg-indigo-900/50 px-2 py-1 rounded-full">{index + 1}</span>
+                                                    <span className="text-sm text-gray-200 flex-grow">{capabilityDetails[providerId as AiProvider]?.name || providerId}</span>
+                                                    <button onClick={() => handleRoutingChange(capability, providerId as AiProvider)} className="text-red-400 hover:text-red-300">
+                                                        <XCircleIcon className="w-5 h-5" />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                            {route.length === 0 && (
+                                                <div className="text-center p-3 border-2 border-dashed border-gray-600 rounded-md">
+                                                    <p className="text-sm text-gray-500">No providers assigned. Add one from below.</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="mt-3">
+                                            <h4 className="text-xs font-semibold text-gray-400 mb-2">Available Providers (Click to Add)</h4>
+                                            <div className="flex flex-wrap gap-2">
+                                                {(Object.keys(providerCapabilities) as AiProvider[]).map(providerId => {
+                                                    const isCapable = providerCapabilities[providerId][capability];
+                                                    const isRouted = route.includes(providerId);
+                                                    const isConfigured = isCapabilityConfigured(providerId, capability);
+                                                    if (!isCapable || isRouted) return null;
+                                                    return (
+                                                        <button
+                                                            key={providerId}
+                                                            onClick={() => handleRoutingChange(capability, providerId)}
+                                                            disabled={!isConfigured}
+                                                            title={!isConfigured ? `${capabilityDetails[providerId]?.name} is not fully configured for this capability.` : `Add ${capabilityDetails[providerId]?.name} to fallback chain.`}
+                                                            className="flex items-center gap-1.5 text-xs py-1 px-2.5 rounded-md transition-colors bg-gray-600 hover:bg-gray-500 text-gray-200 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed"
+                                                        >
+                                                            {isConfigured ? <CheckCircleIcon className="w-3.5 h-3.5 text-green-500" /> : <XCircleIcon className="w-3.5 h-3.5 text-red-500" />}
+                                                            {capabilityDetails[providerId]?.name || providerId}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
                         </div>
                     </div>
-                    {/* Performance Section */}
-                    <div className="space-y-4">
-                         <h2 className="text-xl font-semibold text-white border-b border-gray-700 pb-2">Performance</h2>
-                         <div className="p-4 bg-gray-800/50 rounded-lg border border-gray-700">
-                             <h3 className="text-lg font-bold text-white mb-2">Image Analysis</h3>
-                             <p className="text-sm text-gray-400 mb-4">Downscaling images before sending them to AI can significantly improve analysis speed and reduce costs, but may slightly decrease accuracy.</p>
-                             <div className="flex items-center justify-between mb-3">
-                                 <label htmlFor="downscale-toggle" className="text-sm font-medium text-gray-200">Downscale images for AI analysis</label>
-                                 <input type="checkbox" id="downscale-toggle" checked={settings.performance?.downscaleImages ?? true} onChange={e => handlePerformanceChange('downscaleImages', e.target.checked)} className="h-5 w-5 rounded-md border-gray-500 bg-gray-700 text-indigo-600 focus:ring-indigo-500 cursor-pointer"/>
-                             </div>
-                             <div className="flex items-center justify-between">
-                                 <label htmlFor="dimension-input" className="text-sm font-medium text-gray-200">Max dimension (pixels)</label>
-                                 <input type="number" id="dimension-input" value={settings.performance?.maxAnalysisDimension ?? 1024} onChange={e => handlePerformanceChange('maxAnalysisDimension', parseInt(e.target.value, 10))} className="w-24 bg-gray-700 border border-gray-600 rounded-md p-1 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50" disabled={!settings.performance?.downscaleImages}/>
-                             </div>
-                         </div>
+                );
+            case 'performance':
+                return (
+                    <div className="space-y-4 animate-fade-in">
+                        <h2 className="text-2xl font-bold text-white mb-4">Performance Settings</h2>
+                        <div className="p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                            <h3 className="text-lg font-bold text-white mb-2">Image Analysis</h3>
+                            <p className="text-sm text-gray-400 mb-4">Downscaling images before sending them to AI can significantly improve analysis speed and reduce costs, but may slightly decrease accuracy.</p>
+                            <div className="flex items-center justify-between mb-3">
+                                <label htmlFor="downscale-toggle" className="text-sm font-medium text-gray-200">Downscale images for AI analysis</label>
+                                <input type="checkbox" id="downscale-toggle" checked={settings.performance?.downscaleImages ?? true} onChange={e => handlePerformanceChange('downscaleImages', e.target.checked)} className="h-5 w-5 rounded-md border-gray-500 bg-gray-700 text-indigo-600 focus:ring-indigo-500 cursor-pointer" />
+                            </div>
+                            <div className="flex items-center justify-between">
+                                <label htmlFor="dimension-input" className="text-sm font-medium text-gray-200">Max dimension (pixels)</label>
+                                <input type="number" id="dimension-input" value={settings.performance?.maxAnalysisDimension ?? 1024} onChange={e => handlePerformanceChange('maxAnalysisDimension', parseInt(e.target.value, 10))} className="w-24 bg-gray-700 border border-gray-600 rounded-md p-1 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50" disabled={!settings.performance?.downscaleImages} />
+                            </div>
+                        </div>
+                    </div>
+                );
+            case 'prompts':
+                return <PromptEngineeringPage settings={settings} onUpdateSettings={setSettings} />;
+            default:
+                return null;
+        }
+    };
+
+    return (
+        <div className="flex h-[80vh] max-w-7xl mx-auto bg-gray-900/50 border border-gray-700 rounded-xl overflow-hidden shadow-2xl animate-fade-in relative">
+            {/* Mobile Menu Button */}
+            <button
+                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                className="md:hidden absolute top-4 left-4 z-50 p-2 bg-gray-800 rounded-md text-gray-400 hover:text-white border border-gray-700 shadow-lg"
+            >
+                {isSidebarOpen ? <CloseIcon className="w-6 h-6" /> : <MenuIcon className="w-6 h-6" />}
+            </button>
+
+            {/* Sidebar Overlay */}
+            {isSidebarOpen && (
+                <div
+                    className="fixed inset-0 bg-black/50 z-30 md:hidden"
+                    onClick={() => setIsSidebarOpen(false)}
+                />
+            )}
+
+            {/* Sidebar */}
+            <div className={`
+                absolute md:relative inset-y-0 left-0 z-40 w-64 bg-gray-800/95 md:bg-gray-800/50 border-r border-gray-700 flex flex-col transition-transform duration-300 ease-in-out
+                ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+            `}>
+                <div className="p-6 border-b border-gray-700 pt-16 md:pt-6">
+                    <div className="flex items-center gap-3 text-indigo-400 mb-1">
+                        <SettingsIcon className="w-6 h-6" />
+                        <span className="font-bold text-lg tracking-wide">Admin</span>
+                    </div>
+                    <p className="text-xs text-gray-500">System Configuration</p>
+                </div>
+
+                <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+                    <button
+                        onClick={() => { setActiveTab('providers'); setIsSidebarOpen(false); }}
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'providers' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50' : 'text-gray-400 hover:bg-gray-700/50 hover:text-white'}`}
+                    >
+                        <LayoutDashboard className="w-5 h-5" />
+                        Providers
+                    </button>
+                    <button
+                        onClick={() => { setActiveTab('routing'); setIsSidebarOpen(false); }}
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'routing' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50' : 'text-gray-400 hover:bg-gray-700/50 hover:text-white'}`}
+                    >
+                        <Network className="w-5 h-5" />
+                        Routing
+                    </button>
+                    <button
+                        onClick={() => { setActiveTab('performance'); setIsSidebarOpen(false); }}
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'performance' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50' : 'text-gray-400 hover:bg-gray-700/50 hover:text-white'}`}
+                    >
+                        <ZapIcon className="w-5 h-5" />
+                        Performance
+                    </button>
+                    <button
+                        onClick={() => { setActiveTab('prompts'); setIsSidebarOpen(false); }}
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'prompts' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50' : 'text-gray-400 hover:bg-gray-700/50 hover:text-white'}`}
+                    >
+                        <MessageSquare className="w-5 h-5" />
+                        Prompt Engineering
+                    </button>
+                </nav>
+
+                <div className="p-4 border-t border-gray-700">
+                    <div className="flex gap-2">
+                        <button onClick={onCancel} className="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm font-medium transition-colors">
+                            Cancel
+                        </button>
+                        <button onClick={() => onSave(settings)} className="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium transition-colors shadow-lg shadow-indigo-900/50">
+                            Save
+                        </button>
                     </div>
                 </div>
             </div>
-             <style>{`
-                  @keyframes fade-in {
-                    from { opacity: 0; transform: translateY(-10px); }
-                    to { opacity: 1; transform: translateY(0); }
-                  }
-                  .animate-fade-in {
-                    animation: fade-in 0.3s ease-out forwards;
-                  }
-              `}</style>
+
+            {/* Content Area */}
+            <div className="flex-1 overflow-y-auto bg-gray-900/30 p-4 md:p-8 pt-16 md:pt-8">
+                {renderContent()}
+            </div>
         </div>
     );
 };

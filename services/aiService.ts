@@ -1,5 +1,4 @@
-
-import { ImageInfo, AdminSettings, AiProvider, AspectRatio, Capability } from "../types";
+import { ImageInfo, AdminSettings, AiProvider, AspectRatio, Capability, ImageAnalysisResult } from "../types";
 import { providerCapabilities } from "./providerCapabilities";
 import * as gemini from './providers/gemini';
 import * as openai from './providers/openai';
@@ -8,12 +7,13 @@ import * as moondream from './providers/moondream';
 import * as comfyui from './providers/comfyui';
 
 export class FallbackChainError extends Error {
-  public attempts: { provider: AiProvider; error: string }[];
-  constructor(message: string, attempts: { provider: AiProvider; error: string }[]) {
-    super(message);
-    this.name = 'FallbackChainError';
-    this.attempts = attempts;
-  }
+    // ... (keep existing content until analyzeImage)
+    public attempts: { provider: AiProvider; error: string }[];
+    constructor(message: string, attempts: { provider: AiProvider; error: string }[]) {
+        super(message);
+        this.name = 'FallbackChainError';
+        this.attempts = attempts;
+    }
 }
 
 const ALL_PROVIDERS: AiProvider[] = ['gemini', 'openai', 'grok', 'moondream_cloud', 'moondream_local', 'comfyui'];
@@ -43,7 +43,7 @@ export const isProviderConfiguredFor = (
     if (!providerCapabilities[provider][capability]) return false;
 
     const providerSettings = settings.providers[provider];
-    
+
     // Cast to any to avoid TS union discrimination issues in simple checks
     const anySettings = providerSettings as any;
 
@@ -71,8 +71,8 @@ export const isProviderConfiguredFor = (
         }
         case 'openai': {
             if (anySettings.apiKey) {
-                 if (capability === 'generation' && !anySettings.generationModel) return false;
-                 if (capability === 'textGeneration' && !anySettings.textGenerationModel) return false;
+                if (capability === 'generation' && !anySettings.generationModel) return false;
+                if (capability === 'textGeneration' && !anySettings.textGenerationModel) return false;
                 return true;
             }
             return false;
@@ -133,6 +133,7 @@ async function executeWithFallback<T>(
     funcName: FunctionName,
     coreArgs: any[],
     onProgress?: (update: { provider: AiProvider, status: 'attempting' | 'failed_attempt', message?: string }) => void,
+    onStatus?: (message: string) => void
 ): Promise<T> {
     const requiredCapability = getCapabilityForFunction(funcName);
     const providerOrder = settings.routing[requiredCapability] || [];
@@ -145,32 +146,32 @@ async function executeWithFallback<T>(
 
     for (const provider of providerOrder) {
         if (!isProviderConfiguredFor(settings, requiredCapability, provider)) {
-             console.log(`Skipping ${provider} for ${funcName}: It is not configured correctly, although it is in the routing list.`);
-             continue;
+            console.log(`Skipping ${provider} for ${funcName}: It is not configured correctly, although it is in the routing list.`);
+            continue;
         }
 
         const providerImpl = providerMap[provider as keyof typeof providerMap];
         const providerFunc = providerImpl?.[funcName] as Function | undefined;
         if (!providerFunc) continue;
-        
+
         let finalCoreArgs = [...coreArgs];
         if (provider === 'grok' && funcName === 'generateImageFromPrompt' && finalCoreArgs[0] && typeof finalCoreArgs[0] === 'string' && settings.providers.gemini.apiKey) {
-             let prompt = finalCoreArgs[0];
-             if (prompt.length > 900) {
-                 try {
-                     console.log("Grok prompt is too long, shortening with Gemini...");
-                     finalCoreArgs[0] = await gemini.shortenPrompt(prompt, settings);
-                 } catch (shortenError) {
-                     console.error("Failed to shorten prompt; using truncated version.", shortenError);
-                     finalCoreArgs[0] = prompt.substring(0, 900);
-                 }
-             }
+            let prompt = finalCoreArgs[0];
+            if (prompt.length > 900) {
+                try {
+                    console.log("Grok prompt is too long, shortening with Gemini...");
+                    finalCoreArgs[0] = await gemini.shortenPrompt(prompt, settings);
+                } catch (shortenError) {
+                    console.error("Failed to shorten prompt; using truncated version.", shortenError);
+                    finalCoreArgs[0] = prompt.substring(0, 900);
+                }
+            }
         }
 
         try {
             console.log(`Attempting ${funcName} with ${provider}...`);
             onProgress?.({ provider, status: 'attempting' });
-            return await providerFunc(...finalCoreArgs, settings);
+            return await providerFunc(...finalCoreArgs, settings, onStatus);
         } catch (e: any) {
             lastError = e;
             failedAttempts.push({ provider, error: e.message });
@@ -180,7 +181,7 @@ async function executeWithFallback<T>(
     }
 
     if (lastError) {
-        const errorMessage = `All routed AI providers failed for '${requiredCapability}'. Last error from ${failedAttempts[failedAttempts.length-1].provider}.`;
+        const errorMessage = `All routed AI providers failed for '${requiredCapability}'. Last error from ${failedAttempts[failedAttempts.length - 1].provider}.`;
         throw new FallbackChainError(errorMessage, failedAttempts);
     }
 
@@ -191,8 +192,9 @@ export const analyzeImage = async (
     image: ImageInfo,
     settings: AdminSettings,
     onProgress?: (update: { provider: AiProvider, status: 'attempting' | 'failed_attempt', message?: string }) => void,
-): Promise<{ keywords: string[], recreationPrompt: string }> => {
-    return executeWithFallback(settings, 'analyzeImage', [image], onProgress);
+    onStatus?: (message: string) => void
+): Promise<ImageAnalysisResult> => {
+    return executeWithFallback(settings, 'analyzeImage', [image], onProgress, onStatus);
 };
 
 export const generateImageFromPrompt = async (
@@ -208,7 +210,7 @@ export const animateImage = async (
     prompt: string,
     aspectRatio: AspectRatio,
     settings: AdminSettings
-): Promise<{uri: string, apiKey: string}> => {
+): Promise<{ uri: string, apiKey: string }> => {
     return executeWithFallback(settings, 'animateImage', [image, prompt, aspectRatio]);
 };
 

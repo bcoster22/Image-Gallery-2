@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { TrashIcon, XCircleIcon, WandIcon, CheckCircleIcon, UserIcon } from './icons';
+import { TrashIcon, XCircleIcon, WandIcon, CheckCircleIcon, UserIcon, RefreshIcon, SelectAllIcon } from './icons';
 
 interface SelectionActionBarProps {
   count: number;
@@ -9,9 +9,11 @@ interface SelectionActionBarProps {
   onRemix: () => void;
   onMakePublic: () => void;
   onMakePrivate: () => void;
+  onRegenerate: () => void;
+  onSelectAll: () => void;
 }
 
-const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ count, onDelete, onClear, onRemix, onMakePublic, onMakePrivate }) => {
+const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ count, onDelete, onClear, onRemix, onMakePublic, onMakePrivate, onRegenerate, onSelectAll }) => {
   return (
     <div className={`fixed bottom-0 left-0 right-0 z-40 p-4 flex justify-center transition-transform duration-300 ease-in-out ${count > 0 ? 'translate-y-0' : 'translate-y-full'}`}>
       <div className="bg-gray-800/90 backdrop-blur-md border border-gray-700 rounded-lg shadow-2xl flex flex-wrap items-center justify-between p-3 gap-3 w-full max-w-2xl">
@@ -23,49 +25,68 @@ const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ count, onDelete
             <span className="text-indigo-400">{count}</span> selected
           </p>
         </div>
-        
+
         <div className="flex items-center gap-2 flex-grow justify-center sm:justify-start">
-            <button
-                onClick={onRemix}
-                disabled={count === 0}
-                className="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-1.5 px-3 rounded-lg transition-colors flex items-center gap-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Adapt selected images to a new theme"
-            >
-                <WandIcon className="w-4 h-4" />
-                Remix
-            </button>
+          <button
+            onClick={onSelectAll}
+            className="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-1.5 px-3 rounded-lg transition-colors flex items-center gap-1.5 text-sm"
+            title="Select all images"
+          >
+            <SelectAllIcon className="w-4 h-4" />
+            All
+          </button>
 
-            <div className="h-6 w-px bg-gray-600 mx-1"></div>
+          <button
+            onClick={onRemix}
+            disabled={count === 0}
+            className="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-1.5 px-3 rounded-lg transition-colors flex items-center gap-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Adapt selected images to a new theme"
+          >
+            <WandIcon className="w-4 h-4" />
+            Remix
+          </button>
 
-            <button
-                onClick={onMakePublic}
-                disabled={count === 0}
-                className="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-1.5 px-3 rounded-lg transition-colors flex items-center gap-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Make selected public"
-            >
-                <CheckCircleIcon className="w-4 h-4 text-green-400" />
-                Public
-            </button>
-             <button
-                onClick={onMakePrivate}
-                disabled={count === 0}
-                className="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-1.5 px-3 rounded-lg transition-colors flex items-center gap-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Make selected private"
-            >
-                <UserIcon className="w-4 h-4 text-gray-300" />
-                Private
-            </button>
+          <button
+            onClick={onRegenerate}
+            disabled={count === 0}
+            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-1.5 px-3 rounded-lg transition-colors flex items-center gap-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Regenerate captions for selected images"
+          >
+            <RefreshIcon className="w-4 h-4" />
+            Regenerate
+          </button>
+
+          <div className="h-6 w-px bg-gray-600 mx-1"></div>
+
+          <button
+            onClick={onMakePublic}
+            disabled={count === 0}
+            className="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-1.5 px-3 rounded-lg transition-colors flex items-center gap-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Make selected public"
+          >
+            <CheckCircleIcon className="w-4 h-4 text-green-400" />
+            Public
+          </button>
+          <button
+            onClick={onMakePrivate}
+            disabled={count === 0}
+            className="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-1.5 px-3 rounded-lg transition-colors flex items-center gap-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Make selected private"
+          >
+            <UserIcon className="w-4 h-4 text-gray-300" />
+            Private
+          </button>
         </div>
 
         <div className="border-l border-gray-600 pl-3 ml-1">
-            <button
+          <button
             onClick={onDelete}
             disabled={count === 0}
             className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
+          >
             <TrashIcon className="w-5 h-5" />
             Delete
-            </button>
+          </button>
         </div>
       </div>
     </div>
@@ -73,3 +94,4 @@ const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ count, onDelete
 };
 
 export default SelectionActionBar;
+
