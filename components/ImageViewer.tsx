@@ -592,7 +592,7 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
             <CloseIcon className="w-8 h-8" />
           </button>
 
-          <div className="relative flex items-center justify-center w-full h-full max-h-[85vh] max-w-[85vw]">
+          <div className="relative flex items-center justify-center w-full h-full max-h-[95vh] max-w-[95vw]">
             {isVideo && !isOfflineVideo ? (
               <video
                 key={`${currentImage.id}-video`}
@@ -610,7 +610,10 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
                   key={currentImage.id}
                   src={currentImage.dataUrl}
                   alt={currentImage.fileName}
-                  className="animate-fade-in block max-h-full max-w-full object-contain rounded-lg shadow-2xl"
+                  className={`animate-fade-in block rounded-lg shadow-2xl object-contain ${(currentImage.height || 0) > (currentImage.width || 0)
+                      ? 'h-full w-auto max-h-full' // Portrait: prioritize height
+                      : 'w-full h-auto max-w-full' // Landscape: prioritize width
+                    }`}
                   draggable="false"
                 />
               )
