@@ -125,7 +125,39 @@ const callMoondreamApi = async (
       // If we still can't find a string, but we got a JSON object, maybe the whole object is the result 
       // (though unlikely for a caption API, but possible for custom endpoints)
       console.warn("Could not find standard answer key. Returning stringified data as fallback.");
-      return { text: JSON.stringify(data) };
+      answer = JSON.stringify(data);
+    }
+
+    // Check if the answer itself is a JSON error object
+    try {
+      const parsed = JSON.parse(answer);
+      if (parsed && typeof parsed === 'object' && parsed.error) {
+        console.error('Detected JSON error in response:', parsed.error);
+        throw new Error(`Model returned an error: ${parsed.error}`);
+      }
+    } catch (e) {
+      // If it's not valid JSON, that's fine - continue with validation
+      if (e instanceof SyntaxError) {
+        // Not JSON, continue
+      } else {
+        // It was JSON with an error field, rethrow
+        throw e;
+      }
+    }
+
+    // Validate that the answer is not an error message
+    const lowerAnswer = answer.toLowerCase();
+    const errorPatterns = [
+      'error', 'exception', 'failed', 'cuda', 'memory', 'allocation',
+      'traceback', 'pytorch', 'out of memory', 'oom', 'timeout',
+      'queue is full', 'rejected', 'invalid', 'not found', 'meta tensor',
+      'cannot copy'
+    ];
+
+    const containsError = errorPatterns.some(pattern => lowerAnswer.includes(pattern));
+    if (containsError) {
+      console.error('Detected error message in response:', answer);
+      throw new Error(`Model returned an error: ${answer.substring(0, 200)}`);
     }
 
     console.log('DEBUG: Final Parsed Caption:', answer);
@@ -206,18 +238,11 @@ export const testConnectionLocal = async (settings: AdminSettings): Promise<void
   if (!endpoint) throw new Error("Endpoint is missing.");
 
   try {
-    // Try to fetch the caption endpoint to see if server is up.
-    // We expect a 400 Bad Request because we are sending an empty body,
-    // but that confirms the server is reachable and the endpoint exists.
+    // Try to fetch the health endpoint to see if server is up.
     const baseUrl = normalizeEndpoint(endpoint);
-    const response = await fetch(`${baseUrl}/v1/caption`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({})
-    });
+    const response = await fetch(`${baseUrl}/health`);
 
-    // If the fetch succeeds (200) or returns 400 (Bad Request due to empty body), the server is reachable.
-    if (response.ok || response.status === 400) {
+    if (response.ok) {
       return;
     }
 
@@ -298,8 +323,59 @@ export const analyzeImageLocal = async (
   settings: AdminSettings,
   onStatus?: (message: string) => void
 ): Promise<ImageAnalysisResult> => {
-  const { endpoint } = settings.providers.moondream_local;
-  const apiUrl = `${endpoint || 'http://localhost:2021/v1'}/chat/completions`;
+  const { endpoint, model } = settings.providers.moondream_local;
+  const baseUrl = normalizeEndpoint(endpoint || 'http://localhost:2021/v1');
+
+  // Handle NSFW Detector Model
+  if (model === 'nsfw-detector') {
+    if (onStatus) onStatus("Checking for NSFW content...");
+    const classifyUrl = `${baseUrl}/v1/classify`;
+    const body = {
+      image_url: image.dataUrl,
+      model: 'nsfw-detector'
+    };
+
+    // We reuse callMoondreamApi but we need to handle the different response structure
+    // callMoondreamApi expects a standard structure or returns stringified JSON
+    // Let's call it and parse the result
+    const { text: responseText, stats } = await callMoondreamApi(classifyUrl, "", body, false);
+
+    try {
+      const result = JSON.parse(responseText);
+      // result structure: { label: "SFW", score: 0.9, predictions: [...], _stats: ... }
+
+      const label = result.label || "Unknown";
+      const score = result.score !== undefined ? (result.score * 100).toFixed(1) + '%' : "N/A";
+      const predictions = result.predictions || [];
+
+      // Create a description from the classification
+      const description = `NSFW Classification: ${label} (${score} confidence).`;
+
+      // Extract keywords from predictions
+      const keywords = predictions.map((p: any) => `${p.label} (${(p.score * 100).toFixed(0)}%)`);
+
+      return {
+        recreationPrompt: description,
+        keywords: keywords,
+        stats: result._stats ? {
+          tokensPerSec: result._stats.tokens_per_sec,
+          device: 'GPU', // Assumed
+          totalTokens: result._stats.tokens,
+          duration: result._stats.duration
+        } : stats
+      };
+    } catch (e) {
+      console.error("Failed to parse NSFW result", e);
+      return {
+        recreationPrompt: "Failed to parse NSFW classification result.",
+        keywords: [],
+        stats
+      };
+    }
+  }
+
+  // Standard VLM Models (Moondream 2, 3, etc.)
+  const apiUrl = `${baseUrl}/v1/chat/completions`;
 
   // Check for assigned strategy
   const assignedStrategyId = settings.prompts.assignments?.['moondream_local'];
@@ -315,7 +391,7 @@ export const analyzeImageLocal = async (
       image,
       async (prompt) => {
         const body = {
-          model: "moondream-2b-int8.mf.gz",
+          model: model || "moondream-2", // Use selected model or default
           messages: [
             {
               role: "user", content: [
@@ -337,7 +413,7 @@ export const analyzeImageLocal = async (
   // Absolute fallback if no strategies exist at all
   const prompt = "Describe this image.";
   const body = {
-    model: "moondream-2b-int8.mf.gz",
+    model: model || "moondream-2",
     messages: [
       {
         role: "user", content: [

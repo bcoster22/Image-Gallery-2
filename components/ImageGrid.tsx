@@ -12,6 +12,7 @@ interface ImageGridProps {
   disabled?: boolean;
   isSelectionMode: boolean;
   selectedIds: Set<string>;
+  blurNsfw?: boolean;
 }
 
 interface GridItemProps {
@@ -21,11 +22,15 @@ interface GridItemProps {
   isGeneratingSource: boolean;
   isSelectionMode: boolean;
   isSelected: boolean;
+  blurNsfw?: boolean;
 }
 
-const GridItem: React.FC<GridItemProps> = ({ image, onImageClick, isAnalyzing, isGeneratingSource, isSelectionMode, isSelected }) => {
+const GridItem: React.FC<GridItemProps> = ({ image, onImageClick, isAnalyzing, isGeneratingSource, isSelectionMode, isSelected, blurNsfw }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const isOfflineVideo = image.isVideo && !image.videoUrl;
+
+  // Check if image should be blurred based on NSFW classification
+  const shouldBlur = blurNsfw && image.nsfwClassification?.label === 'NSFW';
 
   const handleMouseEnter = () => {
     if (videoRef.current && !isSelectionMode) {
@@ -64,7 +69,7 @@ const GridItem: React.FC<GridItemProps> = ({ image, onImageClick, isAnalyzing, i
         <img
           src={image.dataUrl}
           alt={image.fileName}
-          className={`w-full h-auto block transition-transform duration-300 ease-in-out ${!isSelectionMode ? 'group-hover:scale-105' : ''}`}
+          className={`w-full h-auto block transition-transform duration-300 ease-in-out ${!isSelectionMode ? 'group-hover:scale-105' : ''} ${shouldBlur ? 'blur-xl group-hover:blur-none' : ''}`}
           loading="lazy"
         />
       )}
@@ -159,7 +164,7 @@ interface SelectionBox {
   currentY: number;
 }
 
-const ImageGrid: React.FC<ImageGridProps & { onSelectionChange?: (ids: Set<string>) => void }> = ({ images, onImageClick, analyzingIds, generatingIds, disabled, isSelectionMode, selectedIds, onSelectionChange }) => {
+const ImageGrid: React.FC<ImageGridProps & { onSelectionChange?: (ids: Set<string>) => void }> = ({ images, onImageClick, analyzingIds, generatingIds, disabled, isSelectionMode, selectedIds, onSelectionChange, blurNsfw }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [selectionBox, setSelectionBox] = React.useState<SelectionBox | null>(null);
   const isDragging = useRef(false);
@@ -278,6 +283,7 @@ const ImageGrid: React.FC<ImageGridProps & { onSelectionChange?: (ids: Set<strin
             isGeneratingSource={generatingIds.has(image.id)}
             isSelectionMode={isSelectionMode}
             isSelected={selectedIds.has(image.id)}
+            blurNsfw={blurNsfw}
           />
         </div>
       ))}

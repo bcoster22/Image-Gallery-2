@@ -1,14 +1,16 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { User } from '../types';
-import { UserIcon, LogoutIcon } from './icons';
+import { UserIcon, LogoutIcon, ShieldCheckIcon } from './icons';
 
 interface UserMenuProps {
   user: User;
   onLogout: () => void;
   onSetView: (view: 'my-gallery') => void;
+  nsfwBlurEnabled: boolean;
+  onToggleNsfwBlur: () => void;
 }
 
-const UserMenu: React.FC<UserMenuProps> = ({ user, onLogout, onSetView }) => {
+const UserMenu: React.FC<UserMenuProps> = ({ user, onLogout, onSetView, nsfwBlurEnabled, onToggleNsfwBlur }) => {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -21,7 +23,7 @@ const UserMenu: React.FC<UserMenuProps> = ({ user, onLogout, onSetView }) => {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-  
+
   const handleMyGalleryClick = () => {
     onSetView('my-gallery');
     setIsOpen(false);
@@ -47,6 +49,20 @@ const UserMenu: React.FC<UserMenuProps> = ({ user, onLogout, onSetView }) => {
               My Gallery
             </button>
             <button
+              onClick={() => {
+                onToggleNsfwBlur();
+              }}
+              className="w-full text-left flex items-center justify-between px-3 py-2 text-sm text-gray-200 rounded-md hover:bg-gray-700"
+            >
+              <div className="flex items-center">
+                <ShieldCheckIcon className="w-5 h-5 mr-3" />
+                Blur NSFW
+              </div>
+              <div className={`w-10 h-5 rounded-full transition-colors ${nsfwBlurEnabled ? 'bg-indigo-600' : 'bg-gray-600'} relative`}>
+                <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${nsfwBlurEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+              </div>
+            </button>
+            <button
               onClick={onLogout}
               className="w-full text-left flex items-center px-3 py-2 text-sm text-gray-200 rounded-md hover:bg-gray-700"
             >
@@ -56,7 +72,7 @@ const UserMenu: React.FC<UserMenuProps> = ({ user, onLogout, onSetView }) => {
           </div>
         </div>
       )}
-       <style>{`
+      <style>{`
           @keyframes fade-in-fast {
             from { opacity: 0; transform: translateY(-5px); }
             to { opacity: 1; transform: translateY(0); }

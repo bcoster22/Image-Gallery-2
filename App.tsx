@@ -581,6 +581,23 @@ const App: React.FC = () => {
     setGalleryView('public'); // Switch to public view after logout
   };
 
+  const handleToggleNsfwBlur = () => {
+    if (!settings) return;
+    const newSettings = {
+      ...settings,
+      contentSafety: {
+        ...settings.contentSafety,
+        blurNsfw: !settings.contentSafety?.blurNsfw
+      }
+    };
+    setSettings(newSettings);
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
+    addNotification({
+      status: 'success',
+      message: `NSFW blur ${newSettings.contentSafety.blurNsfw ? 'enabled' : 'disabled'}`
+    });
+  };
+
   const handleClearFailedTasks = useCallback(() => {
     setGenerationTasks(prev => prev.filter(t => t.status !== 'failed'));
   }, []);
@@ -1503,7 +1520,13 @@ const App: React.FC = () => {
             <Activity className="w-6 h-6" />
           </button>
           {currentUser ? (
-            <UserMenu user={currentUser} onLogout={handleLogout} onSetView={setGalleryView} />
+            <UserMenu
+              user={currentUser}
+              onLogout={handleLogout}
+              onSetView={setGalleryView}
+              nsfwBlurEnabled={settings?.contentSafety?.blurNsfw ?? false}
+              onToggleNsfwBlur={handleToggleNsfwBlur}
+            />
           ) : (
             <button
               onClick={() => setIsLoginModalOpen(true)}
@@ -1639,6 +1662,7 @@ const App: React.FC = () => {
                 isSelectionMode={isSelectionMode}
                 selectedIds={selectedIds}
                 onSelectionChange={handleSelectionChange}
+                blurNsfw={settings?.contentSafety?.blurNsfw}
               />
             ) : (
               <div className="text-center py-16 text-gray-500">

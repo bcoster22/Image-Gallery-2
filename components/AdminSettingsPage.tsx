@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { HarmBlockThreshold } from '@google/genai';
 import { AdminSettings, AiProvider, Capability } from '../types';
 import { providerCapabilities, capabilityDetails } from '../services/providerCapabilities';
-import { SettingsIcon, CheckCircleIcon, XCircleIcon, ZapIcon, LayoutDashboard, Network, MessageSquare, MenuIcon, CloseIcon } from './icons';
+import { SettingsIcon, CheckCircleIcon, XCircleIcon, ZapIcon, LayoutDashboard, Network, MessageSquare, MenuIcon, CloseIcon, ShieldCheckIcon } from './icons';
 import { testProviderConnection } from '../services/aiService';
 import PromptEngineeringPage from './PromptEngineeringPage';
 
@@ -14,7 +14,13 @@ interface AdminSettingsPageProps {
 }
 
 type ConnectionStatus = 'idle' | 'checking' | 'success' | 'error';
-type AdminTab = 'providers' | 'routing' | 'performance' | 'prompts';
+type AdminTab = 'providers' | 'routing' | 'performance' | 'content-safety' | 'prompts';
+
+const MOONDREAM_MODELS = [
+    { id: 'moondream-2', name: 'Moondream 2' },
+    { id: 'moondream-3-preview', name: 'Moondream 3 Preview' },
+    { id: 'nsfw-detector', name: 'NSFW Detector' }
+];
 
 const DEFAULTS: AdminSettings = {
     providers: {
@@ -34,10 +40,11 @@ const DEFAULTS: AdminSettings = {
             generationModel: 'grok-2-image-1212',
         },
         moondream_cloud: {
-            apiKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJrZXlfaWQiOiJiZWI0OGYwZS02YmFhLTQ5ZTctYmJjMS04Njg1MDQxZThkY2QiLCJvcmdfaWQiOiJKcjY5UVBuRjFhM0tUNm1EenU0VlpNYjN3bzlFR3dGbyIsImlhdCI6MTc2Mjc3ODY0NCwidmVyIjoxfQ.sqnDOllPIfJHnnbteIlRYO1ArqTg3dAkQ5ZBG1AzMiE',
+            apiKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJrZXlfaWQiOiJiZWI0OGYwZS02YmFhLTQ5ZTctYmJjMS04Njg1MDQxZThkY2QiLCJvcmdfaWQiOiJKcjY5UVBuRjFhMWEzS1Q2bUR6dTRWWk1iM3dvOUVHd0ZvIiwiaWF0IjoxNzYyNzc4NjQ0LCJ2ZXIiOjF9.sqnDOllPIfJHnnbteIlRYO1ArqTg3dAkQ5ZBG1AzMiE',
         },
         moondream_local: {
             endpoint: 'http://localhost:2021/v1',
+            model: 'moondream-2',
         },
         openai: {
             apiKey: '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',
@@ -98,14 +105,30 @@ const DEFAULTS: AdminSettings = {
                         status: "Analyzing artistic style..."
                     },
                     {
-                        id: 'keywords',
-                        name: "Keywords",
-                        prompt: "List 5-10 descriptive keywords for this image, separated by commas. Do not include any other text.",
-                        status: "Extracting keywords..."
+                        id: 'keywords_visual',
+                        name: "Visual Keywords",
+                        prompt: "List 5-10 descriptive keywords for the visual elements in this image (objects, colors, people), separated by commas. Do not include any other text.",
+                        status: "Extracting visual keywords..."
+                    },
+                    {
+                        id: 'keywords_mood',
+                        name: "Mood Keywords",
+                        prompt: "List 5-10 descriptive keywords for the mood, atmosphere, and style of this image, separated by commas. Do not include any other text.",
+                        status: "Extracting mood keywords..."
                     }
                 ]
             }
         ]
+    },
+    contentSafety: {
+        enabled: true,
+        autoClassify: true,
+        threshold: 75,
+        nsfwKeyword: 'NSFW',
+        sfwKeyword: 'SFW',
+        blurNsfw: false,
+        showConfidence: true,
+        useSingleModelSession: false, // Disabled by default for accuracy
     }
 };
 
@@ -157,13 +180,23 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel,
             }
         }
 
+        // Deep merge providers to ensure new fields (like 'model') are preserved from DEFAULTS
+        const mergedProviders = { ...DEFAULTS.providers };
+        if (currentSettings.providers) {
+            (Object.keys(currentSettings.providers) as AiProvider[]).forEach(key => {
+                if (currentSettings.providers[key]) {
+                    mergedProviders[key] = {
+                        ...mergedProviders[key],
+                        ...currentSettings.providers[key]
+                    };
+                }
+            });
+        }
+
         return {
             ...DEFAULTS,
             ...currentSettings,
-            providers: {
-                ...DEFAULTS.providers,
-                ...currentSettings.providers,
-            },
+            providers: mergedProviders,
             routing: {
                 ...DEFAULTS.routing,
                 ...currentSettings.routing
@@ -172,7 +205,11 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel,
                 ...DEFAULTS.performance,
                 ...(currentSettings.performance || {})
             },
-            prompts: prompts
+            prompts: prompts,
+            contentSafety: {
+                ...DEFAULTS.contentSafety,
+                ...(currentSettings.contentSafety || {})
+            }
         };
     });
 
@@ -230,27 +267,19 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel,
 
         // Reset connection status on change
         setConnectionStatuses(prev => ({ ...prev, [provider]: 'idle' }));
-
-        // Debounce save
-        if (debounceTimer.current) clearTimeout(debounceTimer.current);
-        debounceTimer.current = window.setTimeout(() => {
-            onSave(newSettings);
-        }, 1000);
     };
 
     const handlePerformanceChange = <K extends keyof AdminSettings['performance']>(
         field: K,
         value: AdminSettings['performance'][K]
     ) => {
-        const newSettings = {
+        setSettings({
             ...settings,
             performance: {
                 ...settings.performance,
                 [field]: value
             }
-        };
-        setSettings(newSettings);
-        onSave(newSettings);
+        });
     };
 
     const handleRoutingChange = (capability: Capability, provider: AiProvider) => {
@@ -263,15 +292,13 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel,
             newRoute = [...currentRoute, provider];
         }
 
-        const newSettings = {
+        setSettings({
             ...settings,
             routing: {
                 ...settings.routing,
                 [capability]: newRoute
             }
-        };
-        setSettings(newSettings);
-        onSave(newSettings);
+        });
     };
 
     const isProviderConfigured = (provider: AiProvider): boolean => {
@@ -404,16 +431,30 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel,
         // 2. Moondream Local (Endpoint only)
         if (provider === 'moondream_local') {
             return (
-                <div className="mb-2">
-                    <label className="block text-xs font-medium text-gray-400">Local Endpoint URL</label>
-                    <input
-                        type="text"
-                        value={providerSetting.endpoint || ''}
-                        placeholder="e.g., http://localhost:2021/v1"
-                        onChange={(e) => handleProviderChange(provider as any, 'endpoint', e.target.value)}
-                        className="w-full mt-1 bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                    />
-                </div>
+                <>
+                    <div className="mb-2">
+                        <label className="block text-xs font-medium text-gray-400">Local Endpoint URL</label>
+                        <input
+                            type="text"
+                            value={providerSetting.endpoint || ''}
+                            placeholder="e.g., http://localhost:2021/v1"
+                            onChange={(e) => handleProviderChange(provider as any, 'endpoint', e.target.value)}
+                            className="w-full mt-1 bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        />
+                    </div>
+                    <div className="mb-2">
+                        <label className="block text-xs font-medium text-gray-400">Model</label>
+                        <select
+                            value={providerSetting.model || 'moondream-2'}
+                            onChange={(e) => handleProviderChange(provider as any, 'model', e.target.value)}
+                            className="w-full mt-1 bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        >
+                            {MOONDREAM_MODELS.map(model => (
+                                <option key={model.id} value={model.id}>{model.name}</option>
+                            ))}
+                        </select>
+                    </div>
+                </>
             );
         }
 
@@ -571,6 +612,174 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel,
                         </div>
                     </div>
                 );
+            case 'content-safety':
+                return (
+                    <div className="space-y-4 animate-fade-in">
+                        <h2 className="text-2xl font-bold text-white mb-4">Content Safety</h2>
+                        <p className="text-sm text-gray-400 mb-6">Configure automatic NSFW detection and content classification for all images.</p>
+
+                        <div className="p-4 bg-gray-800/50 rounded-lg border border-gray-700 space-y-4">
+                            {/* Enable/Disable */}
+                            <div className="flex items-center justify-between pb-3 border-b border-gray-700/50">
+                                <div>
+                                    <label htmlFor="content-safety-enabled" className="text-sm font-medium text-gray-200">Enable NSFW Detection</label>
+                                    <p className="text-xs text-gray-400 mt-1">Turn on content safety classification</p>
+                                </div>
+                                <input
+                                    type="checkbox"
+                                    id="content-safety-enabled"
+                                    checked={settings.contentSafety?.enabled ?? true}
+                                    onChange={e => {
+                                        setSettings({
+                                            ...settings,
+                                            contentSafety: { ...settings.contentSafety, enabled: e.target.checked }
+                                        });
+                                    }}
+                                    className="h-5 w-5 rounded-md border-gray-500 bg-gray-700 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                />
+                            </div>
+
+                            {/* Auto-classify */}
+                            <div className="flex items-center justify-between pb-3 border-b border-gray-700/50">
+                                <div>
+                                    <label htmlFor="auto-classify" className="text-sm font-medium text-gray-200">Auto-classify all images</label>
+                                    <p className="text-xs text-gray-400 mt-1">Automatically run NSFW check after image analysis</p>
+                                </div>
+                                <input
+                                    type="checkbox"
+                                    id="auto-classify"
+                                    checked={settings.contentSafety?.autoClassify ?? true}
+                                    onChange={e => {
+                                        setSettings({
+                                            ...settings,
+                                            contentSafety: { ...settings.contentSafety, autoClassify: e.target.checked }
+                                        });
+                                    }}
+                                    className="h-5 w-5 rounded-md border-gray-500 bg-gray-700 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                    disabled={!settings.contentSafety?.enabled}
+                                />
+                            </div>
+
+                            {/* Threshold Slider */}
+                            <div className="pb-3 border-b border-gray-700/50">
+                                <label htmlFor="threshold-slider" className="text-sm font-medium text-gray-200 block mb-2">
+                                    Classification Threshold: {settings.contentSafety?.threshold ?? 75}%
+                                </label>
+                                <input
+                                    type="range"
+                                    id="threshold-slider"
+                                    min="0"
+                                    max="100"
+                                    value={settings.contentSafety?.threshold ?? 75}
+                                    onChange={e => {
+                                        setSettings({
+                                            ...settings,
+                                            contentSafety: { ...settings.contentSafety, threshold: parseInt(e.target.value) }
+                                        });
+                                    }}
+                                    className="w-full h-2 bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg appearance-none cursor-pointer"
+                                    disabled={!settings.contentSafety?.enabled}
+                                />
+                                <p className="text-xs text-gray-400 mt-2">Only mark as NSFW if confidence is above this threshold</p>
+                            </div>
+
+                            {/* Keywords */}
+                            <div className="pb-3 border-b border-gray-700/50">
+                                <h3 className="text-sm font-semibold text-gray-300 mb-3">Keywords</h3>
+                                <div className="space-y-2">
+                                    <div>
+                                        <label className="block text-xs font-medium text-gray-400">NSFW Keyword</label>
+                                        <input
+                                            type="text"
+                                            value={settings.contentSafety?.nsfwKeyword ?? 'NSFW'}
+                                            onChange={e => {
+                                                setSettings({
+                                                    ...settings,
+                                                    contentSafety: { ...settings.contentSafety, nsfwKeyword: e.target.value }
+                                                });
+                                            }}
+                                            className="w-full mt-1 bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                            disabled={!settings.contentSafety?.enabled}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-medium text-gray-400">SFW Keyword</label>
+                                        <input
+                                            type="text"
+                                            value={settings.contentSafety?.sfwKeyword ?? 'SFW'}
+                                            onChange={e => {
+                                                setSettings({
+                                                    ...settings,
+                                                    contentSafety: { ...settings.contentSafety, sfwKeyword: e.target.value }
+                                                });
+                                            }}
+                                            className="w-full mt-1 bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                            disabled={!settings.contentSafety?.enabled}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Display Options */}
+                            <div>
+                                <h3 className="text-sm font-semibold text-gray-300 mb-3">Display Options</h3>
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <label htmlFor="show-confidence" className="text-sm text-gray-200">Show confidence scores</label>
+                                        <input
+                                            type="checkbox"
+                                            id="show-confidence"
+                                            checked={settings.contentSafety?.showConfidence ?? true}
+                                            onChange={e => {
+                                                setSettings({
+                                                    ...settings,
+                                                    contentSafety: { ...settings.contentSafety, showConfidence: e.target.checked }
+                                                });
+                                            }}
+                                            className="h-4 w-4 rounded border-gray-500 bg-gray-700 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                            disabled={!settings.contentSafety?.enabled}
+                                        />
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <label htmlFor="blur-nsfw" className="text-sm text-gray-200">Blur NSFW images in gallery</label>
+                                        <input
+                                            type="checkbox"
+                                            id="blur-nsfw"
+                                            checked={settings.contentSafety?.blurNsfw ?? false}
+                                            onChange={e => {
+                                                setSettings({
+                                                    ...settings,
+                                                    contentSafety: { ...settings.contentSafety, blurNsfw: e.target.checked }
+                                                });
+                                            }}
+                                            className="h-4 w-4 rounded border-gray-500 bg-gray-700 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                            disabled={!settings.contentSafety?.enabled}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="flex items-center justify-between pb-3">
+                                <div>
+                                    <label htmlFor="single-session" className="text-sm font-medium text-gray-200">Use single model session</label>
+                                    <p className="text-xs text-gray-400 mt-1">Keep one model loaded for faster processing (may reduce accuracy)</p>
+                                </div>
+                                <input
+                                    type="checkbox"
+                                    id="single-session"
+                                    checked={settings.contentSafety?.useSingleModelSession ?? false}
+                                    onChange={e => {
+                                        setSettings({
+                                            ...settings,
+                                            contentSafety: { ...settings.contentSafety, useSingleModelSession: e.target.checked }
+                                        });
+                                    }}
+                                    className="h-4 w-4 rounded border-gray-500 bg-gray-700 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                    disabled={!settings.contentSafety?.enabled}
+                                />
+                            </div>
+                        </div>
+                    </div>
+                );
             case 'prompts':
                 return <PromptEngineeringPage settings={settings} onUpdateSettings={setSettings} />;
             default:
@@ -630,6 +839,13 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel,
                     >
                         <ZapIcon className="w-5 h-5" />
                         Performance
+                    </button>
+                    <button
+                        onClick={() => { setActiveTab('content-safety'); setIsSidebarOpen(false); }}
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'content-safety' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50' : 'text-gray-400 hover:bg-gray-700/50 hover:text-white'}`}
+                    >
+                        <ShieldCheckIcon className="w-5 h-5" />
+                        Content Safety
                     </button>
                     <button
                         onClick={() => { setActiveTab('prompts'); setIsSidebarOpen(false); }}

@@ -188,13 +188,114 @@ async function executeWithFallback<T>(
     throw new Error(`All routed AI providers failed or are not configured for '${requiredCapability}'. Please check your settings.`);
 }
 
+/**
+ * Classify image for NSFW content using the NSFW detector model
+ */
+export const classifyImageSafety = async (
+    image: ImageInfo,
+    settings: AdminSettings
+): Promise<ImageInfo['nsfwClassification']> => {
+    // Check if moondream_local is configured
+    if (!settings.providers.moondream_local.endpoint) {
+        console.warn('Moondream Local not configured, skipping NSFW classification');
+        return undefined;
+    }
+
+    try {
+        // Temporarily switch to NSFW model for classification
+        const nsfwSettings: AdminSettings = {
+            ...settings,
+            providers: {
+                ...settings.providers,
+                moondream_local: {
+                    ...settings.providers.moondream_local,
+                    model: 'nsfw-detector'
+                }
+            }
+        };
+
+        // Call moondream with NSFW model
+        const result = await moondream.analyzeImageLocal(image, nsfwSettings);
+
+        // Parse the classification from the result
+        // The NSFW detector returns: "NSFW Classification: SFW (91.5% confidence)."
+        const match = result.recreationPrompt.match(/NSFW Classification: (\w+) \(([0-9.]+)% confidence\)/);
+
+        if (match) {
+            const label = match[1] as 'NSFW' | 'SFW';
+            const confidence = parseFloat(match[2]);
+
+            // Extract predictions from keywords if available
+            const predictions = result.keywords?.map(kw => {
+                const predMatch = kw.match(/(\w+) \(([0-9]+)%\)/);
+                if (predMatch) {
+                    return {
+                        label: predMatch[1],
+                        score: parseInt(predMatch[2]) / 100
+                    };
+                }
+                return null;
+            }).filter(p => p !== null) as Array<{ label: string; score: number }>;
+
+            return {
+                label,
+                score: label === 'NSFW' ? confidence / 100 : 1 - (confidence / 100),
+                confidence,
+                predictions,
+                lastChecked: Date.now()
+            };
+        }
+
+        return undefined;
+    } catch (error) {
+        console.error('NSFW classification failed:', error);
+        return undefined;
+    }
+};
+
 export const analyzeImage = async (
     image: ImageInfo,
     settings: AdminSettings,
     onProgress?: (update: { provider: AiProvider, status: 'attempting' | 'failed_attempt', message?: string }) => void,
     onStatus?: (message: string) => void
 ): Promise<ImageAnalysisResult> => {
-    return executeWithFallback(settings, 'analyzeImage', [image], onProgress, onStatus);
+    // Run the standard analysis
+    const result = await executeWithFallback(settings, 'analyzeImage', [image], onProgress, onStatus);
+
+    // If content safety is enabled and auto-classify is on, run NSFW classification
+    // Skip if using single model session (for speed)
+    if (settings.contentSafety?.enabled &&
+        settings.contentSafety?.autoClassify &&
+        !settings.contentSafety?.useSingleModelSession) {
+        if (onStatus) onStatus('Running content safety check...');
+
+        const classification = await classifyImageSafety(image, settings);
+
+        if (classification) {
+            // Add NSFW/SFW keyword based on threshold
+            const threshold = settings.contentSafety.threshold || 50;
+            const isNsfw = classification.label === 'NSFW' && classification.confidence >= threshold;
+            const keyword = isNsfw
+                ? (settings.contentSafety.nsfwKeyword || 'NSFW')
+                : (settings.contentSafety.sfwKeyword || 'SFW');
+
+            // Ensure keywords array exists
+            if (!result.keywords) {
+                result.keywords = [];
+            }
+
+            // Add the keyword if not already present
+            if (!result.keywords.includes(keyword)) {
+                result.keywords.unshift(keyword); // Add to beginning
+            }
+
+            // Store classification in the image (will be saved by caller)
+            image.nsfwClassification = classification;
+            result.nsfwClassification = classification;
+        }
+    }
+
+    return result;
 };
 
 export const generateImageFromPrompt = async (

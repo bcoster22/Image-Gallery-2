@@ -75,6 +75,7 @@ export interface AdminSettings {
     };
     moondream_local: {
       endpoint: string | null;
+      model: string | null;
     };
     openai: {
       apiKey: string | null;
@@ -97,6 +98,16 @@ export interface AdminSettings {
   prompts: {
     assignments: Record<string, string>; // providerId -> strategyId
     strategies: PromptStrategy[];
+  };
+  contentSafety: {
+    enabled: boolean;
+    autoClassify: boolean; // Run NSFW check automatically
+    threshold: number; // 0-100, confidence threshold for NSFW
+    nsfwKeyword: string; // Customizable keyword (default: "NSFW")
+    sfwKeyword: string; // Customizable keyword (default: "SFW")
+    blurNsfw: boolean; // Blur NSFW images in gallery
+    showConfidence: boolean; // Show confidence scores in UI
+    useSingleModelSession: boolean; // When true, keeps one model loaded for speed
   };
 }
 
@@ -123,6 +134,14 @@ export interface ImageInfo {
   authorAvatarUrl?: string;
   likes?: number;
   commentsCount?: number;
+  // NSFW Classification
+  nsfwClassification?: {
+    label: 'NSFW' | 'SFW' | 'Unknown';
+    score: number; // 0-1
+    confidence: number; // 0-100 (percentage)
+    predictions?: Array<{ label: string; score: number }>;
+    lastChecked?: number; // timestamp
+  };
 }
 
 export interface GenerationTask {

@@ -39,10 +39,9 @@ export const executeStrategy = async (
             }
 
             // Heuristic: If the step is explicitly about keywords, try to parse them
-            // We check if the name STARTS with "keyword" or is exactly "keywords" to avoid false positives like "Describe keywords in the image"
+            // We check if the name contains "keyword" to allow for multiple keyword steps (e.g. "Visual Keywords", "Mood Keywords")
             const isKeywordStep = step.id === 'keywords' ||
-                step.name.toLowerCase() === 'keywords' ||
-                step.name.toLowerCase().startsWith('keyword extraction');
+                step.name.toLowerCase().includes('keyword');
 
             if (isKeywordStep) {
                 // simple split by comma if it looks like a list, or just add the whole text
