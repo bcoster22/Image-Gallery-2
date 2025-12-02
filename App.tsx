@@ -861,6 +861,13 @@ const App: React.FC = () => {
     queueRef.current.push(imageToRegenerate);
     queuedAnalysisIds.current.add(imageId);
 
+    // Update visual state (spinner)
+    setAnalyzingIds(prev => {
+      const newSet = new Set(prev);
+      newSet.add(imageId);
+      return newSet;
+    });
+
     // Update UI
     syncQueueStatus();
     addNotification({ id: imageId, status: 'info', message: 'Queued for regeneration...' });
