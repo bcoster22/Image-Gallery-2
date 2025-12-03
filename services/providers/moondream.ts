@@ -6,7 +6,7 @@ const callMoondreamApi = async (
   apiKey: string | null,
   body: object,
   isCloud: boolean,
-  timeoutSeconds: number = 30
+  timeoutSeconds: number = 120
 ): Promise<{ text: string, stats?: any }> => {
   if (!fullUrl) {
     throw new Error("Moondream API endpoint URL is missing.");
@@ -40,6 +40,7 @@ const callMoondreamApi = async (
 
     if (!response.ok) {
       const errorBody = await response.text();
+      console.error(`Moondream API Error: ${response.status} - ${errorBody}`);
       throw new Error(`Moondream API error (${response.status}): ${errorBody}`);
     }
 
