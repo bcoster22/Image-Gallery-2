@@ -55,6 +55,6 @@ if __name__ == "__main__":
     print("Starting Moondream Station Test...")
     
     # Try default port 2024
-    if not test_connection(2024):
+    if not test_connection(2021):
         print("\nRetrying with port 2021 (alternative)...")
         test_connection(2021)

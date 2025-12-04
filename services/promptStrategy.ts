@@ -18,6 +18,8 @@ export const executeStrategy = async (
     const fullDescriptionParts: string[] = [];
     const allKeywords: string[] = [];
     let aggregatedStats: any = undefined;
+    let lastError: any = null;
+    let successCount = 0;
 
     // Execute each step in the strategy
     for (const step of strategy.steps) {
@@ -50,10 +52,17 @@ export const executeStrategy = async (
             } else {
                 fullDescriptionParts.push(responseText);
             }
+            successCount++;
         } catch (error) {
             console.error(`Error executing step ${step.name}:`, error);
+            lastError = error;
             // Continue to next step even if one fails
         }
+    }
+
+    // If all steps failed and we have an error, throw it
+    if (successCount === 0 && lastError) {
+        throw lastError;
     }
 
     // Aggregate results
