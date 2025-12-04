@@ -1,9 +1,10 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { AdminSettings, ImageAnalysisStats, QueueStatus } from "../types";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Activity, Cpu, Zap, Server, Clock } from 'lucide-react';
+import { Activity, Cpu, HardDrive, Server, Zap, AlertTriangle, Terminal, Lock, Clock } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { ProviderBenchmark } from '../src/components/ProviderBenchmark';
 
 // ---------- Utilities ----------
 function cn(...inputs: ClassValue[]) {
@@ -41,6 +42,28 @@ interface StatPoint {
   device: 'CPU' | 'GPU';
 }
 
+interface OtelMetrics {
+  cpu: number;
+  memory: number;
+  device: string;
+  environment?: {
+    platform: string;
+    accelerator_available: boolean;
+    torch_version: string;
+    cuda_version: string;
+    hip_version?: string;
+    execution_type: string;
+  };
+  gpus?: {
+    id: number;
+    name: string;
+    load: number;
+    memory_used: number;
+    memory_total: number;
+    temperature: number;
+  }[];
+}
+
 interface StatusPageProps {
   statsHistory: StatPoint[];
   settings: AdminSettings | null;
@@ -49,6 +72,61 @@ interface StatusPageProps {
 
 export default function StatusPage({ statsHistory, settings, queueStatus }: StatusPageProps) {
   const [timeRange, setTimeRange] = useState<'1h' | '6h' | '12h' | '24h' | '1w'>('1h');
+  const [otelMetrics, setOtelMetrics] = useState<OtelMetrics | null>(null);
+  const [resetModalOpen, setResetModalOpen] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [showSetupInstructions, setShowSetupInstructions] = useState(false);
+
+  const handleResetGpu = async () => {
+    setResetting(true);
+    setResetError(null);
+    setShowSetupInstructions(false);
+    try {
+      const response = await fetch('http://localhost:2021/v1/system/gpu-reset', {
+        method: 'POST',
+      });
+
+      if (response.status === 403) {
+        setShowSetupInstructions(true);
+        throw new Error("Permission denied");
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Reset failed');
+      }
+
+      // Success
+      setResetModalOpen(false);
+      alert("GPU Reset Command Sent. Monitor system behavior.");
+    } catch (error: any) {
+      console.error("GPU Reset Error:", error);
+      if (error.message !== "Permission denied") {
+        setResetError(error.message);
+      }
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  useEffect(() => {
+    const fetchMetrics = async () => {
+      try {
+        const res = await fetch('http://localhost:2021/metrics');
+        if (res.ok) {
+          const data = await res.json();
+          setOtelMetrics(data);
+        }
+      } catch (e) {
+        console.error("Failed to fetch Moondream metrics", e);
+      }
+    };
+
+    fetchMetrics();
+    const interval = setInterval(fetchMetrics, 2000); // Poll every 2s
+    return () => clearInterval(interval);
+  }, []);
 
   const filteredStats = useMemo(() => {
     const now = Date.now();
@@ -132,23 +210,63 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
               <div className="bg-black/20 rounded-xl p-4">
                 <div className="flex items-center gap-2 text-neutral-400 mb-1">
                   <Zap className="w-4 h-4" />
-                  <span className="text-xs font-medium">Current Speed</span>
+                  <span className="text-xs font-medium">CPU Usage</span>
                 </div>
                 <div className="text-2xl font-bold text-white">
-                  {latestStat ? latestStat.tokensPerSec.toFixed(1) : '0.0'} <span className="text-sm text-neutral-500">t/s</span>
+                  {otelMetrics ? `${otelMetrics.cpu.toFixed(1)}% ` : (latestStat ? latestStat.tokensPerSec.toFixed(1) + ' t/s' : '0.0%')}
                 </div>
               </div>
               <div className="bg-black/20 rounded-xl p-4">
                 <div className="flex items-center gap-2 text-neutral-400 mb-1">
                   <Cpu className="w-4 h-4" />
-                  <span className="text-xs font-medium">Device</span>
+                  <span className="text-xs font-medium">Memory</span>
                 </div>
                 <div className="text-2xl font-bold text-white">
-                  {latestStat ? latestStat.device : '-'}
+                  {otelMetrics ? `${otelMetrics.memory.toFixed(1)}% ` : (latestStat ? (latestStat.device === 'GPU' ? 'Unknown' : latestStat.device) : '-')}
                 </div>
               </div>
             </div>
           </div>
+
+          {/* Environment Status Card */}
+          {otelMetrics?.environment && (
+            <div className="bg-neutral-900/50 border border-white/10 rounded-2xl p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-blue-500/20 text-blue-400 rounded-lg">
+                    <Server className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-white">Environment</h3>
+                    <p className="text-xs text-neutral-400">Runtime Configuration</p>
+                  </div>
+                </div>
+                <div className={cn("px-2 py-1 rounded text-xs font-medium uppercase",
+                  otelMetrics.environment.accelerator_available ? "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30" : "bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30"
+                )}>
+                  {otelMetrics.environment.accelerator_available ? 'Accelerator Active' : 'CPU Only'}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-black/20 rounded-xl p-4">
+                  <div className="text-neutral-400 text-xs font-medium mb-1">Platform</div>
+                  <div className="text-lg font-bold text-white">{otelMetrics.environment.platform}</div>
+                  <div className="text-xs text-neutral-500">
+                    {otelMetrics.environment.platform === 'CUDA' ? `v${otelMetrics.environment.cuda_version} ` :
+                      otelMetrics.environment.platform === 'ROCm' ? `v${otelMetrics.environment.hip_version} ` : 'Standard'}
+                  </div>
+                </div>
+                <div className="bg-black/20 rounded-xl p-4">
+                  <div className="text-neutral-400 text-xs font-medium mb-1">PyTorch</div>
+                  <div className="text-lg font-bold text-white">{otelMetrics.environment.torch_version}</div>
+                  <div className="text-xs text-neutral-500">
+                    {otelMetrics.environment.execution_type}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Aggregate Stats Card */}
           <div className="bg-neutral-900/50 border border-white/10 rounded-2xl p-6">
@@ -185,6 +303,73 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
               </div>
             </div>
           </div>
+
+          {/* GPU Status Section */}
+          {otelMetrics?.gpus && otelMetrics.gpus.length > 0 && (
+            <div className="space-y-4">
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                <HardDrive className="w-5 h-5 text-green-400" />
+                GPU Status
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {otelMetrics.gpus.map((gpu) => (
+                  <div key={gpu.id} className="bg-neutral-900/50 border border-white/10 rounded-2xl p-6 relative group">
+                    <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        className="h-7 text-xs px-3 rounded-md bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 transition-colors"
+                        onClick={() => setResetModalOpen(true)}
+                      >
+                        Reset GPU
+                      </button>
+                    </div>
+
+                    <div className="flex items-start gap-4 mb-6">
+                      <div className="p-3 bg-green-500/10 rounded-xl">
+                        <Cpu className="w-6 h-6 text-green-400" />
+                      </div>
+                      <div>
+                        <div className="text-xs text-neutral-400 font-medium mb-1">NVIDIA</div>
+                        <div className="font-bold text-white leading-tight">{gpu.name}</div>
+                        <div className="text-xs text-neutral-500 mt-1">GPU {gpu.id} • {gpu.temperature}°C</div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      {/* Load */}
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-neutral-400">Load</span>
+                        </div>
+                        <div>
+                          <div className="text-2xl font-bold text-white mb-1">{gpu.load}%</div>
+                          <div className="h-1.5 w-full bg-neutral-800 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-emerald-500 transition-all duration-500"
+                              style={{ width: `${gpu.load}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* VRAM */}
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-neutral-400">VRAM</span>
+                          <span className="text-white">{gpu.memory_used} / {gpu.memory_total} MB</span>
+                        </div>
+                        <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-purple-500 transition-all duration-500"
+                            style={{ width: `${(gpu.memory_used / gpu.memory_total) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Queue Monitor Card */}
           {queueStatus && (
@@ -292,6 +477,9 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
           )}
         </div>
 
+        {/* Provider Benchmark Section */}
+        <ProviderBenchmark settings={settings} />
+
         {/* Charts Section */}
         <div className="bg-neutral-900/50 border border-white/10 rounded-2xl p-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
@@ -331,7 +519,7 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
                 <YAxis
                   stroke="#525252"
                   fontSize={12}
-                  tickFormatter={(val) => `${val} t/s`}
+                  tickFormatter={(val) => `${val} t / s`}
                 />
                 <Tooltip
                   contentStyle={{
@@ -342,7 +530,7 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
                   }}
                   itemStyle={{ color: '#818cf8' }}
                   labelFormatter={(ts) => new Date(ts).toLocaleString()}
-                  formatter={(value: number) => [`${value.toFixed(2)} t/s`, 'Speed']}
+                  formatter={(value: number) => [`${value.toFixed(2)} t / s`, 'Speed']}
                 />
                 <Line
                   type="monotone"
@@ -359,6 +547,64 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
         </div>
 
       </div>
+      {/* Custom Reset Modal */}
+      {resetModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-neutral-900 border border-neutral-800 text-white rounded-lg max-w-md w-full p-6 shadow-xl animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center gap-2 text-red-500 text-lg font-semibold mb-2">
+              <AlertTriangle className="w-5 h-5" />
+              Reset GPU Warning
+            </div>
+            <div className="text-neutral-400 text-sm mb-6">
+              This will forcibly reset the GPU PCIe bus.
+              <br /><br />
+              <strong className="text-white">⚠️ DANGER:</strong> If your display is connected to this GPU, your screen may <strong>FREEZE</strong> or go <strong>BLACK</strong>.
+              <br /><br />
+              Only proceed if you know what you are doing and have saved all work.
+            </div>
+
+            {showSetupInstructions && (
+              <div className="bg-black/40 p-4 rounded-lg border border-amber-500/20 mb-4">
+                <div className="flex items-center gap-2 text-amber-400 mb-2 text-sm font-medium">
+                  <Lock className="w-4 h-4" />
+                  Permission Denied
+                </div>
+                <p className="text-xs text-neutral-400 mb-2">
+                  Passwordless sudo is required for this feature. Run this in your terminal:
+                </p>
+                <div className="bg-black p-2 rounded border border-white/10 flex items-center gap-2">
+                  <Terminal className="w-3 h-3 text-neutral-500" />
+                  <code className="text-xs font-mono text-emerald-400">./setup_gpu_reset.sh</code>
+                </div>
+              </div>
+            )}
+
+            {resetError && (
+              <div className="bg-red-500/10 p-3 rounded-lg border border-red-500/20 text-red-400 text-sm mb-4">
+                Error: {resetError}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setResetModalOpen(false)}
+                className="px-4 py-2 rounded-md bg-transparent border border-neutral-700 hover:bg-neutral-800 text-white text-sm transition-colors"
+              >
+                {showSetupInstructions ? "Close" : "Cancel"}
+              </button>
+              {!showSetupInstructions && (
+                <button
+                  onClick={(e) => { e.preventDefault(); handleResetGpu(); }}
+                  disabled={resetting}
+                  className="px-4 py-2 rounded-md bg-red-600 hover:bg-red-700 text-white border-none text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {resetting ? "Resetting..." : "I Understand, Reset GPU"}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div >
   );
 }

@@ -14,6 +14,98 @@ export interface ProviderCapabilities {
 
 export type Capability = keyof ProviderCapabilities;
 
+/**
+ * Interface for all AI Providers.
+ * This ensures a consistent API for the AI Service to consume.
+ */
+export interface IAiProvider {
+  readonly id: AiProvider;
+  readonly name: string;
+  readonly capabilities: ProviderCapabilities;
+
+  /**
+   * Validates if the provider is correctly configured in the settings.
+   */
+  validateConfig(settings: AdminSettings): boolean;
+
+  /**
+   * Tests the connection to the provider.
+   */
+  testConnection?(settings: AdminSettings): Promise<void>;
+
+  // --- Capabilities ---
+
+  /**
+   * Analyzes an image and returns keywords and a recreation prompt.
+   * Required for 'vision' capability.
+   */
+  analyzeImage?(
+    image: ImageInfo,
+    settings: AdminSettings,
+    onStatus?: (message: string) => void
+  ): Promise<ImageAnalysisResult>;
+
+  /**
+   * Generates an image from a text prompt.
+   * Required for 'generation' capability.
+   */
+  generateImage?(
+    prompt: string,
+    settings: AdminSettings,
+    aspectRatio?: AspectRatio
+  ): Promise<string>;
+
+  /**
+   * Animates a static image or generates a video from prompt.
+   * Required for 'animation' capability.
+   */
+  animateImage?(
+    image: ImageInfo | null,
+    prompt: string,
+    aspectRatio: AspectRatio,
+    settings: AdminSettings
+  ): Promise<{ uri: string; apiKey: string }>;
+
+  /**
+   * Edits an existing image based on a prompt.
+   * Required for 'editing' capability.
+   */
+  editImage?(
+    image: ImageInfo,
+    prompt: string,
+    settings: AdminSettings
+  ): Promise<string>;
+
+  /**
+   * Generates keywords for a given prompt.
+   * Part of 'textGeneration' capability.
+   */
+  generateKeywords?(
+    prompt: string,
+    settings: AdminSettings
+  ): Promise<string[]>;
+
+  /**
+   * Enhances a prompt using provided keywords.
+   * Part of 'textGeneration' capability.
+   */
+  enhancePrompt?(
+    prompt: string,
+    keywords: string[],
+    settings: AdminSettings
+  ): Promise<string>;
+
+  /**
+   * Adapts a prompt to a specific theme.
+   * Part of 'textGeneration' capability.
+   */
+  adaptPrompt?(
+    originalPrompt: string,
+    theme: string,
+    settings: AdminSettings
+  ): Promise<string>;
+}
+
 export interface User {
   id: string;
   name: string;
@@ -204,10 +296,25 @@ export interface ImageAnalysisStats {
   duration?: number;
 }
 
+export interface ProviderStats {
+  duration: number; // in seconds
+  totalTokens?: number;
+  tokensPerSec?: number;
+  cost?: number;
+  device?: string; // e.g., 'GPU', 'CPU'
+}
+
 export interface ImageAnalysisResult {
   keywords: string[];
   recreationPrompt: string;
-  stats?: ImageAnalysisStats;
+  stats?: ProviderStats;
+  nsfwClassification?: {
+    label: 'NSFW' | 'SFW' | 'Unknown';
+    score: number;
+    confidence: number;
+    predictions?: Array<{ label: string; score: number }>;
+    lastChecked?: number;
+  };
 }
 export interface ActiveJob {
   id: string;
