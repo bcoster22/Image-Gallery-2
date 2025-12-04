@@ -10,6 +10,7 @@ The goal of Image Gallery 2 is to provide a seamless and private way to manage i
 - **Local AI Analysis**: Uses Moondream to generate captions and tags for images without sending data to the cloud.
 - **Adaptive Concurrency**: Dynamically adjusts AI processing load based on system performance to ensure responsiveness.
 - **Real-time Monitoring**: Visualizes the AI processing queue and system resource usage.
+- **GPU Management**: Monitor GPU load, VRAM, and temperature. Includes a "Reset GPU" feature for troubleshooting.
 - **Batch Processing**: Supports regenerating captions for multiple images simultaneously.
 
 ## Features
@@ -109,7 +110,9 @@ You can define which provider handles specific tasks (Vision, Generation, Animat
 - **Upload Images**: Drag and drop images into the upload area.
 - **View Details**: Click on an image to see its caption, tags, and metadata.
 - **Regenerate Captions**: Select images and click "Regenerate" to update their AI analysis.
-- **Monitor Status**: Check the "Status" page to see active jobs and queue performance.
+- **Regenerate Captions**: Select images and click "Regenerate" to update their AI analysis.
+- **Monitor Status**: Check the "Status" page to see active jobs, queue performance, and GPU health.
+- **Reset GPU**: If the GPU becomes unresponsive, use the "Reset GPU" button on the Status page (requires setup).
 
 ![Batch Processing](docs/images/batch-processing.png)
 ![Notifications](docs/images/notifications.png)
