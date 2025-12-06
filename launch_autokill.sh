@@ -8,4 +8,6 @@ fuser -k 2022/tcp > /dev/null 2>&1
 # Give it a moment to release the port
 sleep 1
 
-moondream-station "$@"
+# moondream-station "$@"
+echo "Starting local GPU-Boost enabled server..."
+python3 rest_server_gpu.py

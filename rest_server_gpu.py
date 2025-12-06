@@ -76,6 +76,16 @@ class HardwareMonitor:
                     utilization = pynvml.nvmlDeviceGetUtilizationRates(handle)
                     temp = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
                     
+                
+                    # Check for fan capability
+                    fan_supported = False
+                    try:
+                        # Try to get fan speed to check support
+                        pynvml.nvmlDeviceGetFanSpeed(handle)
+                        fan_supported = True
+                    except pynvml.NVMLError:
+                        pass
+
                     gpus.append({
                         "id": i,
                         "name": name,
@@ -83,6 +93,7 @@ class HardwareMonitor:
                         "memory_used": int(memory.used / 1024 / 1024), # MB
                         "memory_total": int(memory.total / 1024 / 1024), # MB
                         "temperature": temp,
+                        "fan_control_supported": fan_supported,
                         "type": "NVIDIA"
                     })
             except Exception as e:
@@ -98,7 +109,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from .inference_service import InferenceService
+from moondream_station.core.inference_service import InferenceService
 
 
 class RestServer:
@@ -221,7 +232,68 @@ class RestServer:
                 from fastapi import HTTPException
                 raise HTTPException(status_code=500, detail=str(e))
 
-        @self.app.get("/v1/models")
+                from fastapi import HTTPException
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post("/v1/system/gpu-boost")
+        async def boost_gpu(gpu_id: int = 0, enable: bool = True):
+            """
+            Enable or disable GPU Boost (Max Fans + Persistence Mode)
+            Requires passwordless sudo for nvidia-smi.
+            """
+            import subprocess
+            
+            try:
+                commands = []
+                if enable:
+                    # Enable Persistence Mode and Max Fans
+                    commands = [
+                        ["sudo", "-n", "nvidia-smi", "-i", str(gpu_id), "-pm", "1"],
+                        ["sudo", "-n", "nvidia-smi", "-i", str(gpu_id), "--fan-speed=100"]
+                    ]
+                else:
+                    # Reset to Auto
+                    commands = [
+                        ["sudo", "-n", "nvidia-smi", "-i", str(gpu_id), "--fan-speed-reset"],
+                        ["sudo", "-n", "nvidia-smi", "-i", str(gpu_id), "-pm", "0"]
+                    ]
+
+                results = []
+                for cmd in commands:
+                    process = subprocess.run(
+                        cmd, 
+                        capture_output=True, 
+                        text=True,
+                        timeout=10
+                    )
+                    
+                    if process.returncode != 0:
+                        # Handle permission errors specifically
+                        if "password is required" in process.stderr:
+                             from fastapi import HTTPException
+                             raise HTTPException(
+                                status_code=403, 
+                                detail="Permission denied. Passwordless sudo not configured for nvidia-smi."
+                             )
+                        # Log error but continue trying to reset others if disabling
+                        print(f"Boost command failed: {cmd} -> {process.stderr}")
+                        results.append(f"Cmd failed: {process.stderr.strip()}")
+                    else:
+                        results.append("OK")
+                
+                return {
+                    "status": "success", 
+                    "mode": "boost" if enable else "normal",
+                    "details": results
+                }
+
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                if hasattr(e, "status_code"):
+                    raise e
+                from fastapi import HTTPException
+                raise HTTPException(status_code=500, detail=str(e))
         async def list_models():
             try:
                 models = self.manifest_manager.get_models()
@@ -648,3 +720,39 @@ class RestServer:
             and self.server
             and not self.server.should_exit
         )
+
+if __name__ == "__main__":
+    import asyncio
+    import sys
+    
+    # Imports from installed package
+    from moondream_station.core.config import ConfigManager
+    from moondream_station.core.manifest import ManifestManager
+    from moondream_station.core.analytics import Analytics
+
+    print("Starting Custom GPU Boost Server...")
+
+    config = ConfigManager()
+    analytics = Analytics(config)
+    manifest_manager = ManifestManager(config)
+    
+    # Load manifest (default)
+    manifest_manager.load_manifest("https://m87-md-prod-assets.s3.us-west-2.amazonaws.com/station/mds2/production_manifest.json", analytics=analytics)
+
+    server = RestServer(config, manifest_manager, analytics=analytics)
+    
+    # Start on port 2021 (as used in Gallery)
+    print("Initializing server on port 2021...")
+    success = server.start(host="0.0.0.0", port=2021)
+    
+    if success:
+        print("Server running. Press Cntrl+C to stop.")
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            print("Stopping...")
+            server.stop()
+    else:
+        print("Failed to start server.")
+        sys.exit(1)

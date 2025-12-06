@@ -42,6 +42,17 @@ const UserMenu: React.FC<UserMenuProps> = ({ user, onLogout, onSetView, nsfwBlur
         <div className="absolute right-0 mt-2 w-48 bg-gray-800 border border-gray-700 rounded-md shadow-lg z-50 animate-fade-in-fast">
           <div className="p-2">
             <button
+              onClick={() => {
+                onSetView('profile-settings');
+                setIsOpen(false);
+              }}
+              className="w-full text-left flex items-center px-3 py-2 text-sm text-gray-200 rounded-md hover:bg-gray-700"
+            >
+              <UserIcon className="w-5 h-5 mr-3" />
+              Profile Settings
+            </button>
+            <div className="h-px bg-gray-700 my-1 mx-2"></div>
+            <button
               onClick={handleMyGalleryClick}
               className="w-full text-left flex items-center px-3 py-2 text-sm text-gray-200 rounded-md hover:bg-gray-700"
             >

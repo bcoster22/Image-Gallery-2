@@ -2,7 +2,7 @@
 import { HarmBlockThreshold } from "@google/genai";
 
 export type AiProvider = 'gemini' | 'openai' | 'grok' | 'moondream_cloud' | 'moondream_local' | 'comfyui';
-export type GalleryView = 'public' | 'my-gallery' | 'creations' | 'prompt-history' | 'status' | 'admin-settings';
+export type GalleryView = 'public' | 'my-gallery' | 'creations' | 'prompt-history' | 'status' | 'admin-settings' | 'profile-settings';
 
 export interface ProviderCapabilities {
   vision: boolean;
@@ -111,6 +111,12 @@ export interface User {
   name: string;
   email: string;
   avatarUrl: string;
+  bannerUrl?: string; // URL for the custom background banner
+  bannerPosition?: {
+    x: number; // Percentage 0-100
+    y: number; // Percentage 0-100
+    scale: number; // Zoom level (e.g., 1 to 3)
+  };
 }
 
 export interface GeminiSafetySettings {

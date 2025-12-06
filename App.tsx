@@ -28,6 +28,7 @@ import StatusPage from './components/StatusPage';
 import GenerationStatusIndicator from './components/GenerationStatusIndicator';
 import UploadProgressIndicator from './components/UploadProgressIndicator';
 import AnalysisProgressIndicator from './components/AnalysisProgressIndicator';
+import UserProfilePage from './components/UserProfilePage';
 
 const SETTINGS_STORAGE_KEY = 'ai_gallery_settings_v2'; // Updated key for new structure
 const OLD_SETTINGS_STORAGE_KEY = 'ai_gallery_settings'; // Old key for migration
@@ -48,12 +49,94 @@ interface TagFilterBarProps {
 }
 
 const TagFilterBar: React.FC<TagFilterBarProps> = ({ allTags, activeTags, onToggleTag, onClear }) => {
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+  const [focusedIndex, setFocusedIndex] = React.useState(0);
+  const buttonRefs = React.useRef<(HTMLButtonElement | null)[]>([]); // Initialize ref array
+
+  // Verify buttonRefs length matches tags
+  React.useEffect(() => {
+    buttonRefs.current = buttonRefs.current.slice(0, allTags.length);
+  }, [allTags]);
+
   if (allTags.length === 0) {
     return null;
   }
 
+  // Use native event listener to support non-passive behavior for preventDefault
+  React.useEffect(() => {
+    const handleWheelNative = (e: WheelEvent) => {
+      if (scrollRef.current) {
+        if (e.deltaY !== 0) {
+          e.preventDefault();
+          scrollRef.current.scrollLeft += e.deltaY;
+        }
+      }
+    };
+
+    const el = scrollRef.current;
+    if (el) {
+      el.addEventListener('wheel', handleWheelNative, { passive: false });
+    }
+    return () => {
+      if (el) {
+        el.removeEventListener('wheel', handleWheelNative);
+      }
+    };
+  }, []);
+
+  const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
+    let nextIndex = index;
+    // With grid-rows-2 and grid-flow-col:
+    // Item 0 (0,0) -> Down -> Item 1 (0,1)
+    // Item 1 (0,1) -> Up -> Item 0 (0,0)
+    // Item 0 (0,0) -> Right -> Item 2 (1,0)
+    // Item 1 (0,1) -> Right -> Item 3 (1,1)
+
+    // Layout Logic:
+    // Even index (0,2,4) is Top Row. Odd index (1,3,5) is Bottom Row.
+    const isTopRow = index % 2 === 0;
+    const isBottomRow = !isTopRow;
+    const lastIndex = allTags.length - 1;
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        if (isTopRow && index + 1 <= lastIndex) nextIndex = index + 1;
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        if (isBottomRow) nextIndex = index - 1;
+        break;
+      case 'ArrowRight':
+        e.preventDefault();
+        if (index + 2 <= lastIndex) nextIndex = index + 2;
+        break;
+      case 'ArrowLeft':
+        e.preventDefault();
+        if (index - 2 >= 0) nextIndex = index - 2;
+        break;
+      case 'Home':
+        e.preventDefault();
+        nextIndex = 0;
+        break;
+      case 'End':
+        e.preventDefault();
+        nextIndex = lastIndex;
+        break;
+      default:
+        return;
+    }
+
+    if (nextIndex !== index) {
+      setFocusedIndex(nextIndex);
+      buttonRefs.current[nextIndex]?.focus();
+      // Ensure visible
+      buttonRefs.current[nextIndex]?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    }
+  };
+
   return (
-    <div className="mb-6 p-4 bg-gray-800/50 rounded-lg border border-gray-700/50 overflow-hidden">
+    <div className="mb-6 p-4 bg-gray-800/50 rounded-lg border border-gray-700/50 overflow-hidden relative group">
       <div className="flex justify-between items-center mb-3">
         <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">Filter by Tags</h3>
         {activeTags.size > 0 && (
@@ -66,17 +149,30 @@ const TagFilterBar: React.FC<TagFilterBarProps> = ({ allTags, activeTags, onTogg
           </button>
         )}
       </div>
-      <div className="flex overflow-x-auto gap-2 scrollbar-none -mx-4 px-4 pb-2">
-        {allTags.map(tag => {
+
+      {/* Scroll Fade Hint (Right) */}
+      <div className="absolute right-0 top-12 bottom-4 w-12 bg-gradient-to-l from-gray-900/80 to-transparent pointer-events-none z-10" />
+
+      <div
+        ref={scrollRef}
+        className="grid grid-rows-2 grid-flow-col gap-2 overflow-x-auto scrollbar-none -mx-4 px-4 pb-2"
+        style={{ scrollBehavior: 'smooth' }}
+      >
+        {allTags.map((tag, index) => {
           const isActive = activeTags.has(tag);
           return (
             <button
               key={tag}
+              ref={el => buttonRefs.current[index] = el}
               onClick={() => onToggleTag(tag)}
-              className={`flex-shrink-0 px-3 py-1 text-xs rounded-md uppercase tracking-wider font-semibold transition-colors whitespace-nowrap ${isActive
-                ? 'bg-indigo-600 text-white'
-                : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+              onKeyDown={(e) => handleKeyDown(e, index)}
+              onFocus={() => setFocusedIndex(index)}
+              tabIndex={focusedIndex === index ? 0 : -1}
+              className={`flex-shrink-0 px-4 py-2 text-sm rounded-lg font-medium transition-all whitespace-nowrap text-left outline-none focus:ring-2 focus:ring-indigo-500 ${isActive
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30'
+                : 'bg-gray-700/50 hover:bg-gray-700 text-gray-300 border border-gray-600/30 hover:border-gray-500'
                 }`}
+              title={tag}
             >
               {tag}
             </button>
@@ -459,6 +555,7 @@ const App: React.FC = () => {
               },
               moondream_local: {
                 endpoint: oldSettings.moondreamEndpoint,
+                model: null,
               },
               openai: {
                 apiKey: oldSettings.openaiApiKey,
@@ -487,6 +584,16 @@ const App: React.FC = () => {
             prompts: {
               assignments: {},
               strategies: []
+            },
+            contentSafety: {
+              enabled: true,
+              autoClassify: true,
+              threshold: 80,
+              nsfwKeyword: "NSFW",
+              sfwKeyword: "SFW",
+              blurNsfw: true,
+              showConfidence: false,
+              useSingleModelSession: true
             }
           };
           setSettings(newSettings);
@@ -1384,7 +1491,6 @@ const App: React.FC = () => {
 
     return Object.entries(tagCounts)
       .sort(([, countA], [, countB]) => countB - countA)
-      .slice(0, 20)
       .map(([tag]) => tag);
   }, [images, galleryView, currentUser]);
 
@@ -1497,292 +1603,325 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-gray-100 font-sans selection:bg-indigo-500/30">
-      <header className="p-4 sm:p-6 border-b border-gray-700/50 flex justify-between items-center">
-        <div className="text-left">
-          <h1 className="text-2xl sm:text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-indigo-500">
-            Gemini Vision Gallery
-          </h1>
+    <div className="h-screen bg-gray-900 text-gray-100 font-sans selection:bg-indigo-500/30 relative overflow-x-hidden overflow-y-auto scrollbar-none">
+      {/* Global Background Banner */}
+      {currentUser?.bannerUrl && (
+        <div className="fixed inset-0 z-0 pointer-events-none">
+          <div
+            className="absolute inset-0 opacity-40 transition-all duration-700 ease-in-out"
+            style={{
+              backgroundImage: `url(${currentUser.bannerUrl})`,
+              backgroundPosition: `${currentUser.bannerPosition?.x || 50}% ${currentUser.bannerPosition?.y || 50}%`,
+              backgroundSize: 'cover',
+              transform: `scale(${currentUser.bannerPosition?.scale || 1})`,
+              transformOrigin: `${currentUser.bannerPosition?.x || 50}% ${currentUser.bannerPosition?.y || 50}%`,
+            }}
+          />
+          {/* Gradient overlay to ensure text readability */}
+          <div className="absolute inset-0 bg-gradient-to-t from-gray-900 via-gray-900/80 to-gray-900/60" />
         </div>
-        <div className="flex items-center space-x-4">
-          <button
-            onClick={() => setGalleryView('admin-settings')}
-            className="p-2 rounded-full text-gray-400 hover:text-white hover:bg-gray-700 transition-colors"
-            aria-label="Settings"
-          >
-            <SettingsIcon className="w-6 h-6" />
-          </button>
-          <button
-            onClick={() => setIsSlideshowActive(!isSlideshowActive)}
-            className={`p-2 rounded-lg transition-colors ${isSlideshowActive ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
-            title={isSlideshowActive ? "Stop Slideshow" : "Start Slideshow"}
-          >
-            {isSlideshowActive ? <StopIcon className="w-6 h-6" /> : <PlayIcon className="w-6 h-6" />}
-          </button>
-          <button
-            onClick={() => setGalleryView('status')}
-            className={`p-2 rounded-full transition-colors ${galleryView === 'status' ? 'text-white bg-gray-700' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}
-            title="System Status"
-          >
-            <Activity className="w-6 h-6" />
-          </button>
-          {currentUser ? (
-            <UserMenu
-              user={currentUser}
-              onLogout={handleLogout}
-              onSetView={setGalleryView}
-              nsfwBlurEnabled={settings?.contentSafety?.blurNsfw ?? false}
-              onToggleNsfwBlur={handleToggleNsfwBlur}
-            />
-          ) : (
-            <button
-              onClick={() => setIsLoginModalOpen(true)}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors text-sm"
-            >
-              Sign In
-            </button>
-          )}
-        </div>
-      </header>
+      )}
 
-      <main className="p-4 sm:p-6 lg:p-8">
-        {isDbLoading ? (
-          <div className="flex items-center justify-center h-[60vh]">
-            <div className="text-center">
-              <Spinner />
-              <p className="mt-4 text-gray-400">Loading your gallery...</p>
-            </div>
+      {/* Main Content Wrapper - Ensure z-index is above banner */}
+      <div className="relative z-10 min-h-screen flex flex-col">
+        <header className="p-4 sm:p-6 border-b border-gray-700/50 flex justify-between items-center bg-gray-900/40 backdrop-blur-md sticky top-0 z-50">
+          <div className="text-left">
+            <h1 className="text-2xl sm:text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-indigo-500">
+              Gemini Vision Gallery
+            </h1>
           </div>
-        ) : galleryView === 'admin-settings' ? (
-          <AdminSettingsPage currentSettings={settings} onSave={handleSaveSettings} onCancel={() => setGalleryView('public')} />
-        ) : !hasValidSettings(settings) ? (
-          <NoSettingsPrompt onSettingsClick={() => setGalleryView('admin-settings')} />
-        ) : (
-          <div>
-            <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6">
-              <div className="flex items-center bg-gray-800 p-1 rounded-lg">
-                <button onClick={() => setGalleryView('public')} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${galleryView === 'public' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700'}`}>
-                  Featured Images
-                </button>
-                <button onClick={() => setGalleryView('my-gallery')} disabled={!currentUser} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${galleryView === 'my-gallery' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700'} disabled:text-gray-500 disabled:cursor-not-allowed disabled:hover:bg-transparent`}>
-                  My Gallery
-                </button>
-                <button onClick={() => setGalleryView('creations')} disabled={!currentUser} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${galleryView === 'creations' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700'} disabled:text-gray-500 disabled:cursor-not-allowed disabled:hover:bg-transparent`}>
-                  Creations
-                </button>
-                <button onClick={() => setGalleryView('prompt-history')} disabled={!currentUser} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${galleryView === 'prompt-history' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700'} disabled:text-gray-500 disabled:cursor-not-allowed disabled:hover:bg-transparent`}>
-                  Prompt History
-                </button>
-                <button onClick={() => setGalleryView('status')} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${galleryView === 'status' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700'}`}>
-                  Status
-                </button>
-              </div>
-              <div className="flex items-center gap-4 w-full sm:w-auto">
-                <GenerationStatusIndicator
-                  tasks={generationTasks}
-                  onStatusClick={() => setGalleryView('creations')}
-                />
-                {currentUser && filteredImages.length > 0 && (
-                  <button
-                    onClick={toggleSelectionMode}
-                    className={`text-sm font-medium py-2 px-4 rounded-lg transition-colors duration-300 whitespace-nowrap ${isSelectionMode
-                      ? 'bg-gray-600 hover:bg-gray-500 text-white'
-                      : 'bg-gray-700 hover:bg-gray-600 text-gray-200'
-                      }`}
-                  >
-                    {isSelectionMode ? 'Cancel Selection' : 'Select Items'}
-                  </button>
-                )}
-                {galleryView === 'my-gallery' && failedAnalysisCount > 0 && (
-                  <button
-                    onClick={() => handleRetryAnalysis()}
-                    className="bg-yellow-600/80 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-300 text-sm whitespace-nowrap flex items-center gap-2"
-                    title="Retry analysis for all failed items"
-                  >
-                    <WarningIcon className="w-4 h-4" />
-                    Retry Failed ({failedAnalysisCount})
-                  </button>
-                )}
-                {currentUser && galleryView === 'my-gallery' && !isSelectionMode && (
-                  <label className="cursor-pointer bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-300 text-sm whitespace-nowrap">
-                    Add Images
-                    <input type="file" multiple accept="image/*" className="hidden" onChange={handleFilesChange} />
-                  </label>
-                )}
-                <div className="relative w-full sm:w-auto sm:min-w-[300px]">
-                  <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search by keyword..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg py-2 pl-10 pr-10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                  {searchQuery && (
-                    <button
-                      onClick={() => setSearchQuery('')}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-red-400 transition-colors"
-                      aria-label="Clear search"
-                    >
-                      <CloseIcon className="h-5 w-5" />
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {(galleryView === 'public' || galleryView === 'my-gallery') && (
-              <TagFilterBar
-                allTags={allTags}
-                activeTags={activeTags}
-                onToggleTag={handleToggleTag}
-                onClear={handleClearTags}
-              />
-            )}
-
-            {galleryView === 'status' ? (
-              <StatusPage statsHistory={statsHistory} settings={settings} queueStatus={queueStatus} />
-            ) : galleryView === 'creations' && currentUser ? (
-              <CreationsPage
-                tasks={generationTasks}
-                completedCreations={completedCreations.filter(c => c.ownerId === currentUser.id)}
-                onImageSelect={handleImageSelect}
-                analyzingIds={analyzingIds}
-                generatingIds={generatingSourceIds}
-                disabled={isSearchingSimilar}
-                onClearFailedTasks={handleClearFailedTasks}
-              />
-            ) : galleryView === 'prompt-history' && currentUser ? (
-              <PromptHistoryPage
-                promptHistory={promptHistory}
-                images={images}
-                onGenerateFromPrompt={handleGenerateFromPromptHistory}
-              />
-            ) : showUploadArea ? (
-              <UploadArea onFilesChange={handleFilesChange} />
-            ) : filteredImages.length > 0 ? (
-              <ImageGrid
-                images={filteredImages}
-                onImageClick={handleGridItemClick}
-                analyzingIds={analyzingIds}
-                generatingIds={generatingSourceIds}
-                isSelectionMode={isSelectionMode}
-                selectedIds={selectedIds}
-                onSelectionChange={handleSelectionChange}
-                blurNsfw={settings?.contentSafety?.blurNsfw}
+          <div className="flex items-center space-x-4">
+            <button
+              onClick={() => setGalleryView('admin-settings')}
+              className="p-2 rounded-full text-gray-400 hover:text-white hover:bg-gray-700 transition-colors"
+              aria-label="Settings"
+            >
+              <SettingsIcon className="w-6 h-6" />
+            </button>
+            <button
+              onClick={() => setIsSlideshowActive(!isSlideshowActive)}
+              className={`p-2 rounded-lg transition-colors ${isSlideshowActive ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
+              title={isSlideshowActive ? "Stop Slideshow" : "Start Slideshow"}
+            >
+              {isSlideshowActive ? <StopIcon className="w-6 h-6" /> : <PlayIcon className="w-6 h-6" />}
+            </button>
+            <button
+              onClick={() => setGalleryView('status')}
+              className={`p-2 rounded-full transition-colors ${galleryView === 'status' ? 'text-white bg-gray-700' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}
+              title="System Status"
+            >
+              <Activity className="w-6 h-6" />
+            </button>
+            {currentUser ? (
+              <UserMenu
+                user={currentUser}
+                onLogout={handleLogout}
+                onSetView={setGalleryView}
+                nsfwBlurEnabled={settings?.contentSafety?.blurNsfw ?? false}
+                onToggleNsfwBlur={handleToggleNsfwBlur}
               />
             ) : (
-              <div className="text-center py-16 text-gray-500">
-                <p>{galleryView === 'public' ? 'No featured images yet.' : galleryView === 'my-gallery' ? 'Your gallery is empty.' : 'No items found.'}</p>
-                <p className="text-sm mt-1">{!currentUser ? 'Sign in to upload and manage your items.' : (activeTags.size > 0 || searchQuery) ? 'Try adjusting your filters.' : galleryView === 'my-gallery' ? 'Upload some images to get started.' : ''}</p>
-              </div>
+              <button
+                onClick={() => setIsLoginModalOpen(true)}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors text-sm"
+              >
+                Sign In
+              </button>
             )}
           </div>
+        </header>
+
+        <main className="p-4 sm:p-6 lg:p-8">
+          {isDbLoading ? (
+            <div className="flex items-center justify-center h-[60vh]">
+              <div className="text-center">
+                <Spinner />
+                <p className="mt-4 text-gray-400">Loading your gallery...</p>
+              </div>
+            </div>
+          ) : galleryView === 'admin-settings' ? (
+            <AdminSettingsPage currentSettings={settings} onSave={handleSaveSettings} onCancel={() => setGalleryView('public')} />
+          ) : !hasValidSettings(settings) ? (
+            <NoSettingsPrompt onSettingsClick={() => setGalleryView('admin-settings')} />
+          ) : (
+            <div>
+              <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6">
+                <div className="flex items-center bg-gray-800 p-1 rounded-lg">
+                  <button onClick={() => setGalleryView('public')} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${galleryView === 'public' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700'}`}>
+                    Featured Images
+                  </button>
+                  <button onClick={() => setGalleryView('my-gallery')} disabled={!currentUser} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${galleryView === 'my-gallery' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700'} disabled:text-gray-500 disabled:cursor-not-allowed disabled:hover:bg-transparent`}>
+                    My Gallery
+                  </button>
+                  <button onClick={() => setGalleryView('creations')} disabled={!currentUser} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${galleryView === 'creations' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700'} disabled:text-gray-500 disabled:cursor-not-allowed disabled:hover:bg-transparent`}>
+                    Creations
+                  </button>
+                  <button onClick={() => setGalleryView('prompt-history')} disabled={!currentUser} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${galleryView === 'prompt-history' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700'} disabled:text-gray-500 disabled:cursor-not-allowed disabled:hover:bg-transparent`}>
+                    Prompt History
+                  </button>
+                  <button onClick={() => setGalleryView('status')} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${galleryView === 'status' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700'}`}>
+                    Status
+                  </button>
+                </div>
+                <div className="flex items-center gap-4 w-full sm:w-auto">
+                  <GenerationStatusIndicator
+                    tasks={generationTasks}
+                    onStatusClick={() => setGalleryView('creations')}
+                  />
+                  {currentUser && filteredImages.length > 0 && (
+                    <button
+                      onClick={toggleSelectionMode}
+                      className={`text-sm font-medium py-2 px-4 rounded-lg transition-colors duration-300 whitespace-nowrap ${isSelectionMode
+                        ? 'bg-gray-600 hover:bg-gray-500 text-white'
+                        : 'bg-gray-700 hover:bg-gray-600 text-gray-200'
+                        }`}
+                    >
+                      {isSelectionMode ? 'Cancel Selection' : 'Select Items'}
+                    </button>
+                  )}
+                  {galleryView === 'my-gallery' && failedAnalysisCount > 0 && (
+                    <button
+                      onClick={() => handleRetryAnalysis()}
+                      className="bg-yellow-600/80 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-300 text-sm whitespace-nowrap flex items-center gap-2"
+                      title="Retry analysis for all failed items"
+                    >
+                      <WarningIcon className="w-4 h-4" />
+                      Retry Failed ({failedAnalysisCount})
+                    </button>
+                  )}
+                  {currentUser && galleryView === 'my-gallery' && !isSelectionMode && (
+                    <label className="cursor-pointer bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-300 text-sm whitespace-nowrap">
+                      Add Images
+                      <input type="file" multiple accept="image/*" className="hidden" onChange={handleFilesChange} />
+                    </label>
+                  )}
+                  <div className="relative w-full sm:w-auto sm:min-w-[300px]">
+                    <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search by keyword..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg py-2 pl-10 pr-10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    {searchQuery && (
+                      <button
+                        onClick={() => setSearchQuery('')}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-red-400 transition-colors"
+                        aria-label="Clear search"
+                      >
+                        <CloseIcon className="h-5 w-5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {(galleryView === 'public' || galleryView === 'my-gallery') && (
+                <TagFilterBar
+                  allTags={allTags}
+                  activeTags={activeTags}
+                  onToggleTag={handleToggleTag}
+                  onClear={handleClearTags}
+                />
+              )}
+
+              {galleryView === 'status' ? (
+                <StatusPage statsHistory={statsHistory} settings={settings} queueStatus={queueStatus} />
+              ) : galleryView === 'profile-settings' && currentUser ? (
+                <UserProfilePage
+                  user={currentUser}
+                  onUpdateUser={(updatedUser) => {
+                    setCurrentUser(updatedUser);
+                    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(updatedUser));
+                  }}
+                  galleryImages={images}
+                  settings={settings}
+                  addNotification={addNotification}
+                  onClose={() => setGalleryView('my-gallery')}
+                />
+              ) : galleryView === 'creations' && currentUser ? (
+                <CreationsPage
+                  tasks={generationTasks}
+                  completedCreations={completedCreations.filter(c => c.ownerId === currentUser.id)}
+                  onImageSelect={handleImageSelect}
+                  analyzingIds={analyzingIds}
+                  generatingIds={generatingSourceIds}
+                  disabled={isSearchingSimilar}
+                  onClearFailedTasks={handleClearFailedTasks}
+                />
+              ) : galleryView === 'prompt-history' && currentUser ? (
+                <PromptHistoryPage
+                  promptHistory={promptHistory}
+                  images={images}
+                  onGenerateFromPrompt={handleGenerateFromPromptHistory}
+                />
+              ) : showUploadArea ? (
+                <UploadArea onFilesChange={handleFilesChange} />
+              ) : filteredImages.length > 0 ? (
+                <ImageGrid
+                  images={filteredImages}
+                  onImageClick={handleGridItemClick}
+                  analyzingIds={analyzingIds}
+                  generatingIds={generatingSourceIds}
+                  isSelectionMode={isSelectionMode}
+                  selectedIds={selectedIds}
+                  onSelectionChange={handleSelectionChange}
+                  blurNsfw={settings?.contentSafety?.blurNsfw}
+                />
+              ) : (
+                <div className="text-center py-16 text-gray-500">
+                  <p>{galleryView === 'public' ? 'No featured images yet.' : galleryView === 'my-gallery' ? 'Your gallery is empty.' : 'No items found.'}</p>
+                  <p className="text-sm mt-1">{!currentUser ? 'Sign in to upload and manage your items.' : (activeTags.size > 0 || searchQuery) ? 'Try adjusting your filters.' : galleryView === 'my-gallery' ? 'Upload some images to get started.' : ''}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </main>
+
+        {selectedImage && (
+          <ImageViewer
+            initialImage={selectedImage}
+            contextImages={filteredImages}
+            isLoading={isLoading}
+            error={error}
+            onClose={handleCloseViewer}
+            settings={settings}
+            onKeywordClick={handleKeywordSelect}
+            onSaveGeneratedImage={handleSaveGeneratedImage}
+            onSaveEnhancedImage={handleSaveEnhancedImage}
+            onRegenerateCaption={handleRegenerateCaption}
+            onStartAnimation={handleStartAnimation}
+            onTogglePublicStatus={handleToggleImagePublicStatus}
+            currentUser={currentUser}
+            promptHistory={promptHistory}
+            setPromptModalConfig={setPromptModalConfig}
+            addNotification={addNotification}
+            onRetryAnalysis={handleRetryAnalysis}
+          />
         )}
-      </main>
 
-      {selectedImage && (
-        <ImageViewer
-          initialImage={selectedImage}
-          contextImages={filteredImages}
-          isLoading={isLoading}
-          error={error}
-          onClose={handleCloseViewer}
-          settings={settings}
-          onKeywordClick={handleKeywordSelect}
-          onSaveGeneratedImage={handleSaveGeneratedImage}
-          onSaveEnhancedImage={handleSaveEnhancedImage}
-          onRegenerateCaption={handleRegenerateCaption}
-          onStartAnimation={handleStartAnimation}
-          onTogglePublicStatus={handleToggleImagePublicStatus}
-          currentUser={currentUser}
-          promptHistory={promptHistory}
-          setPromptModalConfig={setPromptModalConfig}
-          addNotification={addNotification}
-          onRetryAnalysis={handleRetryAnalysis}
+        <UploadProgressIndicator progress={uploadProgress} />
+        <AnalysisProgressIndicator progress={analysisProgress} />
+        <NotificationArea notifications={notifications} onDismiss={removeNotification} />
+
+        <NotificationArea notifications={notifications} onDismiss={removeNotification} />
+
+        {isSelectionMode && (
+          <SelectionActionBar
+            count={selectedIds.size}
+            onDelete={handleDeleteSelected}
+            onClear={() => setSelectedIds(new Set())}
+            onRemix={handleBatchRemixClick}
+            onMakePublic={handleBatchMakePublic}
+            onMakePrivate={handleBatchMakePrivate}
+            onRegenerate={handleBatchRegenerate}
+            onSelectAll={handleSelectAll}
+          />
+        )}
+
+        <ConfirmationModal
+          isOpen={isDeleteModalOpen}
+          onClose={handleCancelDelete}
+          onConfirm={handleConfirmDelete}
+          title="Confirm Deletion"
+          message={`Are you sure you want to delete ${selectedIds.size} item${selectedIds.size === 1 ? '' : 's'}? This action cannot be undone.`}
+          confirmText="Delete"
+          confirmButtonVariant="danger"
         />
-      )}
 
-      <UploadProgressIndicator progress={uploadProgress} />
-      <AnalysisProgressIndicator progress={analysisProgress} />
-      <NotificationArea notifications={notifications} onDismiss={removeNotification} />
-
-      <NotificationArea notifications={notifications} onDismiss={removeNotification} />
-
-      {isSelectionMode && (
-        <SelectionActionBar
+        <BatchRemixModal
+          isOpen={isBatchRemixModalOpen}
+          onClose={() => setIsBatchRemixModalOpen(false)}
+          onConfirm={handleConfirmBatchRemix}
           count={selectedIds.size}
-          onDelete={handleDeleteSelected}
-          onClear={() => setSelectedIds(new Set())}
-          onRemix={handleBatchRemixClick}
-          onMakePublic={handleBatchMakePublic}
-          onMakePrivate={handleBatchMakePrivate}
-          onRegenerate={handleBatchRegenerate}
-          onSelectAll={handleSelectAll}
         />
-      )}
 
-      <ConfirmationModal
-        isOpen={isDeleteModalOpen}
-        onClose={handleCancelDelete}
-        onConfirm={handleConfirmDelete}
-        title="Confirm Deletion"
-        message={`Are you sure you want to delete ${selectedIds.size} item${selectedIds.size === 1 ? '' : 's'}? This action cannot be undone.`}
-        confirmText="Delete"
-        confirmButtonVariant="danger"
-      />
-
-      <BatchRemixModal
-        isOpen={isBatchRemixModalOpen}
-        onClose={() => setIsBatchRemixModalOpen(false)}
-        onConfirm={handleConfirmBatchRemix}
-        count={selectedIds.size}
-      />
-
-      <LoginModal
-        isOpen={isLoginModalOpen}
-        onClose={() => setIsLoginModalOpen(false)}
-        onLogin={handleLogin}
-      />
-      <VeoKeySelectionModal
-        isOpen={!!veoRetryState}
-        onClose={() => setVeoRetryState(null)}
-        onSelectKey={handleVeoRetry}
-        isRetry={true}
-      />
-      {promptModalConfig && (
-        <PromptSubmissionModal
-          isOpen={!!promptModalConfig}
-          onClose={() => setPromptModalConfig(null)}
-          config={promptModalConfig}
-          promptHistory={promptHistory}
-          onSubmit={(prompt, options) => {
-            const { image } = promptModalConfig;
-            const aspectRatio = options.aspectRatio || '1:1';
-            const useSourceImage = options.useSourceImage;
-
-            if (promptModalConfig.taskType === 'image') {
-              const dummyImage: ImageInfo = image || {
-                id: '', file: new File([], ''), fileName: 'prompt-history.png',
-                dataUrl: '', ownerId: currentUser!.id, isPublic: false
-              };
-              handleGenerationSubmit(dummyImage, prompt, 'image', aspectRatio);
-            } else if (promptModalConfig.taskType === 'enhance' && image) {
-              handleGenerationSubmit(image, prompt, 'enhance', aspectRatio);
-            } else if (promptModalConfig.taskType === 'video') {
-              const sourceImage = useSourceImage ? image : null;
-              handleStartAnimation(sourceImage, prompt, aspectRatio);
-            }
-
-            setPromptModalConfig(null);
-          }}
+        <LoginModal
+          isOpen={isLoginModalOpen}
+          onClose={() => setIsLoginModalOpen(false)}
+          onLogin={handleLogin}
         />
-      )}
-      <IdleSlideshow
-        images={filteredImages}
-        isActive={isSlideshowActive}
-        onClose={handleCloseSlideshow}
-      />
+        <VeoKeySelectionModal
+          isOpen={!!veoRetryState}
+          onClose={() => setVeoRetryState(null)}
+          onSelectKey={handleVeoRetry}
+          isRetry={true}
+        />
+        {promptModalConfig && (
+          <PromptSubmissionModal
+            isOpen={!!promptModalConfig}
+            onClose={() => setPromptModalConfig(null)}
+            config={promptModalConfig}
+            promptHistory={promptHistory}
+            onSubmit={(prompt, options) => {
+              const { image } = promptModalConfig;
+              const aspectRatio = options.aspectRatio || '1:1';
+              const useSourceImage = options.useSourceImage;
+
+              if (promptModalConfig.taskType === 'image') {
+                const dummyImage: ImageInfo = image || {
+                  id: '', file: new File([], ''), fileName: 'prompt-history.png',
+                  dataUrl: '', ownerId: currentUser!.id, isPublic: false
+                };
+                handleGenerationSubmit(dummyImage, prompt, 'image', aspectRatio);
+              } else if (promptModalConfig.taskType === 'enhance' && image) {
+                handleGenerationSubmit(image, prompt, 'enhance', aspectRatio);
+              } else if (promptModalConfig.taskType === 'video') {
+                const sourceImage = useSourceImage ? image : null;
+                handleStartAnimation(sourceImage, prompt, aspectRatio);
+              }
+
+              setPromptModalConfig(null);
+            }}
+          />
+        )}
+        <IdleSlideshow
+          images={filteredImages}
+          isActive={isSlideshowActive}
+          onClose={handleCloseSlideshow}
+        />
+      </div>
     </div>
   );
 };

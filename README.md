@@ -17,9 +17,15 @@ The goal of Image Gallery 2 is to provide a seamless and private way to manage i
 
 - **Smart Upload**: Automatically analyzes uploaded images for content.
 - **Search & Filter**: Find images by keywords or captions.
+- **Enhanced Tag Filter**: Scrollable 2-row grid with keyboard navigation and unlimited sorted tags.
 - **Status Dashboard**: Monitor queue depth, active jobs, and processing speed.
-- **Responsive Design**: Works beautifully on desktop and mobile.
+- **User Profile**: Customize your experience with banners, avatars, and settings.
+- **GPU Management**: Monitor health and perform nuclear resets if needed.
+- **Responsive Design**: Optimized for desktop, tablet, and mobile.
 
+![Profile Page](docs/images/profile-page.png)
+![Tag Filter](docs/images/tag-filter-ui.png)
+![Gallery Picker](docs/images/gallery-picker.png)
 ![Image Details](docs/images/image-details.png)
 
 ## Requirements
@@ -109,7 +115,6 @@ You can define which provider handles specific tasks (Vision, Generation, Animat
 
 - **Upload Images**: Drag and drop images into the upload area.
 - **View Details**: Click on an image to see its caption, tags, and metadata.
-- **Regenerate Captions**: Select images and click "Regenerate" to update their AI analysis.
 - **Regenerate Captions**: Select images and click "Regenerate" to update their AI analysis.
 - **Monitor Status**: Check the "Status" page to see active jobs, queue performance, and GPU health.
 - **Reset GPU**: If the GPU becomes unresponsive, use the "Reset GPU" button on the Status page (requires setup).

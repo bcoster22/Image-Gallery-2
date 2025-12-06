@@ -35,11 +35,43 @@ function fmtAgo(timestamp: number) {
 }
 
 // ---------- Components ----------
-
 interface StatPoint {
   timestamp: number;
   tokensPerSec: number;
   device: 'CPU' | 'GPU';
+}
+
+// Interpolate check for smooth color transition
+function getSmoothColor(value: number) {
+  // Keyframes: 
+  // 0-40: Blue (240) -> Green (120)
+  // 40-60: Green (120) -> Yellow (60)
+  // 60-80: Yellow (60) -> Orange (30)
+  // 80-100: Orange (30) -> Red (0)
+
+  // Clamp value
+  const v = Math.max(0, Math.min(100, value));
+  let hue = 120; // Default green
+
+  if (v <= 40) {
+    // 0 -> 240 (Blue), 40 -> 120 (Green)
+    // Map 0-40 to 240-120
+    hue = 240 - ((v / 40) * 120);
+  } else if (v <= 60) {
+    // 40 -> 120 (Green), 60 -> 60 (Yellow)
+    // Map 0-20 (v-40) to 120-60
+    hue = 120 - (((v - 40) / 20) * 60);
+  } else if (v <= 80) {
+    // 60 -> 60 (Yellow), 80 -> 30 (Orange)
+    // Map 0-20 (v-60) to 60-30
+    hue = 60 - (((v - 60) / 20) * 30);
+  } else {
+    // 80 -> 30 (Orange), 100 -> 0 (Red)
+    // Map 0-20 (v-80) to 30-0
+    hue = 30 - (((v - 80) / 20) * 30);
+  }
+
+  return `hsl(${hue}, 100%, 50%)`;
 }
 
 interface OtelMetrics {
@@ -61,6 +93,7 @@ interface OtelMetrics {
     memory_used: number;
     memory_total: number;
     temperature: number;
+    fan_control_supported?: boolean;
   }[];
 }
 
@@ -107,6 +140,22 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
       }
     } finally {
       setResetting(false);
+    }
+  };
+
+  const handleBoostGpu = async (id: number, enable: boolean) => {
+    try {
+      const response = await fetch(`http://localhost:2021/v1/system/gpu-boost?gpu_id=${id}&enable=${enable}`, {
+        method: 'POST',
+      });
+      if (!response.ok) throw new Error("Failed to set boost mode");
+      const data = await response.json();
+      if (data.status === "success") {
+        alert(enable ? "GPU Boost Enabled (Max Fans + Persistence Mode)" : "GPU Boost Disabled (Auto Fan + Default Power)");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Error setting GPU Boost mode");
     }
   };
 
@@ -313,41 +362,67 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {otelMetrics.gpus.map((gpu) => (
-                  <div key={gpu.id} className="bg-neutral-900/50 border border-white/10 rounded-2xl p-6 relative group">
-                    <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div key={gpu.id} className="bg-neutral-900/50 border border-white/10 rounded-2xl p-6 group">
+
+                    {/* Header: Icon + Meta */}
+                    <div className="flex items-center gap-4 mb-4">
+                      <div className="p-3 bg-green-500/10 rounded-xl">
+                        <Cpu className="w-6 h-6 text-green-400" />
+                      </div>
+                      <div>
+                        <div className="text-xs text-neutral-400 font-medium">NVIDIA</div>
+                        <div className="text-xs text-neutral-500">GPU {gpu.id}</div>
+                      </div>
+                    </div>
+
+                    {/* Controls */}
+                    <div className="flex flex-col gap-2 mb-4">
+                      <div className="flex items-center gap-2">
+                        <button
+                          className="h-7 text-xs px-3 rounded-md bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 border border-blue-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-500/10 flex-1 text-center justify-center flex items-center"
+                          onClick={() => handleBoostGpu(gpu.id, true)}
+                          disabled={!gpu.fan_control_supported}
+                          title={gpu.fan_control_supported ? "Maximize Fans & Persistence Mode" : "Fan control not supported on this GPU"}
+                        >
+                          Boost Mode
+                        </button>
+
+                        <button
+                          className="h-7 text-xs px-3 rounded-md bg-neutral-500/10 text-neutral-400 hover:bg-neutral-500/20 border border-neutral-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-neutral-500/10 flex-1 text-center justify-center flex items-center"
+                          onClick={() => handleBoostGpu(gpu.id, false)}
+                          disabled={!gpu.fan_control_supported}
+                          title={gpu.fan_control_supported ? "Reset Fans & Clocks to Auto" : "Fan control not supported on this GPU"}
+                        >
+                          Normal Mode
+                        </button>
+                      </div>
+
                       <button
-                        className="h-7 text-xs px-3 rounded-md bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 transition-colors"
+                        className="h-7 text-xs px-3 rounded-md bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 transition-colors w-fit"
                         onClick={() => setResetModalOpen(true)}
                       >
                         Reset GPU
                       </button>
                     </div>
 
-                    <div className="flex items-start gap-4 mb-6">
-                      <div className="p-3 bg-green-500/10 rounded-xl">
-                        <Cpu className="w-6 h-6 text-green-400" />
-                      </div>
-                      <div>
-                        <div className="text-xs text-neutral-400 font-medium mb-1">NVIDIA</div>
-                        <div className="font-bold text-white leading-tight">{gpu.name}</div>
-                        <div className="text-xs text-neutral-500 mt-1">GPU {gpu.id} • {gpu.temperature}°C</div>
-                      </div>
-                    </div>
+                    {/* Name */}
+                    <div className="font-bold text-white leading-tight mb-6 text-lg">{gpu.name}</div>
 
                     <div className="space-y-4">
                       {/* Load */}
                       <div className="space-y-1">
                         <div className="flex justify-between text-xs">
                           <span className="text-neutral-400">Load</span>
+                          <span className="text-white font-medium">{gpu.load}%</span>
                         </div>
-                        <div>
-                          <div className="text-2xl font-bold text-white mb-1">{gpu.load}%</div>
-                          <div className="h-1.5 w-full bg-neutral-800 rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-emerald-500 transition-all duration-500"
-                              style={{ width: `${gpu.load}%` }}
-                            />
-                          </div>
+                        <div className="h-2 w-full bg-neutral-800 rounded-full overflow-hidden">
+                          <div
+                            className="h-full transition-all duration-500"
+                            style={{
+                              width: `${gpu.load}%`,
+                              backgroundColor: getSmoothColor(gpu.load)
+                            }}
+                          />
                         </div>
                       </div>
 
@@ -357,13 +432,34 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
                           <span className="text-neutral-400">VRAM</span>
                           <span className="text-white">{gpu.memory_used} / {gpu.memory_total} MB</span>
                         </div>
-                        <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                        <div className="h-2 bg-neutral-800 rounded-full overflow-hidden">
                           <div
-                            className="h-full bg-purple-500 transition-all duration-500"
-                            style={{ width: `${(gpu.memory_used / gpu.memory_total) * 100}%` }}
+                            className="h-full transition-all duration-500"
+                            style={{
+                              width: `${(gpu.memory_used / gpu.memory_total) * 100}%`,
+                              backgroundColor: getSmoothColor((gpu.memory_used / gpu.memory_total) * 100)
+                            }}
                           />
                         </div>
                       </div>
+
+                      {/* Temperature */}
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-neutral-400">Temperature</span>
+                          <span className="text-white font-medium">{gpu.temperature}°C</span>
+                        </div>
+                        <div className="h-2 bg-neutral-800 rounded-full overflow-hidden">
+                          <div
+                            className="h-full transition-all duration-500"
+                            style={{
+                              width: `${Math.min(100, gpu.temperature)}%`, // Temp usually 0-100 scale fits well visually
+                              backgroundColor: getSmoothColor(gpu.temperature)
+                            }}
+                          />
+                        </div>
+                      </div>
+
                     </div>
                   </div>
                 ))}
