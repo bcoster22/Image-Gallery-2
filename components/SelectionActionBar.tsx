@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { TrashIcon, XCircleIcon, WandIcon, CheckCircleIcon, UserIcon, RefreshIcon, SelectAllIcon } from './icons';
+import { TrashIcon, XCircleIcon, WandIcon, CheckCircleIcon, UserIcon, RefreshIcon, SelectAllIcon, ViewfinderIcon } from './icons';
 
 interface SelectionActionBarProps {
   count: number;
@@ -11,9 +11,10 @@ interface SelectionActionBarProps {
   onMakePrivate: () => void;
   onRegenerate: () => void;
   onSelectAll: () => void;
+  onSmartCrop: () => void;
 }
 
-const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ count, onDelete, onClear, onRemix, onMakePublic, onMakePrivate, onRegenerate, onSelectAll }) => {
+const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ count, onDelete, onClear, onRemix, onMakePublic, onMakePrivate, onRegenerate, onSelectAll, onSmartCrop }) => {
   return (
     <div className={`fixed bottom-0 left-0 right-0 z-40 p-4 flex justify-center transition-transform duration-300 ease-in-out ${count > 0 ? 'translate-y-0' : 'translate-y-full'}`}>
       <div className="bg-gray-800/90 backdrop-blur-md border border-gray-700 rounded-lg shadow-2xl flex flex-wrap items-center justify-between p-3 gap-3 w-full max-w-2xl">
@@ -54,6 +55,16 @@ const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ count, onDelete
           >
             <RefreshIcon className="w-4 h-4" />
             Regenerate
+          </button>
+
+          <button
+            onClick={onSmartCrop}
+            disabled={count === 0}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-1.5 px-3 rounded-lg transition-colors flex items-center gap-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Auto-crop to main subject"
+          >
+            <ViewfinderIcon className="w-4 h-4" />
+            Smart Crop
           </button>
 
           <div className="h-6 w-px bg-gray-600 mx-1"></div>

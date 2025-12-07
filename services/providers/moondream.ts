@@ -355,6 +355,52 @@ export class MoondreamLocalProvider extends BaseProvider {
     const { text: responseText, stats } = await callMoondreamApi(apiUrl, "", body, false);
     return { recreationPrompt: responseText, keywords: [], stats };
   }
+
+  async detectSubject(
+    image: ImageInfo,
+    settings: AdminSettings
+  ): Promise<{ x: number, y: number }> {
+    const { endpoint, model } = settings.providers.moondream_local;
+    const baseUrl = normalizeEndpoint(endpoint || 'http://localhost:2021/v1');
+    const apiUrl = `${baseUrl}/v1/chat/completions`;
+
+    // Prompt for JSON coordinates
+    const prompt = 'Detect the main subject. Return the bounding box coordinates as a JSON object: {"ymin": 0.0, "xmin": 0.0, "ymax": 1.0, "xmax": 1.0}.';
+
+    const body = {
+      model: model || "moondream-2",
+      messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: image.dataUrl } }] }],
+      stream: false,
+      max_tokens: 256,
+      response_format: { type: "json_object" } // Try to hint JSON mode if supported, otherwise prompt does lifting
+    };
+
+    try {
+      const { text: responseText } = await callMoondreamApi(apiUrl, "", body, false);
+
+      // Try strict JSON parse
+      let bbox = null;
+      try {
+        // Clean markdown blocks if present
+        const cleanText = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+        bbox = JSON.parse(cleanText);
+      } catch (e) {
+        console.warn("Failed to parse JSON for detectSubject. Trying regex fallback.");
+        // Fallback regex for [ymin, xmin, ymax, xmax] arrays or similar
+      }
+
+      if (bbox && typeof bbox.ymin === 'number') {
+        const centerX = ((bbox.xmin + bbox.xmax) / 2) * 100;
+        const centerY = ((bbox.ymin + bbox.ymax) / 2) * 100;
+        return { x: Math.round(centerX), y: Math.round(centerY) };
+      }
+
+      return { x: 50, y: 50 }; // Default center
+    } catch (e) {
+      console.error("detectSubject failed:", e);
+      return { x: 50, y: 50 };
+    }
+  }
 }
 
 // Register Providers

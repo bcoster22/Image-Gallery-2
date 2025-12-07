@@ -195,9 +195,17 @@ const MetadataPanel: React.FC<MetadataPanelProps> = ({
             {image.width && image.height && image.aspectRatio && (
               <>
                 <h3 className="text-xs font-semibold uppercase text-gray-400 mb-1">Image Details</h3>
-                <p className="text-sm text-gray-300 bg-gray-900/50 py-1 px-2 rounded-md inline-block">
-                  {image.width} &times; {image.height} <span className="text-gray-400">({image.aspectRatio})</span>
-                </p>
+                <div className="flex flex-wrap gap-2">
+                  <p className="text-sm text-gray-300 bg-gray-900/50 py-1 px-2 rounded-md inline-block">
+                    {image.width} &times; {image.height} <span className="text-gray-400">({image.aspectRatio})</span>
+                  </p>
+                  {image.smartCrop && (
+                    <div className="flex items-center gap-1.5 text-sm text-gray-300 bg-gray-900/50 py-1 px-2 rounded-md" title="Smart Crop Center">
+                      <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
+                      <span>{image.smartCrop.x.toFixed(0)}%, {image.smartCrop.y.toFixed(0)}%</span>
+                    </div>
+                  )}
+                </div>
               </>
             )}
           </div>
@@ -289,7 +297,7 @@ const MetadataPanel: React.FC<MetadataPanelProps> = ({
               <button
                 key={i}
                 onClick={() => onKeywordClick(kw)}
-                className="px-2.5 py-1 text-sm bg-gray-700/80 rounded-full hover:bg-indigo-600 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="px-3 py-1.5 text-base bg-gray-700/80 rounded-full hover:bg-indigo-600 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
                 {kw}
               </button>
@@ -611,8 +619,8 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
                   src={currentImage.dataUrl}
                   alt={currentImage.fileName}
                   className={`animate-fade-in block rounded-lg shadow-2xl object-contain ${(currentImage.height || 0) > (currentImage.width || 0)
-                      ? 'h-full w-auto max-h-full' // Portrait: prioritize height
-                      : 'w-full h-auto max-w-full' // Landscape: prioritize width
+                    ? 'h-full w-auto max-h-full' // Portrait: prioritize height
+                    : 'w-full h-auto max-w-full' // Landscape: prioritize width
                     }`}
                   draggable="false"
                 />

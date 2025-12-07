@@ -68,11 +68,12 @@ export const testProviderConnection = async (
     }
 };
 
-type FunctionName = 'analyzeImage' | 'generateImageFromPrompt' | 'animateImage' | 'editImage' | 'generateKeywordsForPrompt' | 'enhancePromptWithKeywords' | 'adaptPromptToTheme';
+type FunctionName = 'analyzeImage' | 'detectSubject' | 'generateImageFromPrompt' | 'animateImage' | 'editImage' | 'generateKeywordsForPrompt' | 'enhancePromptWithKeywords' | 'adaptPromptToTheme';
 
 function getCapabilityForFunction(funcName: FunctionName): Capability {
     switch (funcName) {
         case 'analyzeImage': return 'vision';
+        case 'detectSubject': return 'vision';
         case 'generateImageFromPrompt': return 'generation';
         case 'animateImage': return 'animation';
         case 'editImage': return 'editing';
@@ -263,6 +264,13 @@ export const analyzeImage = async (
     }
 
     return result;
+};
+
+export const detectSubject = async (
+    image: ImageInfo,
+    settings: AdminSettings
+): Promise<{ x: number, y: number } | undefined> => {
+    return executeWithFallback(settings, 'detectSubject', [image]);
 };
 
 export const generateImageFromPrompt = async (

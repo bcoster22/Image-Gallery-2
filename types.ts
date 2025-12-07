@@ -46,10 +46,16 @@ export interface IAiProvider {
   ): Promise<ImageAnalysisResult>;
 
   /**
+   * Detects the main subject in an image and returns its center coordinates.
+   * Required for 'vision' capability.
+   */
+  detectSubject?(image: ImageInfo, settings: AdminSettings): Promise<{ x: number, y: number }>; // Returns center coordinates (0-100)
+
+  /**
    * Generates an image from a text prompt.
    * Required for 'generation' capability.
    */
-  generateImage?(
+  generateImageFromPrompt?(
     prompt: string,
     settings: AdminSettings,
     aspectRatio?: AspectRatio
@@ -80,7 +86,7 @@ export interface IAiProvider {
    * Generates keywords for a given prompt.
    * Part of 'textGeneration' capability.
    */
-  generateKeywords?(
+  generateKeywordsForPrompt?(
     prompt: string,
     settings: AdminSettings
   ): Promise<string[]>;
@@ -89,7 +95,7 @@ export interface IAiProvider {
    * Enhances a prompt using provided keywords.
    * Part of 'textGeneration' capability.
    */
-  enhancePrompt?(
+  enhancePromptWithKeywords?(
     prompt: string,
     keywords: string[],
     settings: AdminSettings
@@ -117,6 +123,14 @@ export interface User {
     y: number; // Percentage 0-100
     scale: number; // Zoom level (e.g., 1 to 3)
   };
+  galleryLayout?: 'masonry' | 'grid';
+  slideshowTransition?: 'fade' | 'cross-fade' | 'slide' | 'zoom' | 'ken-burns' | 'cube' | 'stack' | 'random' | 'parallax';
+  slideshowSmartCrop?: boolean;
+  slideshowAdaptivePan?: boolean;
+  slideshowInterval?: number;          // ms
+  slideshowAnimationDuration?: number; // ms
+  slideshowBounce?: boolean;
+  slideshowRandomOrder?: boolean;
 }
 
 export interface GeminiSafetySettings {
@@ -232,6 +246,7 @@ export interface ImageInfo {
   authorAvatarUrl?: string;
   likes?: number;
   commentsCount?: number;
+  smartCrop?: { x: number; y: number }; // Center position in percentages (0-100)
   // NSFW Classification
   nsfwClassification?: {
     label: 'NSFW' | 'SFW' | 'Unknown';

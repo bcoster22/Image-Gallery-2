@@ -12,7 +12,9 @@ interface ImageGridProps {
   disabled?: boolean;
   isSelectionMode: boolean;
   selectedIds: Set<string>;
+  onSelectionChange?: (ids: Set<string>) => void;
   blurNsfw?: boolean;
+  layout?: 'masonry' | 'grid';
 }
 
 interface GridItemProps {
@@ -23,43 +25,102 @@ interface GridItemProps {
   isSelectionMode: boolean;
   isSelected: boolean;
   blurNsfw?: boolean;
+  layout?: 'masonry' | 'grid';
 }
 
-const GridItem: React.FC<GridItemProps> = ({ image, onImageClick, isAnalyzing, isGeneratingSource, isSelectionMode, isSelected, blurNsfw }) => {
+const GridItem: React.FC<GridItemProps> = ({ image, onImageClick, isAnalyzing, isGeneratingSource, isSelectionMode, isSelected, blurNsfw, layout = 'masonry' }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const isOfflineVideo = image.isVideo && !image.videoUrl;
+  const longPressTimerRef = useRef<number | null>(null);
 
   // Check if image should be blurred based on NSFW classification
   const shouldBlur = blurNsfw && image.nsfwClassification?.label === 'NSFW';
 
+  // Video Autoplay Observer
+  React.useEffect(() => {
+    if (!videoRef.current || isSelectionMode || isOfflineVideo) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            videoRef.current?.play().catch(() => { });
+          } else {
+            videoRef.current?.pause();
+          }
+        });
+      },
+      { threshold: 0.6 }
+    );
+
+    observer.observe(videoRef.current);
+
+    return () => observer.disconnect();
+  }, [isSelectionMode, isOfflineVideo]);
+
   const handleMouseEnter = () => {
     if (videoRef.current && !isSelectionMode) {
-      videoRef.current.play().catch(error => {
-        // Autoplay was prevented by browser policy
-        console.warn("Video autoplay prevented:", error);
-      });
+      videoRef.current.play().catch(() => { });
     }
   };
 
   const handleMouseLeave = () => {
     if (videoRef.current && !isSelectionMode) {
       videoRef.current.pause();
+      // Don't reset time on mouse leave for feed-like behavior, or do?
+      // Keeping original behavior:
       videoRef.current.currentTime = 0;
     }
   };
 
+  // Long Press Logic
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (isSelectionMode) return;
+    longPressTimerRef.current = window.setTimeout(() => {
+      // Long press triggered
+      if (navigator.vibrate) navigator.vibrate(15);
+      // Simulate Ctrl+Click
+      const syntheticEvent = {
+        ...e,
+        ctrlKey: true,
+        preventDefault: () => { },
+        stopPropagation: () => { },
+        target: e.target,
+      } as unknown as React.MouseEvent;
+      onImageClick(image, syntheticEvent);
+    }, 500);
+  };
+
+  const handleTouchEnd = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const isGrid = layout === 'grid';
+
+  // Determine object position
+  const objectPosition = layout === 'grid' && image.smartCrop
+    ? `${image.smartCrop.x}% ${image.smartCrop.y}%`
+    : 'center';
+
   return (
     <div
-      className={`group relative overflow-hidden rounded-lg shadow-lg transition-all duration-300 break-inside-avoid mb-3 sm:mb-4 ${isSelectionMode ? 'cursor-pointer' : 'cursor-pointer'} ${isSelected ? 'ring-2 ring-offset-2 ring-offset-gray-900 ring-indigo-500 scale-95' : ''} ${isSelectionMode && !isSelected ? 'opacity-60 hover:opacity-100' : ''}`}
+      className={`group relative overflow-hidden rounded-lg shadow-lg transition-all duration-300 ${isGrid ? 'aspect-square h-full' : 'break-inside-avoid mb-3 sm:mb-4'} ${isSelectionMode ? 'cursor-pointer' : 'cursor-pointer'} ${isSelected ? 'ring-2 ring-offset-2 ring-offset-gray-900 ring-indigo-500 scale-95' : ''} ${isSelectionMode && !isSelected ? 'opacity-60 hover:opacity-100' : ''}`}
       onClick={(e) => onImageClick(image, e)}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchMove={handleTouchEnd} // Cancel on scroll/move
     >
       {image.isVideo && image.videoUrl ? (
         <video
           ref={videoRef}
           src={image.videoUrl}
-          className={`w-full h-auto block transition-transform duration-300 ease-in-out ${!isSelectionMode ? 'group-hover:scale-105' : ''}`}
+          className={`w-full block transition-transform duration-300 ease-in-out ${isGrid ? 'h-full object-cover' : 'h-auto'} ${!isSelectionMode ? 'group-hover:scale-105' : ''}`}
+          style={{ objectPosition }}
           loop
           muted
           playsInline
@@ -69,11 +130,13 @@ const GridItem: React.FC<GridItemProps> = ({ image, onImageClick, isAnalyzing, i
         <img
           src={image.dataUrl}
           alt={image.fileName}
-          className={`w-full h-auto block transition-transform duration-300 ease-in-out ${!isSelectionMode ? 'group-hover:scale-105' : ''} ${shouldBlur ? 'blur-xl group-hover:blur-none' : ''}`}
+          className={`w-full block transition-transform duration-300 ease-in-out ${isGrid ? 'h-full object-cover' : 'h-auto'} ${!isSelectionMode ? 'group-hover:scale-105' : ''} ${shouldBlur ? 'blur-xl group-hover:blur-none' : ''}`}
+          style={{ objectPosition }}
           loading="lazy"
         />
       )}
 
+      {/* Overlays remain the same */}
       {!isSelectionMode && (
         <>
           <div className="absolute top-2 right-2 p-1.5 bg-black/40 backdrop-blur-sm rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300">
@@ -164,15 +227,87 @@ interface SelectionBox {
   currentY: number;
 }
 
-const ImageGrid: React.FC<ImageGridProps & { onSelectionChange?: (ids: Set<string>) => void }> = ({ images, onImageClick, analyzingIds, generatingIds, disabled, isSelectionMode, selectedIds, onSelectionChange, blurNsfw }) => {
+import { FixedSizeGrid, GridChildComponentProps } from 'react-window';
+import AutoSizer from 'react-virtualized-auto-sizer';
+
+// Helper hook for window dimensions
+function useWindowDimensions() {
+  const [windowDimensions, setWindowDimensions] = React.useState({
+    width: typeof window !== 'undefined' ? window.innerWidth : 1200,
+    height: typeof window !== 'undefined' ? window.innerHeight : 800,
+  });
+
+  React.useEffect(() => {
+    function handleResize() {
+      setWindowDimensions({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+    }
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  return windowDimensions;
+}
+
+const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, analyzingIds, generatingIds, disabled, isSelectionMode, selectedIds, onSelectionChange, blurNsfw, layout = 'masonry' }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const { width } = useWindowDimensions(); // This is now only used for initial columnCount, AutoSizer will provide actual width
   const [selectionBox, setSelectionBox] = React.useState<SelectionBox | null>(null);
   const isDragging = useRef(false);
   const dragStartPos = useRef({ x: 0, y: 0 });
 
+  // Responsive Column Logic
+  const getColumnCount = (width: number) => {
+    if (width >= 1536) return 8; // 2xl
+    if (width >= 1280) return 6; // xl
+    if (width >= 1024) return 5; // lg
+    if (width >= 768) return 4; // md
+    if (width >= 640) return 3; // sm
+    return 2; // base
+  };
+
+  const padding = 16;
+  const gap = 16;
+
+  // Cell Renderer
+  const Cell = ({ columnIndex, rowIndex, style, data }: GridChildComponentProps & { data: { columnCount: number, images: ImageInfo[] } }) => {
+    const { columnCount, images } = data;
+    const index = rowIndex * columnCount + columnIndex;
+    if (index >= images.length) return null;
+
+    const image = images[index];
+
+    // Adjust style for gap - react-window gives absolute positioning
+    const contentStyle = {
+      ...style,
+      left: Number(style.left) + (gap / 2), // Distribute gap on left
+      top: Number(style.top) + (gap / 2),   // Distribute gap on top
+      width: Number(style.width) - gap,     // Shrink width by full gap
+      height: Number(style.height) - gap,   // Shrink height by full gap
+    };
+
+    return (
+      <div style={contentStyle}>
+        <div data-id={image.id} className="h-full w-full">
+          <GridItem
+            image={image}
+            onImageClick={onImageClick}
+            isAnalyzing={analyzingIds.has(image.id)}
+            isGeneratingSource={generatingIds.has(image.id)}
+            isSelectionMode={isSelectionMode}
+            isSelected={selectedIds.has(image.id)}
+            blurNsfw={blurNsfw}
+            layout={layout}
+          />
+        </div>
+      </div>
+    );
+  };
+
   const handleMouseDown = (e: React.MouseEvent) => {
     if (!isSelectionMode || disabled || !onSelectionChange) return;
-    // Ignore clicks on interactive elements
     if ((e.target as HTMLElement).closest('button, a, input, video')) return;
 
     isDragging.current = true;
@@ -194,57 +329,30 @@ const ImageGrid: React.FC<ImageGridProps & { onSelectionChange?: (ids: Set<strin
 
     setSelectionBox(prev => prev ? { ...prev, currentX: x, currentY: y } : null);
 
-    // Calculate intersection
     const boxLeft = Math.min(dragStartPos.current.x, x);
     const boxTop = Math.min(dragStartPos.current.y, y);
     const boxRight = Math.max(dragStartPos.current.x, x);
     const boxBottom = Math.max(dragStartPos.current.y, y);
 
-    const newSelectedIds = new Set(e.shiftKey ? selectedIds : []); // Keep existing if shift is held? Or just add? 
-    // Usually drag select replaces unless Shift/Ctrl is held. Let's assume replace for now, or add if Shift.
-    // User asked for "mouse left click and drag slect images". Usually implies adding or setting.
-    // Let's go with: if Shift, add to existing. If not, replace.
-    // Actually, simpler: just calculate what's in the box and merge with initial selection if needed.
-    // But for a smooth experience, we usually want to start with the selection state at drag start.
-    // Let's just calculate "ids in box" and let the parent handle merging if we want complex logic.
-    // But here we update the parent directly.
-
-    // Let's stick to: Dragging selects items in the box. 
-    // If we want to support "add to selection", we need to know the initial selection at drag start.
-    // For now, let's implement: Dragging selects items in the box.
-
+    // Optimized Box Selection for Virtual Grid?
+    // We stick to DOM query since react-window renders visible items.
     const items = containerRef.current.querySelectorAll('[data-id]');
     const idsInBox = new Set<string>();
 
     items.forEach(item => {
       const itemRect = item.getBoundingClientRect();
-      const itemLeft = itemRect.left - rect.left;
-      const itemTop = itemRect.top - rect.top;
+      const containerRect = containerRef.current!.getBoundingClientRect();
+
+      const itemLeft = itemRect.left - containerRect.left;
+      const itemTop = itemRect.top - containerRect.top;
       const itemRight = itemLeft + itemRect.width;
       const itemBottom = itemTop + itemRect.height;
 
-      // Check intersection
-      if (
-        boxLeft < itemRight &&
-        boxRight > itemLeft &&
-        boxTop < itemBottom &&
-        boxBottom > itemTop
-      ) {
+      if (boxLeft < itemRight && boxRight > itemLeft && boxTop < itemBottom && boxBottom > itemTop) {
         const id = item.getAttribute('data-id');
         if (id) idsInBox.add(id);
       }
     });
-
-    // If Shift is pressed, merge with initial selection (we'd need to track initial selection).
-    // For simplicity, let's just set selection to idsInBox for now, or maybe union with existing if we want additive.
-    // Let's do union if Shift is held, otherwise replace.
-    // But `selectedIds` updates as we drag if we call `onSelectionChange`.
-    // So we can't rely on `selectedIds` prop for "initial" state unless we capture it on MouseDown.
-    // Let's capture initial selection on MouseDown.
-
-    // Actually, implementing full drag-select logic with modifier keys is complex.
-    // Let's start with: Dragging creates a new selection of items in the box.
-    // If the user wants to add, they can hold Shift (we can implement that logic).
 
     onSelectionChange(idsInBox);
   };
@@ -254,7 +362,6 @@ const ImageGrid: React.FC<ImageGridProps & { onSelectionChange?: (ids: Set<strin
     setSelectionBox(null);
   };
 
-  // Attach global mouse up listener to handle drag end outside container
   React.useEffect(() => {
     const handleGlobalMouseUp = () => {
       if (isDragging.current) {
@@ -269,24 +376,35 @@ const ImageGrid: React.FC<ImageGridProps & { onSelectionChange?: (ids: Set<strin
   return (
     <div
       ref={containerRef}
-      className={`relative columns-2 sm:columns-3 md:columns-4 lg:columns-5 xl:columns-6 2xl:columns-8 gap-3 sm:gap-4 ${disabled ? 'pointer-events-none opacity-60 transition-opacity' : ''} ${isSelectionMode ? 'select-none' : ''}`}
+      className={`h-[calc(100vh-140px)] w-full ${disabled ? 'pointer-events-none opacity-60' : ''} ${isSelectionMode ? 'select-none' : ''}`}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
     >
-      {images.map((image) => (
-        <div key={image.id} data-id={image.id} className="break-inside-avoid mb-3 sm:mb-4">
-          <GridItem
-            image={image}
-            onImageClick={onImageClick}
-            isAnalyzing={analyzingIds.has(image.id)}
-            isGeneratingSource={generatingIds.has(image.id)}
-            isSelectionMode={isSelectionMode}
-            isSelected={selectedIds.has(image.id)}
-            blurNsfw={blurNsfw}
-          />
-        </div>
-      ))}
+      <AutoSizer>
+        {({ height, width }) => {
+          const columnCount = getColumnCount(width);
+          // itemWidth now includes the gap, so the content inside Cell will subtract the gap
+          const itemWidth = (width - padding) / columnCount;
+          const rowCount = Math.ceil(images.length / columnCount);
+
+          return (
+            <FixedSizeGrid
+              columnCount={columnCount}
+              columnWidth={itemWidth}
+              height={height}
+              rowCount={rowCount}
+              rowHeight={itemWidth} // Square items
+              width={width}
+              className="scrollbar-hide"
+              style={{ overflowX: 'hidden' }}
+              itemData={{ columnCount, images }}
+            >
+              {Cell}
+            </FixedSizeGrid>
+          );
+        }}
+      </AutoSizer>
 
       {selectionBox && (
         <div
@@ -296,6 +414,7 @@ const ImageGrid: React.FC<ImageGridProps & { onSelectionChange?: (ids: Set<strin
             top: Math.min(selectionBox.startY, selectionBox.currentY),
             width: Math.abs(selectionBox.currentX - selectionBox.startX),
             height: Math.abs(selectionBox.currentY - selectionBox.startY),
+            position: 'absolute'
           }}
         />
       )}

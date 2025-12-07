@@ -2,16 +2,17 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 // FIX: Added AppSettings to import for settings migration.
 import { ImageInfo, AdminSettings, User, GenerationTask, Notification, AspectRatio, GalleryView, AiProvider, UploadProgress, AppSettings, AnalysisProgress, QueueStatus, ActiveJob } from './types';
-import { analyzeImage, animateImage, editImage, generateImageFromPrompt, adaptPromptToTheme, FallbackChainError } from './services/aiService';
+import { analyzeImage, animateImage, editImage, generateImageFromPrompt, adaptPromptToTheme, FallbackChainError, detectSubject } from './services/aiService';
 import { fileToDataUrl, getImageMetadata, dataUrlToBlob, generateVideoThumbnail, createGenericPlaceholder, extractAIGenerationMetadata, resizeImage, getClosestSupportedAspectRatio } from './utils/fileUtils';
 import { RateLimitedApiQueue } from './utils/rateLimiter';
-import { initDB, getImages, saveImage, deleteImages } from './utils/idb';
+import { initDB, getImages, saveImage, deleteImages, updateImage } from './utils/idb';
 import ImageGrid from './components/ImageGrid';
 import ImageViewer from './components/ImageViewer';
 import UploadArea from './components/UploadArea';
 import AdminSettingsPage from './components/AdminSettingsPage';
 import LoginModal from './components/LoginModal';
 import UserMenu from './components/UserMenu';
+import BottomNav from './components/BottomNav';
 import NotificationArea from './components/NotificationArea';
 import VeoKeySelectionModal from './components/VeoKeySelectionModal';
 import CreationsPage from './components/CreationsPage';
@@ -29,6 +30,7 @@ import GenerationStatusIndicator from './components/GenerationStatusIndicator';
 import UploadProgressIndicator from './components/UploadProgressIndicator';
 import AnalysisProgressIndicator from './components/AnalysisProgressIndicator';
 import UserProfilePage from './components/UserProfilePage';
+import NavigationBenchmark from './components/NavigationBenchmark';
 
 const SETTINGS_STORAGE_KEY = 'ai_gallery_settings_v2'; // Updated key for new structure
 const OLD_SETTINGS_STORAGE_KEY = 'ai_gallery_settings'; // Old key for migration
@@ -37,8 +39,20 @@ const PROMPTS_STORAGE_KEY = 'ai_gallery_prompts';
 const MAX_PROMPT_HISTORY = 100;
 
 const MOCK_USERS = {
-  google: { id: 'user_google_123', name: 'Alex', email: 'alex@google.com', avatarUrl: `https://api.dicebear.com/8.x/adventurer/svg?seed=Alex` },
-  github: { id: 'user_github_456', name: 'Sam', email: 'sam@github.com', avatarUrl: `https://api.dicebear.com/8.x/adventurer/svg?seed=Sam` },
+  google: {
+    id: 'user_google_123',
+    name: 'Alex',
+    email: 'alex@google.com',
+    avatarUrl: `https://api.dicebear.com/8.x/adventurer/svg?seed=Alex`,
+    slideshowAdaptivePan: true
+  },
+  github: {
+    id: 'user_github_456',
+    name: 'Sam',
+    email: 'sam@github.com',
+    avatarUrl: `https://api.dicebear.com/8.x/adventurer/svg?seed=Sam`,
+    slideshowAdaptivePan: true
+  },
 };
 
 interface TagFilterBarProps {
@@ -57,10 +71,6 @@ const TagFilterBar: React.FC<TagFilterBarProps> = ({ allTags, activeTags, onTogg
   React.useEffect(() => {
     buttonRefs.current = buttonRefs.current.slice(0, allTags.length);
   }, [allTags]);
-
-  if (allTags.length === 0) {
-    return null;
-  }
 
   // Use native event listener to support non-passive behavior for preventDefault
   React.useEffect(() => {
@@ -83,6 +93,10 @@ const TagFilterBar: React.FC<TagFilterBarProps> = ({ allTags, activeTags, onTogg
       }
     };
   }, []);
+
+  if (allTags.length === 0) {
+    return null;
+  }
 
   const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
     let nextIndex = index;
@@ -155,7 +169,7 @@ const TagFilterBar: React.FC<TagFilterBarProps> = ({ allTags, activeTags, onTogg
 
       <div
         ref={scrollRef}
-        className="grid grid-rows-2 grid-flow-col gap-2 overflow-x-auto scrollbar-none -mx-4 px-4 pb-2"
+        className="grid grid-rows-2 grid-flow-col gap-2 overflow-x-auto scrollbar-none -mx-4 px-4 pb-2 snap-x snap-mandatory"
         style={{ scrollBehavior: 'smooth' }}
       >
         {allTags.map((tag, index) => {
@@ -168,10 +182,8 @@ const TagFilterBar: React.FC<TagFilterBarProps> = ({ allTags, activeTags, onTogg
               onKeyDown={(e) => handleKeyDown(e, index)}
               onFocus={() => setFocusedIndex(index)}
               tabIndex={focusedIndex === index ? 0 : -1}
-              className={`flex-shrink-0 px-4 py-2 text-sm rounded-lg font-medium transition-all whitespace-nowrap text-left outline-none focus:ring-2 focus:ring-indigo-500 ${isActive
-                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30'
-                : 'bg-gray-700/50 hover:bg-gray-700 text-gray-300 border border-gray-600/30 hover:border-gray-500'
-                }`}
+              className={`snap-start px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all duration-200 border ${isActive ? 'bg-indigo-600 border-indigo-500 text-white shadow-md transform scale-105' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700 hover:border-gray-600'
+                } focus:outline-none focus:ring-2 focus:ring-indigo-500`}
               title={tag}
             >
               {tag}
@@ -252,7 +264,7 @@ const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('moondream_stats', JSON.stringify(statsHistory));
   }, [statsHistory]);
-  const [selectedIds, setSelectedIds] = new useState<Set<string>>(new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isBatchRemixModalOpen, setIsBatchRemixModalOpen] = useState(false);
   const [activeTags, setActiveTags] = useState<Set<string>>(new Set());
@@ -1435,6 +1447,7 @@ const App: React.FC = () => {
       addNotification({ status: 'error', message: 'Failed to delete some items.' });
     });
 
+
     setIsDeleteModalOpen(false);
     setIsSelectionMode(false);
     setSelectedIds(new Set());
@@ -1534,6 +1547,108 @@ const App: React.FC = () => {
     return new Set(generationTasks.filter(t => t.status === 'processing').map(t => t.sourceImageId).filter(Boolean));
   }, [generationTasks]);
 
+  const [processingSmartCropIds, setProcessingSmartCropIds] = useState<Set<string>>(new Set());
+
+  // --- Smart Crop Logic ---
+
+  const performSmartCrop = async (image: ImageInfo, isBackground: boolean = false) => {
+    if (!settings) return;
+
+    // Register job manually for Queue Monitor
+    const jobId = crypto.randomUUID();
+    activeRequestsRef.current++;
+    activeJobsRef.current.push({
+      id: jobId,
+      fileName: image.fileName,
+      size: image.dataUrl.length,
+      startTime: Date.now()
+    });
+    syncQueueStatus();
+
+    setProcessingSmartCropIds(prev => new Set(prev).add(image.id));
+
+    try {
+      if (!isBackground) {
+        addNotification({ status: 'info', message: 'Smart Cropping ' + image.fileName + '...' });
+      }
+
+      const crop = await detectSubject(image, settings);
+      if (crop) {
+        await updateImage(image.id, { smartCrop: crop });
+        setImages(prev => prev.map(img => img.id === image.id ? { ...img, smartCrop: crop } : img));
+        if (!isBackground) {
+          addNotification({ status: 'success', message: 'Smart Crop complete.' });
+        }
+      }
+    } catch (e) {
+      console.error('Smart crop failed for ' + image.id, e);
+      if (!isBackground) {
+        addNotification({ status: 'error', message: 'Failed to crop ' + image.fileName });
+      }
+    } finally {
+      // Cleanup job
+      activeRequestsRef.current--;
+      activeJobsRef.current = activeJobsRef.current.filter(j => j.id !== jobId);
+      syncQueueStatus();
+      setProcessingSmartCropIds(prev => {
+        const next = new Set(prev);
+        next.delete(image.id);
+        return next;
+      });
+    }
+  };
+
+  const handleSmartCrop = async () => {
+    const idsToProcess = Array.from(selectedIds);
+    // Filter out already cropped images
+    const pendingIds = idsToProcess.filter(id => {
+      const img = images.find(i => i.id === id);
+      return img && !img.smartCrop;
+    });
+
+    if (pendingIds.length === 0) {
+      addNotification({ status: 'info', message: "All selected images already have Smart Crop." });
+      setIsSelectionMode(false);
+      setSelectedIds(new Set());
+      return;
+    }
+
+    addNotification({ status: 'info', message: 'Smart Cropping ' + pendingIds.length + ' images...' });
+
+    // Process sequentially to be nice to the local GPU
+    for (const id of pendingIds) {
+      const image = images.find(img => img.id === id);
+      if (image) {
+        await performSmartCrop(image, false);
+      }
+    }
+
+    setIsSelectionMode(false);
+    setSelectedIds(new Set());
+  };
+
+  // Auto Smart Crop Effect for Slideshow
+  useEffect(() => {
+    if (!isSlideshowActive || !currentUser?.slideshowSmartCrop || !settings) return;
+
+    // Find the next candidate that needs cropping
+    // We prioritize visible images in the slideshow logic, but here we just grab the first one
+    // in the filtered list that hasn't been done yet. 
+    // Ideally, we'd sync with the slideshow index, but global improvement is also fine.
+    const candidate = filteredImages.find(img => !img.smartCrop && !img.isGenerating);
+
+    if (candidate) {
+      // Debounce slightly to not hammer the UI thread if many transitions happen
+      const timer = setTimeout(() => {
+        // Check concurrency
+        if (activeRequestsRef.current < 1) { // Only do one background task at a time
+          performSmartCrop(candidate, true);
+        }
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [isSlideshowActive, currentUser?.slideshowSmartCrop, filteredImages, settings, queueStatus.activeCount]); // Re-run when queue changes to pick up next slot
+
   const showUploadArea = galleryView === 'my-gallery' && currentUser && filteredImages.length === 0 && !searchQuery;
 
   // Calculate if there are any failed analysis items for the current user
@@ -1610,21 +1725,22 @@ const App: React.FC = () => {
           <div
             className="absolute inset-0 opacity-40 transition-all duration-700 ease-in-out"
             style={{
-              backgroundImage: `url(${currentUser.bannerUrl})`,
-              backgroundPosition: `${currentUser.bannerPosition?.x || 50}% ${currentUser.bannerPosition?.y || 50}%`,
+              backgroundImage: 'url(' + currentUser.bannerUrl + ')',
+              backgroundPosition: (currentUser.bannerPosition?.x || 50) + '% ' + (currentUser.bannerPosition?.y || 50) + '%',
               backgroundSize: 'cover',
-              transform: `scale(${currentUser.bannerPosition?.scale || 1})`,
-              transformOrigin: `${currentUser.bannerPosition?.x || 50}% ${currentUser.bannerPosition?.y || 50}%`,
+              transform: 'scale(' + (currentUser.bannerPosition?.scale || 1) + ')',
+              transformOrigin: (currentUser.bannerPosition?.x || 50) + '% ' + (currentUser.bannerPosition?.y || 50) + '%',
             }}
           />
           {/* Gradient overlay to ensure text readability */}
           <div className="absolute inset-0 bg-gradient-to-t from-gray-900 via-gray-900/80 to-gray-900/60" />
         </div>
       )}
+      <NavigationBenchmark />
 
       {/* Main Content Wrapper - Ensure z-index is above banner */}
-      <div className="relative z-10 min-h-screen flex flex-col">
-        <header className="p-4 sm:p-6 border-b border-gray-700/50 flex justify-between items-center bg-gray-900/40 backdrop-blur-md sticky top-0 z-50">
+      <div className="relative z-10 min-h-screen flex flex-col pb-20 md:pb-0">
+        <header className="hidden md:flex p-4 sm:p-6 border-b border-gray-700/50 justify-between items-center bg-gray-900/40 backdrop-blur-md sticky top-0 z-50">
           <div className="text-left">
             <h1 className="text-2xl sm:text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-indigo-500">
               Gemini Vision Gallery
@@ -1640,14 +1756,14 @@ const App: React.FC = () => {
             </button>
             <button
               onClick={() => setIsSlideshowActive(!isSlideshowActive)}
-              className={`p-2 rounded-lg transition-colors ${isSlideshowActive ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
+              className={'p-2 rounded-lg transition-colors ' + (isSlideshowActive ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-800')}
               title={isSlideshowActive ? "Stop Slideshow" : "Start Slideshow"}
             >
               {isSlideshowActive ? <StopIcon className="w-6 h-6" /> : <PlayIcon className="w-6 h-6" />}
             </button>
             <button
               onClick={() => setGalleryView('status')}
-              className={`p-2 rounded-full transition-colors ${galleryView === 'status' ? 'text-white bg-gray-700' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}
+              className={'p-2 rounded-full transition-colors ' + (galleryView === 'status' ? 'text-white bg-gray-700' : 'text-gray-400 hover:text-white hover:bg-gray-700')}
               title="System Status"
             >
               <Activity className="w-6 h-6" />
@@ -1685,21 +1801,21 @@ const App: React.FC = () => {
             <NoSettingsPrompt onSettingsClick={() => setGalleryView('admin-settings')} />
           ) : (
             <div>
-              <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6">
+              <div className="sticky top-0 z-40 bg-gray-900/95 backdrop-blur-xl -mx-4 px-4 py-3 mb-6 border-b border-gray-800 shadow-lg md:shadow-none md:static md:bg-transparent md:mx-0 md:px-0 md:py-0 md:border-none flex flex-col sm:flex-row justify-between items-center gap-4 transition-all duration-300">
                 <div className="flex items-center bg-gray-800 p-1 rounded-lg">
-                  <button onClick={() => setGalleryView('public')} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${galleryView === 'public' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700'}`}>
+                  <button onClick={() => setGalleryView('public')} className={'px-4 py-1.5 text-sm font-medium rounded-md transition-colors ' + (galleryView === 'public' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700')}>
                     Featured Images
                   </button>
-                  <button onClick={() => setGalleryView('my-gallery')} disabled={!currentUser} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${galleryView === 'my-gallery' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700'} disabled:text-gray-500 disabled:cursor-not-allowed disabled:hover:bg-transparent`}>
+                  <button onClick={() => setGalleryView('my-gallery')} disabled={!currentUser} className={'px-4 py-1.5 text-sm font-medium rounded-md transition-colors ' + (galleryView === 'my-gallery' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700') + ' disabled:text-gray-500 disabled:cursor-not-allowed disabled:hover:bg-transparent'}>
                     My Gallery
                   </button>
-                  <button onClick={() => setGalleryView('creations')} disabled={!currentUser} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${galleryView === 'creations' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700'} disabled:text-gray-500 disabled:cursor-not-allowed disabled:hover:bg-transparent`}>
+                  <button onClick={() => setGalleryView('creations')} disabled={!currentUser} className={'px-4 py-1.5 text-sm font-medium rounded-md transition-colors ' + (galleryView === 'creations' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700') + ' disabled:text-gray-500 disabled:cursor-not-allowed disabled:hover:bg-transparent'}>
                     Creations
                   </button>
-                  <button onClick={() => setGalleryView('prompt-history')} disabled={!currentUser} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${galleryView === 'prompt-history' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700'} disabled:text-gray-500 disabled:cursor-not-allowed disabled:hover:bg-transparent`}>
+                  <button onClick={() => setGalleryView('prompt-history')} disabled={!currentUser} className={'px-4 py-1.5 text-sm font-medium rounded-md transition-colors ' + (galleryView === 'prompt-history' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700') + ' disabled:text-gray-500 disabled:cursor-not-allowed disabled:hover:bg-transparent'}>
                     Prompt History
                   </button>
-                  <button onClick={() => setGalleryView('status')} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${galleryView === 'status' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700'}`}>
+                  <button onClick={() => setGalleryView('status')} className={'px-4 py-1.5 text-sm font-medium rounded-md transition-colors ' + (galleryView === 'status' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700')}>
                     Status
                   </button>
                 </div>
@@ -1711,10 +1827,7 @@ const App: React.FC = () => {
                   {currentUser && filteredImages.length > 0 && (
                     <button
                       onClick={toggleSelectionMode}
-                      className={`text-sm font-medium py-2 px-4 rounded-lg transition-colors duration-300 whitespace-nowrap ${isSelectionMode
-                        ? 'bg-gray-600 hover:bg-gray-500 text-white'
-                        : 'bg-gray-700 hover:bg-gray-600 text-gray-200'
-                        }`}
+                      className={'text-sm font-medium py-2 px-4 rounded-lg transition-colors duration-300 whitespace-nowrap ' + (isSelectionMode ? 'bg-gray-600 hover:bg-gray-500 text-white' : 'bg-gray-700 hover:bg-gray-600 text-gray-200')}
                     >
                       {isSelectionMode ? 'Cancel Selection' : 'Select Items'}
                     </button>
@@ -1808,6 +1921,7 @@ const App: React.FC = () => {
                   selectedIds={selectedIds}
                   onSelectionChange={handleSelectionChange}
                   blurNsfw={settings?.contentSafety?.blurNsfw}
+                  layout={currentUser?.galleryLayout || 'masonry'}
                 />
               ) : (
                 <div className="text-center py-16 text-gray-500">
@@ -1845,18 +1959,17 @@ const App: React.FC = () => {
         <AnalysisProgressIndicator progress={analysisProgress} />
         <NotificationArea notifications={notifications} onDismiss={removeNotification} />
 
-        <NotificationArea notifications={notifications} onDismiss={removeNotification} />
-
         {isSelectionMode && (
           <SelectionActionBar
             count={selectedIds.size}
-            onDelete={handleDeleteSelected}
             onClear={() => setSelectedIds(new Set())}
-            onRemix={handleBatchRemixClick}
+            onDelete={handleDeleteSelected}
             onMakePublic={handleBatchMakePublic}
             onMakePrivate={handleBatchMakePrivate}
+            onRemix={handleBatchRemixClick}
             onRegenerate={handleBatchRegenerate}
             onSelectAll={handleSelectAll}
+            onSmartCrop={handleSmartCrop}
           />
         )}
 
@@ -1865,7 +1978,7 @@ const App: React.FC = () => {
           onClose={handleCancelDelete}
           onConfirm={handleConfirmDelete}
           title="Confirm Deletion"
-          message={`Are you sure you want to delete ${selectedIds.size} item${selectedIds.size === 1 ? '' : 's'}? This action cannot be undone.`}
+          message={'Are you sure you want to delete ' + selectedIds.size + ' item' + (selectedIds.size === 1 ? '' : 's') + '? This action cannot be undone.'}
           confirmText="Delete"
           confirmButtonVariant="danger"
         />
@@ -1919,7 +2032,20 @@ const App: React.FC = () => {
         <IdleSlideshow
           images={filteredImages}
           isActive={isSlideshowActive}
-          onClose={handleCloseSlideshow}
+          onClose={() => setIsSlideshowActive(false)}
+          transition={currentUser?.slideshowTransition || 'fade'}
+          useSmartCrop={!!currentUser?.slideshowSmartCrop}
+          useAdaptivePan={!!currentUser?.slideshowAdaptivePan}
+          interval={currentUser?.slideshowInterval}
+          animationDuration={currentUser?.slideshowAnimationDuration}
+          enableBounce={!!currentUser?.slideshowBounce}
+          randomOrder={currentUser?.slideshowRandomOrder}
+          processingSmartCropIds={processingSmartCropIds}
+        />
+        <BottomNav
+          currentView={galleryView}
+          onViewChange={setGalleryView}
+          onFilesSelected={handleFilesChange}
         />
       </div>
     </div>

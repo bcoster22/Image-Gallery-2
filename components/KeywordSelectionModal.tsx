@@ -30,11 +30,11 @@ const KeywordSelectionModal: React.FC<KeywordSelectionModalProps> = ({ isOpen, o
     };
 
     return (
-        <div 
+        <div
             className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 backdrop-blur-sm"
             onClick={onClose}
         >
-            <div 
+            <div
                 className="bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl m-4 border border-gray-700 relative animate-fade-in flex flex-col max-h-[90vh]"
                 onClick={(e) => e.stopPropagation()}
             >
@@ -50,7 +50,7 @@ const KeywordSelectionModal: React.FC<KeywordSelectionModalProps> = ({ isOpen, o
                         <CloseIcon className="w-6 h-6" />
                     </button>
                 </header>
-                
+
                 <main className="flex-grow p-6 overflow-y-auto">
                     <p className="text-gray-300 mb-4">The AI has suggested these keywords to make your video more dynamic. Select any that match your vision.</p>
                     <div className="flex flex-wrap gap-3">
@@ -60,11 +60,10 @@ const KeywordSelectionModal: React.FC<KeywordSelectionModalProps> = ({ isOpen, o
                                 <button
                                     key={i}
                                     onClick={() => handleToggleKeyword(kw)}
-                                    className={`px-3 py-1.5 text-sm rounded-full transition-all duration-200 border-2 ${
-                                        isSelected 
-                                        ? 'bg-indigo-600 border-indigo-500 text-white font-semibold transform scale-105' 
-                                        : 'bg-gray-700 border-gray-600 hover:bg-gray-600 hover:border-gray-500'
-                                    }`}
+                                    className={`px-3 py-1.5 text-base rounded-full transition-all duration-200 border-2 ${isSelected
+                                            ? 'bg-indigo-600 border-indigo-500 text-white font-semibold transform scale-105'
+                                            : 'bg-gray-700 border-gray-600 hover:bg-gray-600 hover:border-gray-500'
+                                        }`}
                                 >
                                     {kw}
                                 </button>
@@ -72,7 +71,7 @@ const KeywordSelectionModal: React.FC<KeywordSelectionModalProps> = ({ isOpen, o
                         })}
                     </div>
                 </main>
-                
+
                 <footer className="p-4 border-t border-gray-700 flex justify-between items-center flex-shrink-0">
                     <p className="text-sm text-gray-400">{selectedKeywords.size} keyword{selectedKeywords.size === 1 ? '' : 's'} selected</p>
                     <button
@@ -83,7 +82,7 @@ const KeywordSelectionModal: React.FC<KeywordSelectionModalProps> = ({ isOpen, o
                     </button>
                 </footer>
             </div>
-             <style>{`
+            <style>{`
                   @keyframes fade-in {
                     from { opacity: 0; transform: scale(0.95); }
                     to { opacity: 1; transform: scale(1); }
