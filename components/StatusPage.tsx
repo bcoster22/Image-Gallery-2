@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { AdminSettings, ImageAnalysisStats, QueueStatus } from "../types";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Activity, Cpu, HardDrive, Server, Zap, AlertTriangle, Terminal, Lock, Clock } from 'lucide-react';
+import { Activity, Cpu, HardDrive, Server, Zap, AlertTriangle, Terminal, Lock, Clock, ScanEye, Crop, Film, Image as ImageIcon } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { ProviderBenchmark } from '../src/components/ProviderBenchmark';
@@ -360,7 +360,7 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
                 <HardDrive className="w-5 h-5 text-green-400" />
                 GPU Status
               </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className={cn("grid gap-4", otelMetrics.gpus.length === 1 ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2")}>
                 {otelMetrics.gpus.map((gpu) => (
                   <div key={gpu.id} className="bg-neutral-900/50 border border-white/10 rounded-2xl p-6 group">
 
@@ -532,9 +532,27 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
                           <div key={job.id} className="flex items-center justify-between bg-emerald-500/5 border border-emerald-500/10 rounded-lg p-2 text-sm">
                             <div className="flex items-center gap-3 overflow-hidden">
                               <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                              <span className="truncate text-neutral-200 max-w-[200px]">{job.fileName}</span>
+                              <div className="flex flex-col gap-0.5 max-w-[200px]">
+                                <span className="truncate text-neutral-200">{job.fileName}</span>
+                                {/* Task Badge for Active Job */}
+                                <div className={cn("flex items-center gap-1 w-fit px-1.5 py-0.5 rounded border text-[10px] uppercase font-bold tracking-wider",
+                                  job.taskType === 'smart-crop' ? "bg-amber-500/10 text-amber-400 border-amber-500/20" :
+                                    job.taskType === 'video' ? "bg-pink-500/10 text-pink-400 border-pink-500/20" :
+                                      job.taskType === 'generate' ? "bg-blue-500/10 text-blue-400 border-blue-500/20" :
+                                        "bg-violet-500/10 text-violet-400 border-violet-500/20"
+                                )}>
+                                  {job.taskType === 'smart-crop' ? <Crop className="w-3 h-3" /> :
+                                    job.taskType === 'video' ? <Film className="w-3 h-3" /> :
+                                      job.taskType === 'generate' ? <ImageIcon className="w-3 h-3" /> :
+                                        <ScanEye className="w-3 h-3" />}
+                                  <span>{job.taskType === 'smart-crop' ? 'Crop' :
+                                    job.taskType === 'video' ? 'Video' :
+                                      job.taskType === 'generate' ? 'Gen' :
+                                        'Scan'}</span>
+                                </div>
+                              </div>
                             </div>
-                            <div className="flex items-center gap-4 text-xs text-neutral-400">
+                            <div className="flex flex-col items-end gap-0.5 text-xs text-neutral-400">
                               <span>{(job.size / 1024).toFixed(1)} KB</span>
                               <span>{((Date.now() - job.startTime) / 1000).toFixed(1)}s</span>
                             </div>
@@ -557,8 +575,24 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
                               <div className="text-xs text-neutral-500 w-4">{idx + 1}.</div>
                               <span className="truncate text-neutral-300 max-w-[200px]">{job.fileName}</span>
                             </div>
-                            <div className="text-xs text-neutral-500">
-                              Waiting...
+                            <div className="flex items-center gap-2 text-xs text-neutral-500">
+                              {/* Task Type Badge */}
+                              <div className={cn("flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] uppercase font-bold tracking-wider",
+                                job.taskType === 'smart-crop' ? "bg-amber-500/10 text-amber-400 border-amber-500/20" :
+                                  job.taskType === 'video' ? "bg-pink-500/10 text-pink-400 border-pink-500/20" :
+                                    job.taskType === 'generate' ? "bg-blue-500/10 text-blue-400 border-blue-500/20" :
+                                      "bg-violet-500/10 text-violet-400 border-violet-500/20" // Analysis/Default
+                              )}>
+                                {job.taskType === 'smart-crop' ? <Crop className="w-3 h-3" /> :
+                                  job.taskType === 'video' ? <Film className="w-3 h-3" /> :
+                                    job.taskType === 'generate' ? <ImageIcon className="w-3 h-3" /> :
+                                      <ScanEye className="w-3 h-3" />}
+                                <span>{job.taskType === 'smart-crop' ? 'Crop' :
+                                  job.taskType === 'video' ? 'Video' :
+                                    job.taskType === 'generate' ? 'Gen' :
+                                      'Scan'}</span>
+                              </div>
+                              <span>Waiting...</span>
                             </div>
                           </div>
                         ))}

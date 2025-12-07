@@ -3,9 +3,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { HarmBlockThreshold } from '@google/genai';
 import { AdminSettings, AiProvider, Capability } from '../types';
 import { providerCapabilities, capabilityDetails } from '../services/providerCapabilities';
-import { SettingsIcon, CheckCircleIcon, XCircleIcon, ZapIcon, LayoutDashboard, Network, MessageSquare, MenuIcon, CloseIcon, ShieldCheckIcon } from './icons';
+import { SettingsIcon, CheckCircleIcon, XCircleIcon, ZapIcon, LayoutDashboard, Network, MessageSquare, MenuIcon, CloseIcon, ShieldCheckIcon, RefreshIcon, ViewfinderIcon } from './icons';
 import { testProviderConnection } from '../services/aiService';
 import PromptEngineeringPage from './PromptEngineeringPage';
+import { AdminVersions } from './AdminVersions';
 
 interface AdminSettingsPageProps {
     onSave: (settings: AdminSettings) => void;
@@ -14,7 +15,7 @@ interface AdminSettingsPageProps {
 }
 
 type ConnectionStatus = 'idle' | 'checking' | 'success' | 'error';
-type AdminTab = 'providers' | 'routing' | 'performance' | 'content-safety' | 'prompts';
+type AdminTab = 'providers' | 'routing' | 'performance' | 'appearance' | 'content-safety' | 'prompts' | 'versions';
 
 const MOONDREAM_MODELS = [
     { id: 'moondream-2', name: 'Moondream 2' },
@@ -128,7 +129,12 @@ const DEFAULTS: AdminSettings = {
         sfwKeyword: 'SFW',
         blurNsfw: false,
         showConfidence: true,
+
         useSingleModelSession: false, // Disabled by default for accuracy
+    },
+    appearance: {
+        thumbnailSize: 40,
+        thumbnailHoverScale: 1.2,
     }
 };
 
@@ -207,8 +213,11 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel,
             },
             prompts: prompts,
             contentSafety: {
-                ...DEFAULTS.contentSafety,
                 ...(currentSettings.contentSafety || {})
+            },
+            appearance: {
+                ...DEFAULTS.appearance,
+                ...(currentSettings.appearance || {})
             }
         };
     });
@@ -594,6 +603,115 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel,
                         </div>
                     </div>
                 );
+            case 'appearance':
+                return (
+                    <div className="space-y-4 animate-fade-in">
+                        <h2 className="text-2xl font-bold text-white mb-4">Appearance Settings</h2>
+                        <div className="p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                            <h3 className="text-lg font-bold text-white mb-2">Thumbnail Navigation</h3>
+                            <p className="text-sm text-gray-400 mb-6">Adjust the size of the thumbnail strip shown in the image viewer.</p>
+
+                            <div className="mb-8">
+                                <div className="flex items-center justify-between mb-4">
+                                    <label htmlFor="thumb-size-slider" className="text-sm font-medium text-gray-200">
+                                        Thumbnail Size: <span className="text-indigo-400 font-bold">{settings.appearance?.thumbnailSize ?? 40}px</span>
+                                    </label>
+                                </div>
+                                <input
+                                    type="range"
+                                    id="thumb-size-slider"
+                                    min="30"
+                                    max="100"
+                                    step="5"
+                                    value={settings.appearance?.thumbnailSize ?? 40}
+                                    onChange={(e) => setSettings({
+                                        ...settings,
+                                        appearance: {
+                                            ...settings.appearance,
+                                            thumbnailSize: Number(e.target.value)
+                                        }
+                                    })}
+                                    className="w-full h-2 bg-gradient-to-r from-indigo-900 to-indigo-500 rounded-lg appearance-none cursor-pointer accent-indigo-400"
+                                />
+                                <div className="flex justify-between text-xs text-gray-500 mt-2">
+                                    <span>30px (Compact)</span>
+                                    <span>100px (Large)</span>
+                                </div>
+                            </div>
+
+                            <div className="mb-8">
+                                <div className="flex items-center justify-between mb-4">
+                                    <label htmlFor="thumb-hover-slider" className="text-sm font-medium text-gray-200">
+                                        Thumbnail Hover Scale: <span className="text-indigo-400 font-bold">{settings.appearance?.thumbnailHoverScale ?? 1.2}x</span>
+                                    </label>
+                                </div>
+                                <input
+                                    type="range"
+                                    id="thumb-hover-slider"
+                                    min="1.0"
+                                    max="2.0"
+                                    step="0.1"
+                                    value={settings.appearance?.thumbnailHoverScale ?? 1.2}
+                                    onChange={(e) => setSettings({
+                                        ...settings,
+                                        appearance: {
+                                            ...settings.appearance,
+                                            thumbnailHoverScale: Number(e.target.value)
+                                        }
+                                    })}
+                                    className="w-full h-2 bg-gradient-to-r from-indigo-900 to-indigo-500 rounded-lg appearance-none cursor-pointer accent-indigo-400"
+                                />
+                                <div className="flex justify-between text-xs text-gray-500 mt-2">
+                                    <span>1.0x (No Zoom)</span>
+                                    <span>2.0x (200%)</span>
+                                </div>
+                            </div>
+
+                            <div className="bg-black/40 rounded-xl border border-white/10 p-6 flex flex-col items-center justify-center">
+                                <h4 className="text-xs font-semibold text-gray-400 mb-4 uppercase tracking-wider">Live Preview</h4>
+                                <div
+                                    className="flex gap-2 p-2 overflow-hidden bg-black/40 backdrop-blur-md rounded-xl border border-white/10 shadow-lg px-3"
+                                    style={{ maxWidth: '100%' }}
+                                >
+                                    {[1, 2, 3, 4, 5].map((i) => {
+                                        const size = settings.appearance?.thumbnailSize ?? 40;
+                                        const hoverScale = settings.appearance?.thumbnailHoverScale ?? 1.2;
+                                        const isSelected = i === 3;
+
+                                        // For preview, we'll make the 2nd item hovered and 3rd selected
+                                        const isHovered = i === 2;
+
+                                        // Calculate selected size similar to actual implementation
+                                        // Active is hardcoded to ~1.4x in ImageViewer currently, but let's make it respect hover scale if it's larger, or just stay distinct.
+                                        // Actually, let's keep the preview simpl;e.
+
+                                        const scale = isSelected ? Math.max(1.4, hoverScale) : (isHovered ? hoverScale : 1);
+
+                                        const width = size * scale;
+                                        const height = size * scale;
+
+                                        return (
+                                            <div
+                                                key={i}
+                                                className={`relative flex-shrink-0 rounded-md overflow-hidden transition-all duration-300 ${isSelected ? 'ring-2 ring-white opacity-100' : (isHovered ? 'ring-0 opacity-100' : 'ring-0 opacity-50')}`}
+                                                style={{
+                                                    width: `${size}px`,
+                                                    height: `${size}px`,
+                                                    transform: `scale(${scale})`,
+                                                    margin: '0 4px'
+                                                }}
+                                            >
+                                                <div className={`w-full h-full ${isSelected ? 'bg-indigo-500' : 'bg-gray-600'}`}>
+                                                    {isHovered && <div className="absolute inset-0 flex items-center justify-center text-[10px] text-white font-bold bg-black/20">HOVER</div>}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
             case 'performance':
                 return (
                     <div className="space-y-4 animate-fade-in">
@@ -782,6 +900,8 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel,
                 );
             case 'prompts':
                 return <PromptEngineeringPage settings={settings} onUpdateSettings={setSettings} />;
+            case 'versions':
+                return <AdminVersions />;
             default:
                 return null;
         }
@@ -834,6 +954,14 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel,
                         Routing
                     </button>
                     <button
+                        onClick={() => { setActiveTab('appearance'); setIsSidebarOpen(false); }}
+                        className={`w-full flex items-center p-3 rounded-lg transition-colors ${activeTab === 'appearance' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
+                    >
+                        <ViewfinderIcon className="w-5 h-5 mr-3" />
+                        <span className="font-medium">Appearance</span>
+                    </button>
+
+                    <button
                         onClick={() => { setActiveTab('performance'); setIsSidebarOpen(false); }}
                         className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'performance' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50' : 'text-gray-400 hover:bg-gray-700/50 hover:text-white'}`}
                     >
@@ -853,6 +981,13 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel,
                     >
                         <MessageSquare className="w-5 h-5" />
                         Prompt Engineering
+                    </button>
+                    <button
+                        onClick={() => { setActiveTab('versions'); setIsSidebarOpen(false); }}
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'versions' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50' : 'text-gray-400 hover:bg-gray-700/50 hover:text-white'}`}
+                    >
+                        <RefreshIcon className="w-5 h-5" />
+                        Update Core
                     </button>
                 </nav>
 

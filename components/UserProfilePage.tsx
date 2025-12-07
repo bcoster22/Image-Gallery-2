@@ -438,6 +438,72 @@ const UserProfilePage: React.FC<UserProfilePageProps> = ({
                                             <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-focus:ring-2 peer-focus:ring-indigo-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
                                         </label>
                                     </div>
+
+                                    <div className="h-px bg-gray-700/50 my-4"></div>
+
+                                    <div className="flex justify-between items-center">
+                                        <div>
+                                            <div className="font-medium text-white">Disable Notifications</div>
+                                            <div className="text-xs text-gray-400 mt-1">
+                                                Hide "Smart Crop complete" status messages.
+                                            </div>
+                                        </div>
+                                        <label className="relative inline-flex items-center cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                className="sr-only peer"
+                                                checked={!!user.disableSmartCropNotifications}
+                                                onChange={(e) => onUpdateUser({ ...user, disableSmartCropNotifications: e.target.checked })}
+                                            />
+                                            <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-focus:ring-2 peer-focus:ring-indigo-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                                        </label>
+                                    </div>
+
+                                </div>
+
+                                <div className="h-px bg-gray-700/50 my-6"></div>
+
+                                <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+                                    <ViewfinderIcon className="w-5 h-5 text-indigo-400" />
+                                    Thumbnail Appearance
+                                </h3>
+
+                                <div className="bg-gray-800 p-4 rounded-xl border border-gray-700 mb-6 space-y-4">
+                                    <div>
+                                        <div className="flex justify-between items-center mb-1">
+                                            <span className="text-sm font-medium text-gray-300">Thumbnail Size</span>
+                                            <span className="text-xs text-indigo-400">{user.thumbnailSize ?? 40}px</span>
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min="30" max="100" step="5"
+                                            value={user.thumbnailSize ?? 40}
+                                            onChange={(e) => onUpdateUser({ ...user, thumbnailSize: parseInt(e.target.value) })}
+                                            className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                                        />
+                                        <div className="flex justify-between text-xs text-gray-500 mt-1">
+                                            <span>Small</span>
+                                            <span>Large</span>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <div className="flex justify-between items-center mb-1">
+                                            <span className="text-sm font-medium text-gray-300">Hover Zoom</span>
+                                            <span className="text-xs text-indigo-400">{user.thumbnailHoverScale ?? 1.2}x</span>
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min="1.0" max="2.0" step="0.1"
+                                            value={user.thumbnailHoverScale ?? 1.2}
+                                            onChange={(e) => onUpdateUser({ ...user, thumbnailHoverScale: parseFloat(e.target.value) })}
+                                            className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                                        />
+                                        <div className="flex justify-between text-xs text-gray-500 mt-1">
+                                            <span>None</span>
+                                            <span>2x</span>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <div className="h-px bg-gray-700/50 my-6"></div>

@@ -18,6 +18,9 @@ The goal of Image Gallery 2 is to provide a seamless and private way to manage i
 - **Smart Upload**: Automatically analyzes uploaded images for content.
 - **Search & Filter**: Find images by keywords or captions.
 - **Enhanced Tag Filter**: Scrollable 2-row grid with keyboard navigation and unlimited sorted tags.
+- **Smart Cropping**: AI-powered subject detection for perfect thumbnails and slideshow transitions.
+- **Advanced Slideshow**: Features "Parallax Glide", "Stack", "Cube" effects, and "Adaptive Pan" for portrait displays.
+- **High Efficiency**: Virtualized rendering (`react-window`) supports galleries with 1000+ images.
 - **Status Dashboard**: Monitor queue depth, active jobs, and processing speed.
 - **User Profile**: Customize your experience with banners, avatars, and settings.
 - **GPU Management**: Monitor health and perform nuclear resets if needed.
@@ -121,6 +124,30 @@ You can define which provider handles specific tasks (Vision, Generation, Animat
 
 ![Batch Processing](docs/images/batch-processing.png)
 ![Notifications](docs/images/notifications.png)
+
+
+## New Features: Advanced Slideshow & Smart Cropping
+
+We have recently introduced major updates to the slideshow and image handling capabilities:
+
+### 1. Smart Cropping Integration
+- **AI detection**: Automatically identifies the main subject of an image using Moondream.
+- **Dynamic Focusing**: Slideshows and thumbnails now center on the subject, preventing awkward crops.
+- **Visual Feedback**: A "Smart Cropping..." overlay appears when an image is being analyzed in real-time.
+
+### 2. Cinematic Slideshow Effects
+- **Double-Buffering**: Seamless transitions with zero flicker.
+- **New Effects**:
+    - **Parallax Glide**: Background moves slower than foreground for a depth effect.
+    - **Adaptive Pan**: Automatically pans horizontal images when viewed on portrait screens ("Cinematic Pan").
+    - **Stack**: A clean, stable vertical slide animation.
+    - **Cube, Cross-Fade, Zoom**: Standard modern transitions.
+- **Preferences**: Users can customize transition types, duration, and whether to include video content.
+
+### 3. Performance & Stability
+- **Virtualization**: The gallery now uses `react-window` to efficiently render thousands of images without lag.
+- **Robustness**: Fixed critical crash bugs related to React hooks and race conditions in the slideshow timer.
+- **Hardware Acceleration**: All animations use CSS transforms for 60fps performance.
 
 ## License
 

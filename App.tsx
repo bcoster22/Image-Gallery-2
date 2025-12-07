@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 // FIX: Added AppSettings to import for settings migration.
 import { ImageInfo, AdminSettings, User, GenerationTask, Notification, AspectRatio, GalleryView, AiProvider, UploadProgress, AppSettings, AnalysisProgress, QueueStatus, ActiveJob } from './types';
@@ -92,7 +91,7 @@ const TagFilterBar: React.FC<TagFilterBarProps> = ({ allTags, activeTags, onTogg
         el.removeEventListener('wheel', handleWheelNative);
       }
     };
-  }, []);
+  }, [allTags.length]);
 
   if (allTags.length === 0) {
     return null;
@@ -151,9 +150,8 @@ const TagFilterBar: React.FC<TagFilterBarProps> = ({ allTags, activeTags, onTogg
 
   return (
     <div className="mb-6 p-4 bg-gray-800/50 rounded-lg border border-gray-700/50 overflow-hidden relative group">
-      <div className="flex justify-between items-center mb-3">
-        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">Filter by Tags</h3>
-        {activeTags.size > 0 && (
+      {activeTags.size > 0 && (
+        <div className="flex justify-end items-center mb-2">
           <button
             onClick={onClear}
             className="flex items-center text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
@@ -161,15 +159,15 @@ const TagFilterBar: React.FC<TagFilterBarProps> = ({ allTags, activeTags, onTogg
             <CloseIcon className="w-4 h-4 mr-1" />
             Clear Filter
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Scroll Fade Hint (Right) */}
-      <div className="absolute right-0 top-12 bottom-4 w-12 bg-gradient-to-l from-gray-900/80 to-transparent pointer-events-none z-10" />
+      <div className="absolute right-0 top-4 bottom-4 w-12 bg-gradient-to-l from-gray-900/80 to-transparent pointer-events-none z-10" />
 
       <div
         ref={scrollRef}
-        className="grid grid-rows-2 grid-flow-col gap-2 overflow-x-auto scrollbar-none -mx-4 px-4 pb-2 snap-x snap-mandatory"
+        className="flex flex-nowrap items-center gap-2 overflow-x-auto scrollbar-none -mx-4 px-4 pb-2"
         style={{ scrollBehavior: 'smooth' }}
       >
         {allTags.map((tag, index) => {
@@ -238,6 +236,7 @@ const App: React.FC = () => {
   const [isSearchingSimilar, setIsSearchingSimilar] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [analyzingIds, setAnalyzingIds] = useState<Set<string>>(new Set());
+  const [processingSmartCropIds, setProcessingSmartCropIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [settings, setSettings] = useState<AdminSettings | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -314,7 +313,8 @@ const App: React.FC = () => {
         id: img.id,
         fileName: img.fileName,
         size: img.dataUrl.length,
-        startTime: Date.now() // Placeholder, strictly it's not started
+        startTime: Date.now(), // Placeholder, strictly it's not started
+        taskType: 'analysis'
       })),
       concurrencyLimit: concurrencyLimit
     });
@@ -354,7 +354,8 @@ const App: React.FC = () => {
         id: imageToAnalyze.id,
         fileName: imageToAnalyze.fileName,
         size: imageToAnalyze.dataUrl.length, // Approximate size in chars
-        startTime: Date.now()
+        startTime: Date.now(),
+        taskType: 'analysis'
       };
       activeJobsRef.current.push(job);
       syncQueueStatus();
@@ -606,6 +607,10 @@ const App: React.FC = () => {
               blurNsfw: true,
               showConfidence: false,
               useSingleModelSession: true
+            },
+            appearance: {
+              thumbnailSize: 40,
+              thumbnailHoverScale: 1.2
             }
           };
           setSettings(newSettings);
@@ -1547,7 +1552,7 @@ const App: React.FC = () => {
     return new Set(generationTasks.filter(t => t.status === 'processing').map(t => t.sourceImageId).filter(Boolean));
   }, [generationTasks]);
 
-  const [processingSmartCropIds, setProcessingSmartCropIds] = useState<Set<string>>(new Set());
+
 
   // --- Smart Crop Logic ---
 
@@ -1561,14 +1566,15 @@ const App: React.FC = () => {
       id: jobId,
       fileName: image.fileName,
       size: image.dataUrl.length,
-      startTime: Date.now()
+      startTime: Date.now(),
+      taskType: 'smart-crop'
     });
     syncQueueStatus();
 
     setProcessingSmartCropIds(prev => new Set(prev).add(image.id));
 
     try {
-      if (!isBackground) {
+      if (!isBackground && !currentUser?.disableSmartCropNotifications) {
         addNotification({ status: 'info', message: 'Smart Cropping ' + image.fileName + '...' });
       }
 
@@ -1576,13 +1582,13 @@ const App: React.FC = () => {
       if (crop) {
         await updateImage(image.id, { smartCrop: crop });
         setImages(prev => prev.map(img => img.id === image.id ? { ...img, smartCrop: crop } : img));
-        if (!isBackground) {
+        if (!isBackground && !currentUser?.disableSmartCropNotifications) {
           addNotification({ status: 'success', message: 'Smart Crop complete.' });
         }
       }
     } catch (e) {
       console.error('Smart crop failed for ' + image.id, e);
-      if (!isBackground) {
+      if (!isBackground && !currentUser?.disableSmartCropNotifications) {
         addNotification({ status: 'error', message: 'Failed to crop ' + image.fileName });
       }
     } finally {
@@ -1736,7 +1742,7 @@ const App: React.FC = () => {
           <div className="absolute inset-0 bg-gradient-to-t from-gray-900 via-gray-900/80 to-gray-900/60" />
         </div>
       )}
-      <NavigationBenchmark />
+      {/* <NavigationBenchmark /> */}
 
       {/* Main Content Wrapper - Ensure z-index is above banner */}
       <div className="relative z-10 min-h-screen flex flex-col pb-20 md:pb-0">
@@ -1951,7 +1957,9 @@ const App: React.FC = () => {
             promptHistory={promptHistory}
             setPromptModalConfig={setPromptModalConfig}
             addNotification={addNotification}
-            onRetryAnalysis={handleRetryAnalysis}
+            onRetryAnalysis={(id) => runImageAnalysis([images.find(i => i.id === id)!], true)}
+            onSmartCrop={(img) => performSmartCrop(img, false)}
+            processingSmartCropIds={processingSmartCropIds}
           />
         )}
 

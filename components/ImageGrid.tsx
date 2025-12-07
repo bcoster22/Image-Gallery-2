@@ -227,84 +227,57 @@ interface SelectionBox {
   currentY: number;
 }
 
-import { FixedSizeGrid, GridChildComponentProps } from 'react-window';
-import AutoSizer from 'react-virtualized-auto-sizer';
 
-// Helper hook for window dimensions
-function useWindowDimensions() {
-  const [windowDimensions, setWindowDimensions] = React.useState({
-    width: typeof window !== 'undefined' ? window.innerWidth : 1200,
-    height: typeof window !== 'undefined' ? window.innerHeight : 800,
-  });
+import { VirtuosoGrid } from 'react-virtuoso';
+import styled from '@emotion/styled';
 
-  React.useEffect(() => {
-    function handleResize() {
-      setWindowDimensions({
-        width: window.innerWidth,
-        height: window.innerHeight,
-      });
-    }
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+// Styled components for VirtuosoGrid
+const ItemContainer = styled.div`
+  padding: 8px;
+  width: 50%;
+  display: flex;
+  flex: none;
+  align-content: stretch;
+  box-sizing: border-box;
 
-  return windowDimensions;
-}
+  @media (min-width: 640px) { width: 33.333%; }
+  @media (min-width: 768px) { width: 25%; }
+  @media (min-width: 1024px) { width: 20%; }
+  @media (min-width: 1280px) { width: 16.666%; }
+  @media (min-width: 1536px) { width: 12.5%; }
+`;
+
+const ListContainer = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+`;
+
+// Styled components for Masonry Layout
+const MasonryListContainer = styled.div`
+  padding: 0 8px;
+  column-count: 2;
+  column-gap: 16px;
+
+  @media (min-width: 640px) { column-count: 3; }
+  @media (min-width: 768px) { column-count: 4; }
+  @media (min-width: 1024px) { column-count: 5; }
+  @media (min-width: 1280px) { column-count: 6; }
+  @media (min-width: 1536px) { column-count: 8; }
+`;
+
+const MasonryItemContainer = styled.div`
+  break-inside: avoid;
+  margin-bottom: 16px;
+  -webkit-column-break-inside: avoid;
+  page-break-inside: avoid;
+  width: 100%;
+`;
 
 const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, analyzingIds, generatingIds, disabled, isSelectionMode, selectedIds, onSelectionChange, blurNsfw, layout = 'masonry' }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const { width } = useWindowDimensions(); // This is now only used for initial columnCount, AutoSizer will provide actual width
   const [selectionBox, setSelectionBox] = React.useState<SelectionBox | null>(null);
   const isDragging = useRef(false);
   const dragStartPos = useRef({ x: 0, y: 0 });
-
-  // Responsive Column Logic
-  const getColumnCount = (width: number) => {
-    if (width >= 1536) return 8; // 2xl
-    if (width >= 1280) return 6; // xl
-    if (width >= 1024) return 5; // lg
-    if (width >= 768) return 4; // md
-    if (width >= 640) return 3; // sm
-    return 2; // base
-  };
-
-  const padding = 16;
-  const gap = 16;
-
-  // Cell Renderer
-  const Cell = ({ columnIndex, rowIndex, style, data }: GridChildComponentProps & { data: { columnCount: number, images: ImageInfo[] } }) => {
-    const { columnCount, images } = data;
-    const index = rowIndex * columnCount + columnIndex;
-    if (index >= images.length) return null;
-
-    const image = images[index];
-
-    // Adjust style for gap - react-window gives absolute positioning
-    const contentStyle = {
-      ...style,
-      left: Number(style.left) + (gap / 2), // Distribute gap on left
-      top: Number(style.top) + (gap / 2),   // Distribute gap on top
-      width: Number(style.width) - gap,     // Shrink width by full gap
-      height: Number(style.height) - gap,   // Shrink height by full gap
-    };
-
-    return (
-      <div style={contentStyle}>
-        <div data-id={image.id} className="h-full w-full">
-          <GridItem
-            image={image}
-            onImageClick={onImageClick}
-            isAnalyzing={analyzingIds.has(image.id)}
-            isGeneratingSource={generatingIds.has(image.id)}
-            isSelectionMode={isSelectionMode}
-            isSelected={selectedIds.has(image.id)}
-            blurNsfw={blurNsfw}
-            layout={layout}
-          />
-        </div>
-      </div>
-    );
-  };
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (!isSelectionMode || disabled || !onSelectionChange) return;
@@ -329,12 +302,13 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, analyzingId
 
     setSelectionBox(prev => prev ? { ...prev, currentX: x, currentY: y } : null);
 
+    // Simple box accumulation logic if strictly needed, but might be tricky with Virtualization.
+    // For now, let's keep the box UI but the selection logic might need to be "select visible currently"
     const boxLeft = Math.min(dragStartPos.current.x, x);
     const boxTop = Math.min(dragStartPos.current.y, y);
     const boxRight = Math.max(dragStartPos.current.x, x);
     const boxBottom = Math.max(dragStartPos.current.y, y);
 
-    // Optimized Box Selection for Virtual Grid?
     // We stick to DOM query since react-window renders visible items.
     const items = containerRef.current.querySelectorAll('[data-id]');
     const idsInBox = new Set<string>();
@@ -373,6 +347,58 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, analyzingId
     return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
   }, []);
 
+
+  /* 
+     VirtuosoGrid doesn't support CSS Masonry (column-count) because virtualization 
+     conflicts with the browser's column layout algorithm when items are removed from the top.
+     For 'masonry' layout, we use standard CSS columns. 
+     For 'grid' layout, we use VirtuosoGrid for performance.
+  */
+
+  const renderMasonry = () => (
+    <div
+      className={`h-[calc(100vh-140px)] w-full overflow-y-auto px-2 scrollbar-none ${disabled ? 'pointer-events-none opacity-60' : ''}`}
+      ref={containerRef as any}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+    >
+      <MasonryListContainer>
+        {images.map((image) => (
+          <MasonryItemContainer key={image.id} data-id={image.id}>
+            <GridItem
+              image={image}
+              onImageClick={onImageClick}
+              isAnalyzing={analyzingIds.has(image.id)}
+              isGeneratingSource={generatingIds.has(image.id)}
+              isSelectionMode={isSelectionMode}
+              isSelected={selectedIds.has(image.id)}
+              blurNsfw={blurNsfw}
+              layout="masonry"
+            />
+          </MasonryItemContainer>
+        ))}
+      </MasonryListContainer>
+      {/* Helper for selection box absolute positioning context */}
+      {selectionBox && (
+        <div
+          className="fixed border-2 border-indigo-500 bg-indigo-500/20 z-50 pointer-events-none"
+          style={{
+            left: Math.min(selectionBox.startX, selectionBox.currentX),
+            top: Math.min(selectionBox.startY, selectionBox.currentY),
+            width: Math.abs(selectionBox.currentX - selectionBox.startX),
+            height: Math.abs(selectionBox.currentY - selectionBox.startY),
+          }}
+        />
+      )}
+    </div>
+  );
+
+  if (layout === 'masonry') {
+    return renderMasonry();
+  }
+
+  // Grid Layout - Virtualized
   return (
     <div
       ref={containerRef}
@@ -381,30 +407,32 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, analyzingId
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
     >
-      <AutoSizer>
-        {({ height, width }) => {
-          const columnCount = getColumnCount(width);
-          // itemWidth now includes the gap, so the content inside Cell will subtract the gap
-          const itemWidth = (width - padding) / columnCount;
-          const rowCount = Math.ceil(images.length / columnCount);
-
+      <VirtuosoGrid
+        className="scrollbar-none"
+        style={{ height: '100%', width: '100%' }}
+        totalCount={images.length}
+        components={{
+          Item: ItemContainer,
+          List: ListContainer,
+        }}
+        itemContent={(index) => {
+          const image = images[index];
           return (
-            <FixedSizeGrid
-              columnCount={columnCount}
-              columnWidth={itemWidth}
-              height={height}
-              rowCount={rowCount}
-              rowHeight={itemWidth} // Square items
-              width={width}
-              className="scrollbar-hide"
-              style={{ overflowX: 'hidden' }}
-              itemData={{ columnCount, images }}
-            >
-              {Cell}
-            </FixedSizeGrid>
+            <div data-id={image.id} className="aspect-square h-full w-full">
+              <GridItem
+                image={image}
+                onImageClick={onImageClick}
+                isAnalyzing={analyzingIds.has(image.id)}
+                isGeneratingSource={generatingIds.has(image.id)}
+                isSelectionMode={isSelectionMode}
+                isSelected={selectedIds.has(image.id)}
+                blurNsfw={blurNsfw}
+                layout="grid"
+              />
+            </div>
           );
         }}
-      </AutoSizer>
+      />
 
       {selectionBox && (
         <div
@@ -414,7 +442,6 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, analyzingId
             top: Math.min(selectionBox.startY, selectionBox.currentY),
             width: Math.abs(selectionBox.currentX - selectionBox.startX),
             height: Math.abs(selectionBox.currentY - selectionBox.startY),
-            position: 'absolute'
           }}
         />
       )}

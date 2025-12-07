@@ -131,6 +131,9 @@ export interface User {
   slideshowAnimationDuration?: number; // ms
   slideshowBounce?: boolean;
   slideshowRandomOrder?: boolean;
+  thumbnailSize?: number;
+  thumbnailHoverScale?: number;
+  disableSmartCropNotifications?: boolean;
 }
 
 export interface GeminiSafetySettings {
@@ -220,6 +223,10 @@ export interface AdminSettings {
     blurNsfw: boolean; // Blur NSFW images in gallery
     showConfidence: boolean; // Show confidence scores in UI
     useSingleModelSession: boolean; // When true, keeps one model loaded for speed
+  };
+  appearance: {
+    thumbnailSize: number; // Default 40
+    thumbnailHoverScale: number; // Default 1.2
   };
 }
 
@@ -337,11 +344,15 @@ export interface ImageAnalysisResult {
     lastChecked?: number;
   };
 }
+// Queue Types
+export type JobTaskType = 'analysis' | 'smart-crop' | 'generate' | 'upload' | 'video' | 'other';
+
 export interface ActiveJob {
   id: string;
   fileName: string;
   size: number; // in bytes
   startTime: number;
+  taskType?: JobTaskType;
 }
 
 export interface QueueStatus {

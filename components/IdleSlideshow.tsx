@@ -73,42 +73,77 @@ const IdleSlideshow: React.FC<IdleSlideshowProps> = ({
     deckRef.current = [];
   }, [images.length, transition]); // Reset deck on major changes
 
-  // TRIGGER NEXT STABLE
-  const triggerNextStable = useCallback(() => {
+  // Advanced Control State
+  const [isPaused, setIsPaused] = useState(false);
+  const [currentInterval, setCurrentInterval] = useState(interval);
+  const [currentDuration, setCurrentDuration] = useState(animationDuration);
+  const [feedback, setFeedback] = useState<{ text: string, icon?: React.ReactNode } | null>(null);
+  const feedbackTimerRef = useRef<number | null>(null);
+
+  // Helper to show feedback toast
+  const showFeedback = (text: string) => {
+    if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+    setFeedback({ text });
+    feedbackTimerRef.current = window.setTimeout(() => setFeedback(null), 1500);
+  };
+
+  // Update internal state if props change (unless user manually overrode them)
+  useEffect(() => {
+    setCurrentInterval(interval);
+    setCurrentDuration(animationDuration);
+  }, [interval, animationDuration]);
+
+  // Ref to track if we are manually navigating to debounce
+  const isNavigatingRef = useRef(false);
+  const [direction, setDirection] = useState(1); // 1 = Next, -1 = Prev
+
+  // TRIGGER SLIDE (Next or Prev)
+  const triggerSlide = useCallback((dir: 1 | -1) => {
     if (imagesLengthRef.current <= 1) return;
+    if (isNavigatingRef.current || transitionTimerRef.current) return; // Busy
 
-    let effect = transition;
+    isNavigatingRef.current = true;
+    setDirection(dir);
+
+    // Random Mode always goes "Next" in the deck, but if user specifically asked for Prev, 
+    // we might want to pop from history? 
+    // For now, let's keep Random simple and just shuffle forward, or enable history later.
+    // If Random Order is ON, standard "Prev" is hard without a history stack.
+    // Let's assume standard cyclic behavior for Prev if not random, or just re-shuffle.
+    // Actually, "Previous" in Random mode usually means "The one I just saw".
+    // Implementing full history for Random Prev is complex. Let's stick to deck logic for Next,
+    // and simple decrement for Prev (which might break the "random deck" flow but works).
+    // Better: If Random, Prev just goes to random index? No, user wants "Previous image".
+    // Let's disable Random logic for "Prev" direction for now and just loop back, 
+    // OR just ignore Random deck for Prev and go activeIndex - 1.
+
+    let nextIdx = 0;
     const current = activeIndexRef.current;
-    let nextIdx = (current + 1) % imagesLengthRef.current; // Default sequential
 
-    // Handle Random Order
-    if (randomOrder) {
+    if (randomOrder && dir === 1) {
+      // Use existing Deck logic for NEXT
       if (deckRef.current.length === 0) {
-        // Create new deck
         const newDeck = Array.from({ length: imagesLengthRef.current }, (_, i) => i);
-        // Shuffle (Fisher-Yates)
         for (let i = newDeck.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
           [newDeck[i], newDeck[j]] = [newDeck[j], newDeck[i]];
         }
-
-        // Avoid immediate repeat if deck is refilled
-        // If the last image shown is the same as the first in the new deck, swap first with last
         if (newDeck.length > 1 && newDeck[0] === current) {
           [newDeck[0], newDeck[newDeck.length - 1]] = [newDeck[newDeck.length - 1], newDeck[0]];
         }
         deckRef.current = newDeck;
       }
-
-      // Pop from deck
       const popped = deckRef.current.pop();
-      if (popped !== undefined) {
-        nextIdx = popped;
-      }
+      if (popped !== undefined) nextIdx = popped;
+    } else {
+      // Sequential (or Random Prev)
+      nextIdx = (current + dir + imagesLengthRef.current) % imagesLengthRef.current;
     }
 
     const nextImg = imagesRef.current[nextIdx];
 
+    // Select Effect
+    let effect = transition;
     let isPan = false;
     if (useAdaptivePan && isPortrait && nextImg && nextImg.width && nextImg.height && nextImg.width > nextImg.height * 1.2) {
       isPan = true;
@@ -124,59 +159,165 @@ const IdleSlideshow: React.FC<IdleSlideshowProps> = ({
       }
     }
 
-    // Set duration based on IsPan or User Pref
-    const panDur = Math.max(8000, animationDuration);
-    const duration = isPan ? panDur : ((effect === 'slide' || effect === 'stack') ? Math.min(800, animationDuration) : animationDuration);
+    const panDur = Math.max(8000, currentDuration);
+    const duration = isPan ? panDur : ((effect === 'slide' || effect === 'stack') ? Math.min(800, currentDuration) : currentDuration);
 
-    setNextIndex((_) => {
-      return nextIdx;
-    });
+    setNextIndex(nextIdx);
 
+    // Reset busy state after transition
     transitionTimerRef.current = window.setTimeout(() => {
+      transitionTimerRef.current = null;
       setNextIndex((finishedNext) => {
-        if (finishedNext !== null) {
-          setActiveIndex(finishedNext);
-        }
+        if (finishedNext !== null) setActiveIndex(finishedNext);
+        isNavigatingRef.current = false;
         return null;
       });
     }, duration);
-  }, [transition, useAdaptivePan, isPortrait, animationDuration, randomOrder]);
 
-  // Main Loop
+  }, [transition, useAdaptivePan, isPortrait, currentDuration, randomOrder]);
+
+  // Main Timer Loop (Auto Advance)
   useEffect(() => {
-    if (!isActive) {
-      setActiveIndex(0);
-      setNextIndex(null);
+    if (!isActive || isPaused) {
+      if (!isNavigatingRef.current) {
+        // ensure we don't auto advance if paused
+        if (slideTimerRef.current) clearTimeout(slideTimerRef.current);
+      }
       return;
     }
 
-    // Only set timer if we are stable (nextIndex is null)
-    if (nextIndex === null) {
-      slideTimerRef.current = window.setTimeout(triggerNextStable, interval);
+    if (nextIndex === null && !isNavigatingRef.current) {
+      slideTimerRef.current = window.setTimeout(() => triggerSlide(1), currentInterval);
     }
 
     return () => {
       if (slideTimerRef.current) clearTimeout(slideTimerRef.current);
     };
-  }, [isActive, nextIndex, triggerNextStable, interval]);
+  }, [isActive, nextIndex, triggerSlide, currentInterval, isPaused]);
 
-  // Event Listeners for closing
+
+  // CONTROLS Handlers (Wheel, Swipe, Tap-exit)
   useEffect(() => {
-    if (isActive) {
-      const closeOnInteraction = () => onClose();
-      const options = { once: true, passive: true };
-      window.addEventListener('mousemove', closeOnInteraction, options);
-      window.addEventListener('mousedown', closeOnInteraction, options);
-      window.addEventListener('keydown', closeOnInteraction, options);
-      if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
-      return () => {
-        window.removeEventListener('mousemove', closeOnInteraction);
-        window.removeEventListener('mousedown', closeOnInteraction);
-        window.removeEventListener('keydown', closeOnInteraction);
-        if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
-      };
-    }
-  }, [isActive, onClose]);
+    if (!isActive) return;
+
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let touchStartTime = 0;
+
+    const handleWheel = (e: WheelEvent) => {
+      if (Math.abs(e.deltaY) > 30) {
+        e.preventDefault();
+        if (e.deltaY > 0) triggerSlide(1);
+        else triggerSlide(-1);
+      }
+    };
+
+    const handleTouchStart = (e: TouchEvent) => {
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+      touchStartTime = Date.now();
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      const touchEndX = e.changedTouches[0].clientX;
+      const touchEndY = e.changedTouches[0].clientY;
+      const timeDiff = Date.now() - touchStartTime;
+
+      const diffX = touchEndX - touchStartX;
+      const diffY = touchEndY - touchStartY;
+
+      if (timeDiff < 300 && Math.abs(diffX) < 10 && Math.abs(diffY) < 10) {
+        onClose();
+        return;
+      }
+
+      if (Math.abs(diffX) > 50 || Math.abs(diffY) > 50) {
+        if (Math.abs(diffX) > Math.abs(diffY)) {
+          if (diffX > 0) triggerSlide(-1);
+          else triggerSlide(1);
+        } else {
+          if (diffY > 0) triggerSlide(-1);
+          else triggerSlide(1);
+        }
+      }
+    };
+
+    // Mouse Click to Exit
+    const handleClick = (e: MouseEvent) => {
+      onClose();
+    };
+
+    // Advanced Keyboard Controls
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Prevent default actions for control keys to avoid scrolling/browser interactions
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', '+', '=', '-', '_'].includes(e.key)) {
+        e.preventDefault();
+      }
+
+      switch (e.key) {
+        case ' ': // Space -> Next
+          triggerSlide(1);
+          break;
+        case 'p':
+        case 'P': // P -> Pause/Resume
+          setIsPaused(prev => {
+            const newState = !prev;
+            showFeedback(newState ? "Paused" : "Resumed");
+            return newState;
+          });
+          break;
+        case '+':
+        case '=': // Speed Up (Reduce Interval)
+          setCurrentInterval(prev => {
+            const next = Math.max(1000, prev - 500);
+            showFeedback(`Speed Up (${(next / 1000).toFixed(1)}s)`);
+            return next;
+          });
+          break;
+        case '-':
+        case '_': // Slow Down (Increase Interval)
+          setCurrentInterval(prev => {
+            const next = Math.min(20000, prev + 500);
+            showFeedback(`Slow Down (${(next / 1000).toFixed(1)}s)`);
+            return next;
+          });
+          break;
+        case 'ArrowRight':
+        case 'ArrowUp':
+          triggerSlide(1);
+          break;
+        case 'ArrowLeft':
+        case 'ArrowDown':
+          triggerSlide(-1);
+          break;
+        case 'Escape':
+          onClose();
+          break;
+        default:
+          // Strict Exit: Any other key exits
+          if (!e.ctrlKey && !e.altKey && !e.metaKey && e.key.length === 1) {
+            // Only exit on "typing" keys, or all keys?
+            // User said "any other key exit slide show".
+            onClose();
+          }
+          break;
+      }
+    };
+
+    window.addEventListener('wheel', handleWheel, { passive: false });
+    window.addEventListener('touchstart', handleTouchStart, { passive: true });
+    window.addEventListener('touchend', handleTouchEnd, { passive: true });
+    window.addEventListener('click', handleClick);
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchend', handleTouchEnd);
+      window.removeEventListener('click', handleClick);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isActive, onClose, triggerSlide, isPaused, currentInterval]); // dependencies updated
 
 
   if (!isActive || images.length === 0) return null;
@@ -187,7 +328,7 @@ const IdleSlideshow: React.FC<IdleSlideshowProps> = ({
   const getStyles = () => {
     const isTransitioning = nextImg !== null;
     const effect = currentEffect;
-    const dur = `${animationDuration}ms`;
+    const dur = `${currentDuration}ms`;
     const imageBase = "absolute inset-0 w-full h-full object-contain will-change-transform";
     const containerBase = "w-full h-full relative overflow-hidden";
 
@@ -200,22 +341,33 @@ const IdleSlideshow: React.FC<IdleSlideshowProps> = ({
     }
 
     if (effect === 'slide') {
+      const outAnim = direction === 1 ? 'slideOutLeft' : 'slideOutRight';
+      const inAnim = direction === 1 ? 'slideInRight' : 'slideInLeft';
       return {
         container: containerBase,
-        activeAnim: isTransitioning ? { animation: `slideOutLeft ${dur} cubic-bezier(0.4, 0.0, 0.2, 1) forwards` } : {},
-        nextAnim: { animation: `slideInRight ${dur} cubic-bezier(0.4, 0.0, 0.2, 1) forwards` }
+        activeAnim: isTransitioning ? { animation: `${outAnim} ${dur} cubic-bezier(0.4, 0.0, 0.2, 1) forwards` } : {},
+        nextAnim: { animation: `${inAnim} ${dur} cubic-bezier(0.4, 0.0, 0.2, 1) forwards` }
       };
     }
 
     if (effect === 'cube') {
+      const outAnim = direction === 1 ? 'cubeRotateOut' : 'cubeRotateOutRev';
+      const inAnim = direction === 1 ? 'cubeRotateIn' : 'cubeRotateInRev';
+      const originActive = direction === 1 ? '100% 50%' : '0% 50%';
+      const originNext = direction === 1 ? '0% 50%' : '100% 50%';
       return {
         container: `${containerBase} perspective-1000`,
-        activeAnim: isTransitioning ? { animation: `cubeRotateOut ${dur} ease-in-out forwards`, transformOrigin: '100% 50%' } : {},
-        nextAnim: { animation: `cubeRotateIn ${dur} ease-in-out forwards`, transformOrigin: '0% 50%' }
+        activeAnim: isTransitioning ? { animation: `${outAnim} ${dur} ease-in-out forwards`, transformOrigin: originActive } : {},
+        nextAnim: { animation: `${inAnim} ${dur} ease-in-out forwards`, transformOrigin: originNext }
       };
     }
 
     if (effect === 'stack') {
+      // Stack usually implies "Next goes on top". Reversed stack might be "Current slides down?"
+      // For simplicity, let's keep stack direction unified or simple reverse.
+      // Reverse: New slide comes down from top? or Current slides down?
+      // Let's make Prev slide come from Top if Dir -1.
+      const inAnim = direction === 1 ? 'slideInUp' : 'slideInDown';
       return {
         container: containerBase,
         activeAnim: isTransitioning ? {
@@ -225,7 +377,7 @@ const IdleSlideshow: React.FC<IdleSlideshowProps> = ({
           transition: `all ${dur} ease-out`
         } as any : {},
         nextAnim: {
-          animation: `slideInUp ${dur} ease-out forwards`,
+          animation: `${inAnim} ${dur} ease-out forwards`,
           boxShadow: '0 -10px 20px rgba(0,0,0,0.5)'
         } as any
       };
@@ -240,21 +392,23 @@ const IdleSlideshow: React.FC<IdleSlideshowProps> = ({
     }
 
     if (effect === 'ken-burns') {
-      const direction = enableBounce ? 'alternate' : 'normal';
+      const dirProp = enableBounce ? 'alternate' : 'normal';
       return {
         container: containerBase,
         activeAnim: isTransitioning
-          ? { animation: `fadeOut ${dur} forwards, kenBurnsRight 10s infinite ${direction}` }
-          : { animation: `kenBurnsRight 10s infinite ${direction}` },
-        nextAnim: { animation: `fadeIn ${dur} forwards, kenBurnsLeft 10s infinite ${direction}` }
+          ? { animation: `fadeOut ${dur} forwards, kenBurnsRight 10s infinite ${dirProp}` }
+          : { animation: `kenBurnsRight 10s infinite ${dirProp}` },
+        nextAnim: { animation: `fadeIn ${dur} forwards, kenBurnsLeft 10s infinite ${dirProp}` }
       };
     }
 
     if (effect === 'parallax') {
+      const outAnim = direction === 1 ? 'parallaxOut' : 'parallaxOutRev';
+      const inAnim = direction === 1 ? 'parallaxIn' : 'parallaxInRev';
       return {
         container: containerBase,
-        activeAnim: isTransitioning ? { animation: `parallaxOut ${dur} cubic-bezier(0.2, 0.0, 0.2, 1) forwards` } : {},
-        nextAnim: { animation: `parallaxIn ${dur} cubic-bezier(0.2, 0.0, 0.2, 1) forwards` }
+        activeAnim: isTransitioning ? { animation: `${outAnim} ${dur} cubic-bezier(0.2, 0.0, 0.2, 1) forwards` } : {},
+        nextAnim: { animation: `${inAnim} ${dur} cubic-bezier(0.2, 0.0, 0.2, 1) forwards` }
       };
     }
 
@@ -394,6 +548,12 @@ const IdleSlideshow: React.FC<IdleSlideshowProps> = ({
             <p className="text-white font-medium text-sm bg-black/50 px-3 py-1 rounded-full backdrop-blur-md">Smart Cropping...</p>
           </div>
         )}
+        {/* Feedback Overlay (Pause/Speed) */}
+        {feedback && (
+          <div className="absolute top-10 left-1/2 transform -translate-x-1/2 z-[80] bg-black/60 text-white px-4 py-2 rounded-full backdrop-blur-md font-medium text-lg animate-fade-in-out shadow-lg">
+            {feedback.text}
+          </div>
+        )}
       </div>
 
       <style>{`
@@ -406,6 +566,9 @@ const IdleSlideshow: React.FC<IdleSlideshowProps> = ({
         /* Slide */
         @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
         @keyframes slideOutLeft { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+        /* Slide Reverse */
+        @keyframes slideInLeft { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+        @keyframes slideOutRight { from { transform: translateX(0); } to { transform: translateX(100%); } }
 
         /* Cube */
         @keyframes cubeRotateIn { 
@@ -416,10 +579,23 @@ const IdleSlideshow: React.FC<IdleSlideshowProps> = ({
             from { transform: rotateY(0deg); opacity: 1; } 
             to { transform: rotateY(-90deg); opacity: 0.5; } 
         }
+        /* Cube Reverse */
+        @keyframes cubeRotateInRev { 
+            from { transform: rotateY(-90deg); opacity: 0.5; } 
+            to { transform: rotateY(0deg); opacity: 1; } 
+        }
+        @keyframes cubeRotateOutRev { 
+            from { transform: rotateY(0deg); opacity: 1; } 
+            to { transform: rotateY(90deg); opacity: 0.5; } 
+        }
 
         /* Stack (Simple Slide Up) */
         @keyframes slideInUp { 
             from { transform: translateY(100%); } 
+            to { transform: translateY(0); } 
+        }
+        @keyframes slideInDown { 
+            from { transform: translateY(-100%); } 
             to { transform: translateY(0); } 
         }
 
@@ -439,6 +615,15 @@ const IdleSlideshow: React.FC<IdleSlideshowProps> = ({
         @keyframes parallaxOut { 
             from { transform: translateX(0) scale(1); filter: brightness(1); } 
             to { transform: translateX(-30%) scale(0.9); filter: brightness(0.5); opacity: 0; } 
+        }
+        /* Parallax Reverse */
+        @keyframes parallaxInRev { 
+            from { transform: translateX(-100%) scale(1.1); filter: brightness(1.2); } 
+            to { transform: translateX(0) scale(1); filter: brightness(1); } 
+        }
+        @keyframes parallaxOutRev { 
+             from { transform: translateX(0) scale(1); filter: brightness(1); } 
+             to { transform: translateX(30%) scale(0.9); filter: brightness(0.5); opacity: 0; } 
         }
 
         /* Cinematic Pan (Portrait Mode) */

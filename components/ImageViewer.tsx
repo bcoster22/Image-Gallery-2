@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { ImageInfo, AdminSettings, User, AspectRatio } from '../types';
-import { CloseIcon, ChevronLeftIcon, ChevronRightIcon, CopyIcon, SparklesIcon, VideoCameraIcon, DownloadIcon, WandIcon, WarningIcon, RefreshIcon } from './icons';
+import { CloseIcon, ChevronLeftIcon, ChevronRightIcon, CopyIcon, SparklesIcon, VideoCameraIcon, DownloadIcon, WandIcon, WarningIcon, RefreshIcon, CropIcon, PlayIcon, StopIcon } from './icons';
 import Spinner from './Spinner';
 import { isAnyProviderConfiguredFor, generateKeywordsForPrompt, enhancePromptWithKeywords } from '../services/aiService';
 import { getClosestSupportedAspectRatio, reverseAspectRatio } from '../utils/fileUtils';
@@ -27,6 +27,8 @@ interface ImageViewerProps {
   addNotification: (notification: { status: 'success' | 'error'; message: string; }) => void;
   onRetryAnalysis?: (imageId: string) => void;
   onRegenerateCaption?: (imageId: string) => void;
+  onSmartCrop: (image: ImageInfo) => void;
+  processingSmartCropIds?: Set<string>;
 }
 
 interface ActionButtonsProps {
@@ -35,13 +37,16 @@ interface ActionButtonsProps {
   onAnimate: (aspectRatio: AspectRatio) => void;
   onEnhance: () => void;
   onRegenerateCaption?: () => void;
+  onSmartCrop: () => void;
+  isSmartCropping: boolean;
+  isSmartFilled: boolean;
   isPreparingAnimation: boolean;
   settings: AdminSettings | null;
   currentUser: User | null;
   isFloating: boolean;
 }
 
-const ActionButtons: React.FC<ActionButtonsProps> = ({ image, onRecreate, onAnimate, onEnhance, onRegenerateCaption, isPreparingAnimation, settings, currentUser, isFloating }) => {
+const ActionButtons: React.FC<ActionButtonsProps> = ({ image, onRecreate, onAnimate, onEnhance, onRegenerateCaption, onSmartCrop, isSmartCropping, isSmartFilled, isPreparingAnimation, settings, currentUser, isFloating }) => {
   const supportedAR = image.aspectRatio ? getClosestSupportedAspectRatio(image.aspectRatio) : '1:1';
   const reversedAR = reverseAspectRatio(supportedAR) as AspectRatio;
 
@@ -49,6 +54,12 @@ const ActionButtons: React.FC<ActionButtonsProps> = ({ image, onRecreate, onAnim
   const canAnimate = isAnyProviderConfiguredFor(settings, 'animation');
   const canEnhance = isAnyProviderConfiguredFor(settings, 'editing');
   const canAnalyze = isAnyProviderConfiguredFor(settings, 'vision');
+
+  const getSmartCropTooltip = () => {
+    if (isSmartCropping) return "Calculating best crop...";
+    if (isSmartFilled) return "Reset View";
+    return "Smart Fit to Screen";
+  }
 
   const getGenerationTooltip = (ar: string) => {
     if (!currentUser) return "Sign in to generate images with AI.";
@@ -79,14 +90,32 @@ const ActionButtons: React.FC<ActionButtonsProps> = ({ image, onRecreate, onAnim
 
   const isOfflineVideo = image.isVideo && !image.videoUrl;
 
+  /* 
+    Responsive Button Styling:
+    - Mobile (Default): Large, colorful, rounded-xl (Matches floating style for visibility/touch)
+    - Desktop (lg): Compact, subtle, rounded-md (Matches minimal style) IF NOT floating.
+    - Floating: Always large/colorful.
+  */
   const buttonClass = isFloating
     ? "p-3 text-white rounded-full shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-    : "p-1.5 text-gray-300 hover:text-white rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
+    : "p-3 text-white rounded-xl shadow-sm lg:shadow-none lg:text-gray-300 lg:hover:text-white lg:p-1.5 lg:rounded-md transition-all disabled:opacity-50 disabled:cursor-not-allowed";
 
-  const iconClass = isFloating ? "w-6 h-6" : "w-5 h-5";
+  const iconClass = isFloating ? "w-6 h-6" : "w-5 h-5 lg:w-4 lg:h-4";
 
   return (
-    <div className={isFloating ? "absolute bottom-6 right-6 z-20 flex flex-col gap-3 animate-fade-in-up" : "flex items-center space-x-2"}>
+    <div className={isFloating
+      ? "absolute bottom-6 right-6 z-20 flex flex-col gap-3 animate-fade-in-up"
+      : "flex flex-wrap items-center justify-center gap-2 lg:space-x-2 lg:gap-0 lg:flex-nowrap"
+    }>
+      <div title={getSmartCropTooltip()}>
+        <button
+          onClick={onSmartCrop}
+          className={`${buttonClass} ${isSmartFilled ? 'bg-indigo-500 text-white' : 'bg-gray-600/80 hover:bg-gray-600'}`}
+          disabled={isSmartCropping}
+        >
+          {isSmartCropping ? <Spinner className={iconClass} /> : <CropIcon className={iconClass} />}
+        </button>
+      </div>
       <div title={getEnhanceTooltip()}>
         <button
           onClick={onEnhance}
@@ -155,7 +184,11 @@ interface MetadataPanelProps {
   currentUser: User | null;
   isVisible: boolean;
   onRetryAnalysis?: (imageId: string) => void;
+
   onRegenerateCaption?: (imageId: string) => void;
+  onSmartCrop: () => void;
+  isSmartCropping: boolean;
+  isSmartFilled: boolean;
   // Slideshow props
   isSlideshowActive: boolean;
   onToggleSlideshow: () => void;
@@ -167,9 +200,68 @@ interface MetadataPanelProps {
 const MetadataPanel: React.FC<MetadataPanelProps> = ({
   image, onRecreate, isPreparingAnimation, onAnimate, onEnhance, onKeywordClick,
   settings, currentUser, onTogglePublicStatus, onCopyPrompt, isCopied, isVisible,
-  onRetryAnalysis, onRegenerateCaption,
+  onRetryAnalysis, onRegenerateCaption, onSmartCrop, isSmartCropping, isSmartFilled,
   isSlideshowActive, onToggleSlideshow, slideshowDelay, onSlideshowDelayChange, hasMultipleImages
 }) => {
+
+  const promptScrollRef = useRef<HTMLDivElement>(null);
+  const keywordsScrollRef = useRef<HTMLDivElement>(null);
+  const [isHoveringPrompt, setIsHoveringPrompt] = useState(false);
+  const [isHoveringKeywords, setIsHoveringKeywords] = useState(false);
+
+  // Auto-scroll prompt text
+  useEffect(() => {
+    const el = promptScrollRef.current;
+    if (!el || !image?.recreationPrompt || isHoveringPrompt) return;
+
+    // Small delay before starting scroll to let user read start
+    const startTimeout = setTimeout(() => {
+      let scrollInterval: NodeJS.Timeout;
+
+      const scroll = () => {
+        if (!el || isHoveringPrompt) return;
+        // Stop if reached bottom
+        if (el.scrollTop + el.clientHeight >= el.scrollHeight) {
+          return;
+        }
+        el.scrollTop += 1;
+      };
+
+      scrollInterval = setInterval(scroll, 50); // Slow readable pace
+
+      return () => clearInterval(scrollInterval);
+    }, 2000);
+
+    return () => clearTimeout(startTimeout);
+  }, [image?.recreationPrompt, isHoveringPrompt, isVisible]);
+
+  // Auto-scroll keywords (Horizontal)
+  useEffect(() => {
+    const el = keywordsScrollRef.current;
+    if (!el || !image?.keywords || isHoveringKeywords) return;
+
+    const startTimeout = setTimeout(() => {
+      let scrollInterval: NodeJS.Timeout;
+      const scroll = () => {
+        if (!el || isHoveringKeywords) return;
+        // Stop if reached end
+        if (el.scrollLeft + el.clientWidth >= el.scrollWidth) return;
+        el.scrollLeft += 1; // Slow horizontal scroll
+      };
+      scrollInterval = setInterval(scroll, 50);
+      return () => clearInterval(scrollInterval);
+    }, 2000);
+
+    return () => clearTimeout(startTimeout);
+  }, [image?.keywords, isHoveringKeywords, isVisible]);
+
+  // Mouse wheel handler for horizontal scrolling of keywords
+  const handleKeywordsWheel = (e: React.WheelEvent) => {
+    if (keywordsScrollRef.current && e.deltaY !== 0) {
+      e.preventDefault();
+      keywordsScrollRef.current.scrollLeft += e.deltaY;
+    }
+  };
 
   const handleDownload = () => {
     if (!image) return;
@@ -185,36 +277,41 @@ const MetadataPanel: React.FC<MetadataPanelProps> = ({
 
   return (
     <div
-      className={`absolute bottom-4 left-4 right-4 z-10 p-4 bg-black/60 backdrop-blur-md rounded-lg text-white max-w-3xl mx-auto transition-all duration-300 ease-in-out ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-full pointer-events-none'}`}
+      className={`
+        z-50 bg-black/40 backdrop-blur-xl border-t lg:border border-white/10 shadow-2xl text-white transition-all duration-300 ease-out transform
+        fixed bottom-16 lg:bottom-6 left-0 right-0 rounded-t-2xl rounded-b-none max-h-[60vh] flex flex-col
+        lg:absolute lg:left-6 lg:right-6 lg:rounded-2xl lg:max-h-none lg:max-w-7xl lg:mx-auto lg:block
+        ${isVisible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-full lg:translate-y-8 lg:scale-95 pointer-events-none'}
+      `}
       onClick={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
     >
-      <div className="flex justify-between items-start mb-3 gap-4">
-        <div className="flex flex-wrap gap-x-8 gap-y-3">
-          <div>
+      {/* Scrollable Content */}
+      <div className="flex-1 overflow-y-auto lg:overflow-visible p-3 lg:p-6">
+        <div className="grid grid-cols-1 lg:grid-cols-[auto_1fr_auto] gap-2 lg:gap-8 items-start">
+
+          {/* Column 1: Image & System Metadata */}
+          <div className="flex flex-row overflow-x-auto items-center gap-3 scrollbar-none lg:flex-col lg:items-start lg:gap-0 lg:space-y-4 lg:overflow-visible whitespace-nowrap max-w-full lg:max-w-none">
             {image.width && image.height && image.aspectRatio && (
-              <>
-                <h3 className="text-xs font-semibold uppercase text-gray-400 mb-1">Image Details</h3>
-                <div className="flex flex-wrap gap-2">
-                  <p className="text-sm text-gray-300 bg-gray-900/50 py-1 px-2 rounded-md inline-block">
-                    {image.width} &times; {image.height} <span className="text-gray-400">({image.aspectRatio})</span>
-                  </p>
+              <div className="flex flex-col gap-1">
+                <h3 className="text-[10px] font-bold uppercase tracking-widest text-white/40 mb-1">Image Specs</h3>
+                <div className="flex flex-wrap gap-2 items-center">
+                  <div className="px-2 py-1 bg-white/5 border border-white/10 rounded-md text-xs font-medium text-white/80 font-mono">
+                    {image.width} &times; {image.height} <span className="opacity-50">|</span> {image.aspectRatio}
+                  </div>
                   {image.smartCrop && (
-                    <div className="flex items-center gap-1.5 text-sm text-gray-300 bg-gray-900/50 py-1 px-2 rounded-md" title="Smart Crop Center">
-                      <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
-                      <span>{image.smartCrop.x.toFixed(0)}%, {image.smartCrop.y.toFixed(0)}%</span>
+                    <div className="flex items-center justify-center w-6 h-6 bg-indigo-500/10 border border-indigo-500/20 rounded-md" title={`Smart Crop Active (${image.smartCrop.x.toFixed(0)}%, ${image.smartCrop.y.toFixed(0)}%)`}>
+                      <span className="w-2 h-2 rounded-full bg-indigo-400 shadow-[0_0_5px_rgba(129,140,248,0.5)]"></span>
                     </div>
                   )}
                 </div>
-              </>
+              </div>
             )}
-          </div>
 
-          <div>
             {isOwner && (
-              <>
-                <h3 className="text-xs font-semibold uppercase text-gray-400 mb-2">Sharing Status</h3>
-                <label htmlFor="is-public-toggle" className="flex items-center cursor-pointer w-fit">
+              <div>
+                <h3 className="text-[10px] font-bold uppercase tracking-widest text-white/40 mb-2">Visibility</h3>
+                <label htmlFor="is-public-toggle" className="flex items-center cursor-pointer group w-fit">
                   <div className="relative">
                     <input
                       type="checkbox"
@@ -223,110 +320,179 @@ const MetadataPanel: React.FC<MetadataPanelProps> = ({
                       checked={!!image.isPublic}
                       onChange={() => onTogglePublicStatus(image.id)}
                     />
-                    <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-focus:ring-2 peer-focus:ring-offset-2 peer-focus:ring-offset-gray-900/50 peer-focus:ring-indigo-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                    <div className="w-9 h-5 bg-white/10 rounded-full peer peer-focus:ring-2 peer-focus:ring-offset-2 peer-focus:ring-offset-black peer-focus:ring-indigo-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-500 transition-colors"></div>
                   </div>
-                  <span className="ml-3 text-sm font-medium text-gray-300">{image.isPublic ? 'Public' : 'Private'}</span>
+                  <span className="ml-3 text-sm text-white/70 group-hover:text-white transition-colors">{image.isPublic ? 'Public' : 'Private'}</span>
                 </label>
-              </>
+              </div>
+            )}
+
+            {hasMultipleImages && (
+              <div>
+                <h3 className="text-[10px] font-bold uppercase tracking-widest text-white/40 mb-2">Slideshow</h3>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={onToggleSlideshow}
+                    className={`p-2 rounded-full transition-all duration-300 ${isSlideshowActive ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'bg-white/10 text-white/70 hover:bg-white/20 hover:text-white'}`}
+                    title={isSlideshowActive ? "Pause" : "Play"}
+                  >
+                    {isSlideshowActive ? <StopIcon className="w-4 h-4" /> : <PlayIcon className="w-4 h-4 ml-0.5" />}
+                  </button>
+
+                  {isSlideshowActive && (
+                    <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-2 pl-3 py-1 rounded-full">
+                      <span className="text-xs text-white/60 font-mono w-6 text-right">{(slideshowDelay / 1000).toFixed(0)}s</span>
+                      <input
+                        type="range"
+                        min="2000"
+                        max="20000"
+                        step="1000"
+                        value={slideshowDelay}
+                        onChange={(e) => onSlideshowDelayChange(Number(e.target.value))}
+                        className="w-16 h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
           </div>
 
-          {hasMultipleImages && (
-            <div>
-              <h3 className="text-xs font-semibold uppercase text-gray-400 mb-2">Slideshow</h3>
-              <div className="flex items-center gap-3">
+          {/* Column 2: Content (Prompt & Keywords) */}
+          <div className="flex flex-col gap-4 min-w-0">
+            <div className="flex items-center justify-between">
+              <h3 className="text-[10px] font-bold uppercase tracking-widest text-white/40 flex items-center gap-2">
+                <span className="w-1 h-1 rounded-full bg-purple-400"></span> AI Context
+              </h3>
+              {image.recreationPrompt && (
                 <button
-                  onClick={onToggleSlideshow}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-gray-900 ${isSlideshowActive ? 'bg-indigo-600' : 'bg-gray-600'}`}
-                  title={isSlideshowActive ? "Pause Slideshow" : "Start Slideshow"}
+                  onClick={onCopyPrompt}
+                  className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-medium uppercase tracking-wide text-white/50 hover:text-white hover:bg-white/10 transition-colors"
                 >
-                  <span className={`${isSlideshowActive ? 'translate-x-6' : 'translate-x-1'} inline-block h-4 w-4 transform rounded-full bg-white transition-transform`} />
+                  {isCopied ? <span className="text-green-400">Copied</span> : <span>Copy Prompt</span>}
+                  <CopyIcon className="w-3 h-3" />
                 </button>
+              )}
+            </div>
 
-                {isSlideshowActive && (
-                  <div className="flex items-center gap-2 bg-gray-900/50 px-2 py-1 rounded-md">
-                    <span className="text-xs text-gray-300 w-8 text-right">{slideshowDelay / 1000}s</span>
-                    <input
-                      type="range"
-                      min="2000"
-                      max="20000"
-                      step="1000"
-                      value={slideshowDelay}
-                      onChange={(e) => onSlideshowDelayChange(Number(e.target.value))}
-                      className="w-20 h-1.5 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                    />
-                  </div>
-                )}
+            <div className="relative group/prompt">
+              {image.recreationPrompt ? (
+                <div
+                  ref={promptScrollRef}
+                  onMouseEnter={() => setIsHoveringPrompt(true)}
+                  onMouseLeave={() => setIsHoveringPrompt(false)}
+                  onTouchStart={() => setIsHoveringPrompt(true)} // Allow touch interaction to pause/control
+                  className="text-sm leading-relaxed text-white/90 font-light bg-black/20 p-4 rounded-xl border border-white/5 max-h-[120px] overflow-y-auto scrollbar-none hover:scrollbar-thin scrollbar-thumb-white/10 hover:scrollbar-thumb-white/20 transition-all"
+                  style={{ scrollBehavior: 'auto' }} // Ensure auto-scroll isn't jerky with smooth scrolling
+                >
+                  {image.recreationPrompt}
+                </div>
+              ) : (
+                <div className="text-sm text-white/40 italic bg-black/20 p-4 rounded-xl border border-white/5 border-dashed">
+                  No AI description available.
+                </div>
+              )}
+
+              {image.analysisFailed && onRetryAnalysis && (
+                <div className="mt-3 flex items-center justify-between p-2 pl-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+                  <span className="text-xs text-red-300 font-medium flex items-center gap-2">
+                    <WarningIcon className="w-3.5 h-3.5" /> Analysis Failed
+                  </span>
+                  <button
+                    onClick={() => onRetryAnalysis(image.id)}
+                    className="px-2 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-200 text-[10px] uppercase font-bold tracking-wider rounded transition-colors"
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {image.keywords && image.keywords.length > 0 && (
+              <div
+                ref={keywordsScrollRef}
+                onMouseEnter={() => setIsHoveringKeywords(true)}
+                onMouseLeave={() => setIsHoveringKeywords(false)}
+                onTouchStart={() => setIsHoveringKeywords(true)}
+                onWheel={handleKeywordsWheel}
+                className="flex flex-nowrap overflow-x-auto scrollbar-none gap-1.5 py-1"
+                style={{ scrollBehavior: 'auto' }}
+              >
+                {image.keywords.map((kw, i) => (
+                  <button
+                    key={i}
+                    onClick={() => onKeywordClick(kw)}
+                    className="px-2.5 py-1 text-xs bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/20 rounded-full text-white/70 hover:text-white transition-all duration-200 whitespace-nowrap flex-shrink-0"
+                  >
+                    #{kw}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Column 3: Actions (Desktop Only) */}
+          <div className="hidden lg:flex flex-col items-end gap-3 border-l border-white/10 pl-6 h-full">
+            <div className="w-full">
+              <h3 className="text-[10px] font-bold uppercase tracking-widest text-white/40 mb-3 text-right">Actions</h3>
+              <div className="flex flex-col gap-2 justify-end w-full">
+                <ActionButtons {...{
+                  image,
+                  onRecreate,
+                  onAnimate,
+                  onEnhance,
+                  onRegenerateCaption: onRegenerateCaption ? () => onRegenerateCaption(image.id) : undefined,
+                  onSmartCrop,
+                  isSmartCropping,
+                  isSmartFilled,
+                  isPreparingAnimation,
+                  settings,
+                  currentUser,
+                  isFloating: false
+                }} />
+
+                <div className="h-px w-full bg-white/10 my-2"></div>
+
+                <button
+                  onClick={handleDownload}
+                  disabled={image.isVideo && !image.videoUrl}
+                  className="p-3 text-white/70 hover:text-white bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/20 rounded-xl transition-all disabled:opacity-50 flex items-center justify-center group"
+                  title={image.isVideo && !image.videoUrl ? "Unavailable" : "Download Original"}
+                >
+                  <DownloadIcon className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                </button>
               </div>
             </div>
-          )}
-        </div>
+          </div>
 
-        <div className="flex flex-col gap-2 items-end">
-          <button
-            onClick={handleDownload}
-            disabled={image.isVideo && !image.videoUrl}
-            className="p-2 text-gray-300 hover:text-white bg-gray-700/80 hover:bg-gray-700 rounded-md transition-colors flex items-center flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
-            title={image.isVideo && !image.videoUrl ? "Download unavailable for offline video" : "Download"}
-          >
-            <DownloadIcon className="w-5 h-5" />
-          </button>
         </div>
       </div>
 
-      {image.analysisFailed && onRetryAnalysis && (
-        <div className="mb-3 bg-red-900/30 border border-red-800 rounded-lg p-3 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-red-200 text-sm">
-            <WarningIcon className="w-4 h-4" />
-            <span>AI Analysis Failed</span>
-          </div>
-          <button
-            onClick={() => onRetryAnalysis(image.id)}
-            className="px-3 py-1 text-xs font-medium bg-red-700 hover:bg-red-600 text-white rounded-md transition-colors"
-          >
-            Retry Analysis
-          </button>
-        </div>
-      )}
-
-      {image.keywords && image.keywords.length > 0 && (
-        <div className="mb-3">
-          <h3 className="text-xs font-semibold uppercase text-gray-400 mb-2">AI Keywords</h3>
-          <div className="flex flex-wrap gap-2">
-            {image.keywords.map((kw, i) => (
-              <button
-                key={i}
-                onClick={() => onKeywordClick(kw)}
-                className="px-3 py-1.5 text-base bg-gray-700/80 rounded-full hover:bg-indigo-600 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              >
-                {kw}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-      {image.recreationPrompt && (
-        <div>
-          <div className="flex justify-between items-center mb-2">
-            <div className='flex items-center gap-2'>
-              <h3 className="text-xs font-semibold uppercase text-gray-400">AI Actions</h3>
-              <button
-                onClick={onCopyPrompt}
-                className="p-1.5 text-gray-300 hover:text-white bg-gray-600/80 hover:bg-gray-600 rounded-md transition-colors"
-                title={isCopied ? "Copied!" : "Copy prompt"}
-              >
-                <CopyIcon className="w-5 h-5" />
-              </button>
-            </div>
-            <ActionButtons {...{ image, onRecreate, onAnimate, onEnhance, onRegenerateCaption: onRegenerateCaption ? () => onRegenerateCaption(image.id) : undefined, isPreparingAnimation, settings, currentUser, isFloating: false }} />
-          </div>
-          <div className="relative">
-            <p className="text-sm text-gray-200 bg-gray-900/50 p-3 rounded-md max-h-24 overflow-y-auto">
-              {image.recreationPrompt}
-            </p>
-          </div>
-        </div>
-      )}
+      {/* Sticky Mobile Footer Actions */}
+      <div className="lg:hidden p-3 border-t border-white/10 bg-black/40 backdrop-blur-xl flex items-center justify-between gap-3 shrink-0">
+        <ActionButtons {...{
+          image,
+          onRecreate,
+          onAnimate,
+          onEnhance,
+          onRegenerateCaption: onRegenerateCaption ? () => onRegenerateCaption(image.id) : undefined,
+          onSmartCrop,
+          isSmartCropping,
+          isSmartFilled,
+          isPreparingAnimation,
+          settings,
+          currentUser,
+          isFloating: false
+        }} />
+        <div className="w-px h-8 bg-white/10"></div>
+        <button
+          onClick={handleDownload}
+          disabled={image.isVideo && !image.videoUrl}
+          className="p-3 text-white bg-white/10 rounded-xl transition-all disabled:opacity-50 flex items-center justify-center group shadow-sm"
+        >
+          <DownloadIcon className="w-5 h-5" />
+        </button>
+      </div>
     </div>
   );
 };
@@ -349,7 +515,10 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
   setPromptModalConfig,
   addNotification,
   onRetryAnalysis,
-  onRegenerateCaption
+
+  onRegenerateCaption,
+  onSmartCrop,
+  processingSmartCropIds
 }) => {
   // Use contextImages for navigation if available, otherwise fallback to just the initial image
   const navigationImages = useMemo(() => {
@@ -361,11 +530,38 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
     return idx >= 0 ? idx : 0;
   });
 
+  const [isSmartFilled, setIsSmartFilled] = useState(false);
+
   const [isDetailsVisible, setIsDetailsVisible] = useState(true);
   const slideshowTimerRef = useRef<number | null>(null);
   const lastTapTimeRef = useRef<number>(0);
   const touchStartRef = useRef<{ x: number, y: number } | null>(null);
   const isDraggingRef = useRef(false);
+  const thumbnailContainerRef = useRef<HTMLDivElement>(null);
+
+  // Scroll active thumbnail into view
+  useEffect(() => {
+    if (thumbnailContainerRef.current && currentIndex >= 0) {
+      const container = thumbnailContainerRef.current;
+      const activeThumb = container.children[currentIndex] as HTMLElement;
+
+      if (activeThumb) {
+        const containerLeft = container.getBoundingClientRect().left;
+        const activeLeft = activeThumb.getBoundingClientRect().left;
+        const scrollOffset = activeLeft - containerLeft - (container.clientWidth / 2) + (activeThumb.clientWidth / 2);
+
+        container.scrollBy({ left: scrollOffset, behavior: 'smooth' });
+      }
+    }
+  }, [currentIndex, isDetailsVisible]); // Re-run when index changes or viewer visibility toggles
+
+  const handleThumbnailWheel = useCallback((e: React.WheelEvent) => {
+    if (thumbnailContainerRef.current) {
+      e.stopPropagation(); // Prevent zooming the main image or other interactions
+      // Translate vertical scroll (wheel) to horizontal scroll
+      thumbnailContainerRef.current.scrollLeft += e.deltaY;
+    }
+  }, []);
 
   const [isCopied, setIsCopied] = useState(false);
 
@@ -395,6 +591,15 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
     }
   }, [currentImage]);
 
+  // Ensure smart crop is calculated if we navigate to an image while Smart Fit is active
+  useEffect(() => {
+    if (isSmartFilled && !currentImage.smartCrop &&
+      !processingSmartCropIds?.has(currentImage.id) &&
+      !currentImage.isVideo) {
+      onSmartCrop(currentImage);
+    }
+  }, [currentIndex, isSmartFilled, currentImage?.smartCrop, currentImage?.id]);
+
   const handleRecreate = (aspectRatio: AspectRatio) => {
     if (!currentImage.recreationPrompt || !currentUser) return;
     setPromptModalConfig({
@@ -404,6 +609,23 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
       image: currentImage
     });
   };
+
+  const handleSmartCropClick = () => {
+    // Just toggle. If turning ON and crop is missing, the useEffect above will trigger calculation.
+    // Or we can trigger it here immediately for better feedback.
+    if (!isSmartFilled && !currentImage.smartCrop) {
+      onSmartCrop(currentImage);
+    }
+    setIsSmartFilled(prev => !prev);
+  };
+
+  // Watch for smart crop arrival affecting view state?
+  useEffect(() => {
+    if (currentImage?.smartCrop && processingSmartCropIds?.has(currentImage.id)) {
+      // If it was processing and now has crop, maybe we want to ensure fill is on?
+      // But processingSmartCropIds might update slower.
+    }
+  }, [currentImage?.smartCrop]);
 
   const handleEnhance = () => {
     if (!currentUser) return;
@@ -502,6 +724,16 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
     };
   }, [resetInactivityTimer]);
 
+  // Scroll active thumbnail into view
+  useEffect(() => {
+    if (thumbnailContainerRef.current && !isDetailsVisible) {
+      const activeBtn = thumbnailContainerRef.current.children[currentIndex] as HTMLElement;
+      if (activeBtn) {
+        activeBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      }
+    }
+  }, [currentIndex, isDetailsVisible]);
+
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -585,7 +817,7 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
     <>
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm" onClick={onClose}>
         <div
-          className="relative w-full h-full flex flex-col items-center justify-center p-4"
+          className={`relative w-full h-full flex flex-col items-center justify-center ${isSmartFilled ? '' : 'p-4'}`}
           style={{ touchAction: 'none' }}
           onClick={(e) => e.stopPropagation()}
           onPointerDown={handlePointerDown}
@@ -600,7 +832,7 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
             <CloseIcon className="w-8 h-8" />
           </button>
 
-          <div className="relative flex items-center justify-center w-full h-full max-h-[95vh] max-w-[95vw]">
+          <div className={`relative flex items-center justify-center w-full h-full ${isSmartFilled ? '' : 'max-h-[95vh] max-w-[95vw]'}`}>
             {isVideo && !isOfflineVideo ? (
               <video
                 key={`${currentImage.id}-video`}
@@ -618,10 +850,15 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
                   key={currentImage.id}
                   src={currentImage.dataUrl}
                   alt={currentImage.fileName}
-                  className={`animate-fade-in block rounded-lg shadow-2xl object-contain ${(currentImage.height || 0) > (currentImage.width || 0)
-                    ? 'h-full w-auto max-h-full' // Portrait: prioritize height
-                    : 'w-full h-auto max-w-full' // Landscape: prioritize width
+                  className={`animate-fade-in block shadow-2xl transition-all duration-300 ${isSmartFilled && currentImage.smartCrop
+                    ? 'w-full h-full object-cover rounded-none'
+                    : `rounded-lg object-contain ${(currentImage.height || 0) > (currentImage.width || 0)
+                      ? 'h-full w-auto max-h-full'
+                      : 'w-full h-auto max-w-full'}`
                     }`}
+                  style={isSmartFilled && currentImage.smartCrop ? {
+                    objectPosition: `${currentImage.smartCrop.x}% ${currentImage.smartCrop.y}%`
+                  } : undefined}
                   draggable="false"
                 />
               )
@@ -659,6 +896,9 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
                 isVisible={isDetailsVisible}
                 onRetryAnalysis={onRetryAnalysis}
                 onRegenerateCaption={onRegenerateCaption}
+                onSmartCrop={handleSmartCropClick}
+                isSmartCropping={processingSmartCropIds?.has(currentImage.id) ?? false}
+                isSmartFilled={isSmartFilled}
                 isSlideshowActive={isSlideshowActive}
                 onToggleSlideshow={() => setIsSlideshowActive(!isSlideshowActive)}
                 slideshowDelay={slideshowDelay}
@@ -676,27 +916,73 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
 
           {!isVideo && navigationImages.length > 1 && !isLoading && (
             <>
-              <div className="absolute bottom-5 left-1/2 -translate-x-1/2 flex items-center space-x-2 z-20">
-                {navigationImages.map((_, index) => (
-                  <button
-                    key={index}
-                    onClick={(e) => { e.stopPropagation(); setCurrentIndex(index); }}
-                    className={`h-2.5 w-2.5 rounded-full transition-colors ${currentIndex === index ? 'bg-white' : 'bg-white/40 hover:bg-white/70'
-                      }`}
-                  ></button>
-                ))}
-              </div>
+              {/* Thumbnail Navigation Strip */}
+              {/* Thumbnail Navigation Strip - Only visible when details are hidden */}
+              {!isDetailsVisible && (
+                <div
+                  className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 max-w-[85vw] flex flex-col items-center animate-fade-in-up"
+                  onClick={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
+                  <div
+                    ref={thumbnailContainerRef}
+                    onWheel={handleThumbnailWheel}
+                    className="flex gap-2 p-2 overflow-x-auto scrollbar-none bg-black/40 backdrop-blur-md rounded-xl border border-white/10 shadow-lg px-3 transition-all duration-300 hover:bg-black/60 hover:scale-105"
+                    style={{
+                      scrollBehavior: 'smooth',
+                      maxWidth: '100%',
+                      '--thumb-hover-scale': currentUser?.thumbnailHoverScale ?? settings?.appearance?.thumbnailHoverScale ?? 1.2
+                    } as React.CSSProperties}
+                  >
+                    {navigationImages.map((img, index) => {
+                      const baseSize = currentUser?.thumbnailSize ?? settings?.appearance?.thumbnailSize ?? 40;
+                      // Calculate dynamic width based on aspect ratio
+                      // Default to 1:1 if dimensions missing
+                      const aspectRatio = (img.width && img.height) ? (img.width / img.height) : 1;
+
+                      const activeHeight = Math.round(baseSize * 1.4);
+                      const currentHeight = currentIndex === index ? activeHeight : baseSize;
+
+                      // Calculate width maintaining aspect ratio
+                      const currentWidth = Math.round(currentHeight * aspectRatio);
+
+                      return (
+                        <button
+                          key={img.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCurrentIndex(index);
+                          }}
+                          style={{ width: `${currentWidth}px`, height: `${currentHeight}px` }}
+                          className={`thumbnail-btn relative flex-shrink-0 transition-all duration-300 ease-out focus:outline-none rounded-md overflow-hidden ${currentIndex === index
+                            ? 'ring-2 ring-white opacity-100 scale-100'
+                            : 'ring-0 opacity-50 hover:opacity-100'
+                            }`}
+                        >
+                          <img
+                            src={img.dataUrl}
+                            alt={`Thumbnail ${index + 1}`}
+                            className="w-full h-full object-cover"
+                            draggable={false}
+                          />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <button
                 onClick={(e) => { e.stopPropagation(); prevImage(); }}
-                className="absolute left-4 sm:left-8 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/30 hover:bg-black/60 text-white transition-all z-20"
+                className="absolute left-4 sm:left-8 top-1/2 -translate-y-1/2 p-3 rounded-full bg-black/20 hover:bg-black/60 text-white/70 hover:text-white transition-all z-20 backdrop-blur-sm"
               >
-                <ChevronLeftIcon className="h-7 w-7" />
+                <ChevronLeftIcon className="h-8 w-8" />
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); nextImage(); }}
-                className="absolute right-4 sm:right-8 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/30 hover:bg-black/60 text-white transition-all z-20"
+                className="absolute right-4 sm:right-8 top-1/2 -translate-y-1/2 p-3 rounded-full bg-black/20 hover:bg-black/60 text-white/70 hover:text-white transition-all z-20 backdrop-blur-sm"
               >
-                <ChevronRightIcon className="h-7 w-7" />
+                <ChevronRightIcon className="h-8 w-8" />
               </button>
             </>
           )}
@@ -723,6 +1009,10 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
           }
           .animate-fade-in-up {
             animation: fade-in-up 0.4s ease-out;
+          }
+          .thumbnail-btn:hover {
+            transform: scale(var(--thumb-hover-scale));
+            z-index: 10;
           }
       `}</style>
       </div>
