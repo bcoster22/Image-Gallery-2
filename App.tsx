@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 // FIX: Added AppSettings to import for settings migration.
-import { ImageInfo, AdminSettings, User, GenerationTask, Notification, AspectRatio, GalleryView, AiProvider, UploadProgress, AppSettings, AnalysisProgress, QueueStatus, ActiveJob } from './types';
+import { ImageInfo, AdminSettings, User, GenerationTask, Notification, AspectRatio, GalleryView, AiProvider, UploadProgress, AppSettings, AnalysisProgress, QueueStatus, ActiveJob, GenerationResult } from './types';
 import { analyzeImage, animateImage, editImage, generateImageFromPrompt, adaptPromptToTheme, FallbackChainError, detectSubject } from './services/aiService';
 import { fileToDataUrl, getImageMetadata, dataUrlToBlob, generateVideoThumbnail, createGenericPlaceholder, extractAIGenerationMetadata, resizeImage, getClosestSupportedAspectRatio } from './utils/fileUtils';
 import { RateLimitedApiQueue } from './utils/rateLimiter';
@@ -975,7 +975,8 @@ const App: React.FC = () => {
       }
     } catch (error) {
       console.error("Failed to save image:", error);
-      addNotification({ status: 'error', message: `Could not save the image to the gallery.` });
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      addNotification({ status: 'error', message: `Could not save: ${errorMessage}` });
     }
   }, [settings, currentUser, addNotification, runImageAnalysis]);
 
@@ -1086,8 +1087,8 @@ const App: React.FC = () => {
             // Step 1: Try to enhance the source image before animation
             addNotification({ id: `${taskId}-enhance`, status: 'processing', message: `Enhancing source image...` });
             const enhancementPrompt = "Remove any text or watermarks. Enhance image quality and resolution to be as sharp and detailed as possible, preparing it for video generation.";
-            const enhancedBase64 = await editImage(sourceImage, enhancementPrompt, settings);
-            const enhancedDataUrl = `data:image/png;base64,${enhancedBase64}`;
+            const enhancedResult = await editImage(sourceImage, enhancementPrompt, settings);
+            const enhancedDataUrl = `data:image/png;base64,${enhancedResult.image}`;
             const enhancedBlob = await dataUrlToBlob(enhancedDataUrl);
             const enhancedFileName = `enhanced-${sourceImage.fileName}`;
             const enhancedFile = new File([enhancedBlob], enhancedFileName, { type: 'image/png' });
@@ -1191,13 +1192,13 @@ const App: React.FC = () => {
 
     (async () => {
       try {
-        let generatedBase64: string;
+        let generatedResult: GenerationResult;
         if (taskType === 'image') {
-          generatedBase64 = await generateImageFromPrompt(prompt, settings, aspectRatio);
-          await handleSaveGeneratedImage(generatedBase64, false, prompt);
+          generatedResult = await generateImageFromPrompt(prompt, settings, aspectRatio);
+          await handleSaveGeneratedImage(generatedResult.image, false, prompt);
         } else { // enhance
-          generatedBase64 = await editImage(sourceImage, prompt, settings);
-          await handleSaveEnhancedImage(generatedBase64, false, prompt);
+          generatedResult = await editImage(sourceImage, prompt, settings);
+          await handleSaveEnhancedImage(generatedResult.image, false, prompt);
         }
         setGenerationTasks(prev => prev.filter(t => t.id !== taskId));
       } catch (error: any) {
