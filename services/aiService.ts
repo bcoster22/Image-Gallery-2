@@ -1,4 +1,4 @@
-import { ImageInfo, AdminSettings, AiProvider, AspectRatio, Capability, ImageAnalysisResult } from "../types";
+import { ImageInfo, AdminSettings, AiProvider, AspectRatio, Capability, ImageAnalysisResult, GenerationResult } from "../types";
 import { providerCapabilities } from "./providerCapabilities";
 import { registry } from "./providerRegistry";
 // Import providers to ensure they register themselves
@@ -122,8 +122,6 @@ async function executeWithFallback<T>(
                     console.log("Grok prompt is too long, shortening...");
                     // Try to find a text generation provider to shorten it
                     // For now, specifically look for Gemini as it was hardcoded before
-                    const geminiProvider = registry.getProvider('gemini');
-                    // We need a specific shortenPrompt method or use generic text gen
                     // The previous code imported gemini.shortenPrompt directly.
                     // Since shortenPrompt is not part of IAiProvider, we might need to cast or use a different approach.
                     // For now, let's assume we can access the exported function from the module if we import it, 
@@ -276,9 +274,10 @@ export const detectSubject = async (
 export const generateImageFromPrompt = async (
     prompt: string,
     settings: AdminSettings,
-    aspectRatio: AspectRatio
-): Promise<string> => {
-    return executeWithFallback(settings, 'generateImageFromPrompt', [prompt, aspectRatio]);
+    aspectRatio: AspectRatio,
+    sourceImage?: ImageInfo // Add optional source image
+): Promise<GenerationResult> => {
+    return executeWithFallback(settings, 'generateImageFromPrompt', [prompt, aspectRatio, sourceImage]);
 };
 
 export const animateImage = async (
@@ -294,9 +293,10 @@ export const editImage = async (
     image: ImageInfo,
     prompt: string,
     settings: AdminSettings,
-): Promise<string> => {
-    return executeWithFallback(settings, 'editImage', [image, prompt]);
-}
+    strength?: number
+): Promise<GenerationResult> => {
+    return executeWithFallback(settings, 'editImage', [image, prompt, strength]);
+};
 
 export const generateKeywordsForPrompt = async (
     prompt: string,
@@ -318,5 +318,11 @@ export const adaptPromptToTheme = async (
     theme: string,
     settings: AdminSettings
 ): Promise<string> => {
-    return executeWithFallback(settings, 'adaptPromptToTheme', [originalPrompt, theme]);
+    try {
+        return await executeWithFallback(settings, 'adaptPromptToTheme', [originalPrompt, theme]);
+    } catch (e) {
+        console.warn("LLM adaptation failed or not configured. Falling back to simple concatenation.", e);
+        return `${theme}, ${originalPrompt}`;
+    }
 };
+

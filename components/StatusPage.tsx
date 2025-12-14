@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { AdminSettings, ImageAnalysisStats, QueueStatus } from "../types";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { Activity, Cpu, HardDrive, Server, Zap, AlertTriangle, Terminal, Lock, Clock, ScanEye, Crop, Film, Image as ImageIcon } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -43,35 +43,46 @@ interface StatPoint {
 
 // Interpolate check for smooth color transition
 function getSmoothColor(value: number) {
-  // Keyframes: 
-  // 0-40: Blue (240) -> Green (120)
-  // 40-60: Green (120) -> Yellow (60)
-  // 60-80: Yellow (60) -> Orange (30)
-  // 80-100: Orange (30) -> Red (0)
+  // New gradient ranges:
+  // 0-20: Blue (240)
+  // 20-50: Green (120)
+  // 50-70: Yellow (60)
+  // 70-85: Orange (30)
+  // 85-95: Red (0)
+  // 95-100: Blood Red (0 with higher saturation)
 
-  // Clamp value
   const v = Math.max(0, Math.min(100, value));
-  let hue = 120; // Default green
+  let hue = 120;
+  let saturation = 100;
+  let lightness = 50;
 
-  if (v <= 40) {
-    // 0 -> 240 (Blue), 40 -> 120 (Green)
-    // Map 0-40 to 240-120
-    hue = 240 - ((v / 40) * 120);
-  } else if (v <= 60) {
-    // 40 -> 120 (Green), 60 -> 60 (Yellow)
-    // Map 0-20 (v-40) to 120-60
-    hue = 120 - (((v - 40) / 20) * 60);
-  } else if (v <= 80) {
-    // 60 -> 60 (Yellow), 80 -> 30 (Orange)
-    // Map 0-20 (v-60) to 60-30
-    hue = 60 - (((v - 60) / 20) * 30);
+  if (v <= 20) {
+    // Blue
+    hue = 240;
+  } else if (v <= 50) {
+    // Blue to Green: 20-50 (30 range)
+    const progress = (v - 20) / 30;
+    hue = 240 - (progress * 120); // 240 -> 120
+  } else if (v <= 70) {
+    // Green to Yellow: 50-70 (20 range)
+    const progress = (v - 50) / 20;
+    hue = 120 - (progress * 60); // 120 -> 60
+  } else if (v <= 85) {
+    // Yellow to Orange: 70-85 (15 range)
+    const progress = (v - 70) / 15;
+    hue = 60 - (progress * 30); // 60 -> 30
+  } else if (v <= 95) {
+    // Orange to Red: 85-95 (10 range)
+    const progress = (v - 85) / 10;
+    hue = 30 - (progress * 30); // 30 -> 0
   } else {
-    // 80 -> 30 (Orange), 100 -> 0 (Red)
-    // Map 0-20 (v-80) to 30-0
-    hue = 30 - (((v - 80) / 20) * 30);
+    // Blood Red: 95-100
+    hue = 0;
+    saturation = 100;
+    lightness = 40; // Darker red for "blood red"
   }
 
-  return `hsl(${hue}, 100%, 50%)`;
+  return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
 }
 
 interface OtelMetrics {
@@ -106,17 +117,27 @@ interface StatusPageProps {
 export default function StatusPage({ statsHistory, settings, queueStatus }: StatusPageProps) {
   const [timeRange, setTimeRange] = useState<'1h' | '6h' | '12h' | '24h' | '1w'>('1h');
   const [otelMetrics, setOtelMetrics] = useState<OtelMetrics | null>(null);
+  const [vramHistory, setVramHistory] = useState<{ timestamp: number; used: number; total: number }[]>([]);
   const [resetModalOpen, setResetModalOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
   const [showSetupInstructions, setShowSetupInstructions] = useState(false);
+  const [setupCommand, setSetupCommand] = useState<string>("/home/bcoster/.moondream-station/moondream-station/setup_gpu_reset.sh");
+  const [primeProfile, setPrimeProfile] = useState<string | null>(null);
+
+  const moondreamUrl = useMemo(() => {
+    const url = settings?.providers.moondream_local.endpoint || 'http://localhost:2020';
+    // Remove both trailing slash and trailing /v1 because metrics are at the root
+    return url.replace(/\/$/, "").replace(/\/v1$/, "");
+  }, [settings]);
 
   const handleResetGpu = async () => {
     setResetting(true);
     setResetError(null);
     setShowSetupInstructions(false);
+    setSetupCommand("/home/bcoster/.moondream-station/moondream-station/setup_gpu_reset.sh");
     try {
-      const response = await fetch('http://localhost:2021/v1/system/gpu-reset', {
+      const response = await fetch(`${moondreamUrl}/v1/system/gpu-reset`, {
         method: 'POST',
       });
 
@@ -145,7 +166,7 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
 
   const handleBoostGpu = async (id: number, enable: boolean) => {
     try {
-      const response = await fetch(`http://localhost:2021/v1/system/gpu-boost?gpu_id=${id}&enable=${enable}`, {
+      const response = await fetch(`${moondreamUrl}/v1/system/gpu-boost?gpu_id=${id}&enable=${enable}`, {
         method: 'POST',
       });
       if (!response.ok) throw new Error("Failed to set boost mode");
@@ -159,13 +180,57 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
     }
   };
 
+  const handleFreeRam = async () => {
+    try {
+      const response = await fetch(`${moondreamUrl}/v1/system/unload`, { method: 'POST' });
+      const data = await response.json();
+      if (data.status === 'success') {
+        // Visual feedback
+        alert("RAM Freed! Model unloaded.");
+      } else {
+        alert("Failed to free RAM: " + data.message);
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Error sending unload command");
+    }
+  };
+
+  const handlePrimeSwitch = async (newProfile: string) => {
+    if (!confirm(`Switch to ${newProfile}? This requires sudo permissions and you must RESTART manually after.`)) return;
+
+    // Set instructions for Prime setup
+    setSetupCommand("/home/bcoster/.moondream-station/moondream-station/setup_prime_switch.sh");
+
+    try {
+      const res = await fetch(`${moondreamUrl}/v1/system/prime-profile?profile=${newProfile}`, { method: 'POST' });
+      if (res.status === 403) {
+        setResetModalOpen(true);
+        setShowSetupInstructions(true);
+        setResetError("Permission Denied: Passwordless sudo required.");
+        return;
+      }
+      const data = await res.json();
+      if (res.ok) alert(data.message);
+      else alert("Error: " + data.detail);
+    } catch (e) {
+      alert("Failed to switch profile");
+    }
+  };
+
   useEffect(() => {
     const fetchMetrics = async () => {
       try {
-        const res = await fetch('http://localhost:2021/metrics');
+        const res = await fetch(`${moondreamUrl}/metrics`);
         if (res.ok) {
           const data = await res.json();
           setOtelMetrics(data);
+        }
+        // Also fetch Prime status occasionally or once
+        const primeRes = await fetch(`${moondreamUrl}/v1/system/prime-profile`);
+        if (primeRes.ok) {
+          const pData = await primeRes.json();
+          if (pData.profile) setPrimeProfile(pData.profile);
         }
       } catch (e) {
         console.error("Failed to fetch Moondream metrics", e);
@@ -175,7 +240,19 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
     fetchMetrics();
     const interval = setInterval(fetchMetrics, 2000); // Poll every 2s
     return () => clearInterval(interval);
-  }, []);
+  }, [moondreamUrl]);
+
+  // Update VRAM History from metrics
+  useEffect(() => {
+    if (otelMetrics?.gpus?.[0]) {
+      const gpu = otelMetrics.gpus[0];
+      setVramHistory(prev => {
+        const newState = [...prev, { timestamp: Date.now(), used: gpu.memory_used, total: gpu.memory_total }];
+        // Keep last 60 points (2 minutes at 2s poll)
+        return newState.slice(-60);
+      });
+    }
+  }, [otelMetrics]);
 
   const filteredStats = useMemo(() => {
     const now = Date.now();
@@ -202,7 +279,7 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
   }, [settings, latestStat]);
 
   const avgSpeed = filteredStats.length > 0
-    ? (filteredStats.reduce((acc, curr) => acc + curr.tokensPerSec, 0) / filteredStats.length).toFixed(1)
+    ? (filteredStats.reduce((acc, curr) => acc + (curr.tokensPerSec || 0), 0) / filteredStats.length).toFixed(1)
     : '0.0';
 
   return (
@@ -262,7 +339,7 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
                   <span className="text-xs font-medium">CPU Usage</span>
                 </div>
                 <div className="text-2xl font-bold text-white">
-                  {otelMetrics ? `${otelMetrics.cpu.toFixed(1)}% ` : (latestStat ? latestStat.tokensPerSec.toFixed(1) + ' t/s' : '0.0%')}
+                  {otelMetrics ? `${(otelMetrics.cpu || 0).toFixed(1)}% ` : (latestStat ? (latestStat.tokensPerSec || 0).toFixed(1) + ' t/s' : '0.0%')}
                 </div>
               </div>
               <div className="bg-black/20 rounded-xl p-4">
@@ -271,7 +348,7 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
                   <span className="text-xs font-medium">Memory</span>
                 </div>
                 <div className="text-2xl font-bold text-white">
-                  {otelMetrics ? `${otelMetrics.memory.toFixed(1)}% ` : (latestStat ? (latestStat.device === 'GPU' ? 'Unknown' : latestStat.device) : '-')}
+                  {otelMetrics ? `${(otelMetrics.memory || 0).toFixed(1)}% ` : (latestStat ? (latestStat.device === 'GPU' ? 'Unknown' : latestStat.device) : '-')}
                 </div>
               </div>
             </div>
@@ -369,14 +446,38 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
                       <div className="p-3 bg-green-500/10 rounded-xl">
                         <Cpu className="w-6 h-6 text-green-400" />
                       </div>
-                      <div>
-                        <div className="text-xs text-neutral-400 font-medium">NVIDIA</div>
-                        <div className="text-xs text-neutral-500">GPU {gpu.id}</div>
+                      <div className="flex-1">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <div className="text-xs text-neutral-400 font-medium">System Memory</div>
+                            <div className="text-xs text-neutral-500">Host RAM Used</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-lg font-bold text-white">{otelMetrics.memory}%</div>
+                          </div>
+                        </div>
                       </div>
                     </div>
 
                     {/* Controls */}
                     <div className="flex flex-col gap-2 mb-4">
+                      {/* Prime Select Toggle */}
+                      {primeProfile && (
+                        <div className="flex items-center gap-2 mb-2 p-2 bg-neutral-800/50 rounded-lg">
+                          <div className="text-xs text-neutral-400 flex-1">
+                            Current: <span className="text-white font-medium uppercase">{primeProfile}</span>
+                          </div>
+                          <button
+                            className="h-6 text-[10px] px-2 rounded bg-white/5 hover:bg-white/10 border border-white/10 transition-colors uppercase font-bold tracking-wider"
+                            onClick={() => handlePrimeSwitch(primeProfile === 'nvidia' ? 'on-demand' : 'nvidia')}
+                            title={primeProfile === 'nvidia'
+                              ? "Switch to On-Demand: Saves ~600MB VRAM by moving Desktop to iGPU. Requires Logout."
+                              : "Switch to NVIDIA: Maximum Performance. Requires Logout."}
+                          >
+                            Switch to {primeProfile === 'nvidia' ? 'On-Demand' : 'Performance'}
+                          </button>
+                        </div>
+                      )}
                       <div className="flex items-center gap-2">
                         <button
                           className="h-7 text-xs px-3 rounded-md bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 border border-blue-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-500/10 flex-1 text-center justify-center flex items-center"
@@ -397,12 +498,32 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
                         </button>
                       </div>
 
-                      <button
-                        className="h-7 text-xs px-3 rounded-md bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 transition-colors w-fit"
-                        onClick={() => setResetModalOpen(true)}
-                      >
-                        Reset GPU
-                      </button>
+                      <div className="flex items-center gap-2 w-full">
+                        <button
+                          className="h-7 text-xs px-3 rounded-md bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 transition-colors flex-1"
+                          onClick={() => {
+                            setSetupCommand("/home/bcoster/.moondream-station/moondream-station/setup_gpu_reset.sh");
+                            setShowSetupInstructions(false);
+                            setResetError(null);
+                            setResetModalOpen(true);
+                          }}
+                        >
+                          Reset GPU
+                        </button>
+
+                        <button
+                          className="h-7 text-xs px-3 rounded-md transition-colors flex-1 font-medium border"
+                          style={{
+                            borderColor: getSmoothColor((gpu.memory_used / gpu.memory_total) * 100).replace(')', ', 0.3)'),
+                            backgroundColor: getSmoothColor((gpu.memory_used / gpu.memory_total) * 100).replace(')', ', 0.1)'),
+                            color: getSmoothColor((gpu.memory_used / gpu.memory_total) * 100)
+                          }}
+                          onClick={handleFreeRam}
+                          title="Unload model to free VRAM"
+                        >
+                          Free RAM
+                        </button>
+                      </div>
                     </div>
 
                     {/* Name */}
@@ -426,20 +547,34 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
                         </div>
                       </div>
 
-                      {/* VRAM */}
+                      {/* VRAM Graph */}
                       <div className="space-y-1">
                         <div className="flex justify-between text-xs">
-                          <span className="text-neutral-400">VRAM</span>
+                          <span className="text-neutral-400">VRAM Usage History</span>
                           <span className="text-white">{gpu.memory_used} / {gpu.memory_total} MB</span>
                         </div>
-                        <div className="h-2 bg-neutral-800 rounded-full overflow-hidden">
-                          <div
-                            className="h-full transition-all duration-500"
-                            style={{
-                              width: `${(gpu.memory_used / gpu.memory_total) * 100}%`,
-                              backgroundColor: getSmoothColor((gpu.memory_used / gpu.memory_total) * 100)
-                            }}
-                          />
+                        <div className="h-16 w-full bg-neutral-900/50 rounded-lg overflow-hidden border border-white/5 relative">
+                          {/* Color Zones Background */}
+                          <div className="absolute inset-0 flex flex-col opacity-20 z-0">
+                            <div className="h-[33%] bg-green-500/20"></div>
+                            <div className="h-[33%] bg-yellow-500/20"></div>
+                            <div className="h-[34%] bg-red-500/20"></div>
+                          </div>
+
+                          <div className="absolute inset-0 z-10 p-1">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <AreaChart data={vramHistory}>
+                                <defs>
+                                  <linearGradient id="vramGradient" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="#8884d8" stopOpacity={0.8} />
+                                    <stop offset="95%" stopColor="#8884d8" stopOpacity={0} />
+                                  </linearGradient>
+                                </defs>
+                                <YAxis domain={[0, gpu.memory_total]} hide />
+                                <Area type="monotone" dataKey="used" stroke="#8884d8" fillOpacity={1} fill="url(#vramGradient)" isAnimationActive={false} />
+                              </AreaChart>
+                            </ResponsiveContainer>
+                          </div>
                         </div>
                       </div>
 
@@ -534,27 +669,30 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
                               <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                               <div className="flex flex-col gap-0.5 max-w-[200px]">
                                 <span className="truncate text-neutral-200">{job.fileName}</span>
-                                {/* Task Badge for Active Job */}
-                                <div className={cn("flex items-center gap-1 w-fit px-1.5 py-0.5 rounded border text-[10px] uppercase font-bold tracking-wider",
-                                  job.taskType === 'smart-crop' ? "bg-amber-500/10 text-amber-400 border-amber-500/20" :
-                                    job.taskType === 'video' ? "bg-pink-500/10 text-pink-400 border-pink-500/20" :
-                                      job.taskType === 'generate' ? "bg-blue-500/10 text-blue-400 border-blue-500/20" :
-                                        "bg-violet-500/10 text-violet-400 border-violet-500/20"
-                                )}>
-                                  {job.taskType === 'smart-crop' ? <Crop className="w-3 h-3" /> :
-                                    job.taskType === 'video' ? <Film className="w-3 h-3" /> :
-                                      job.taskType === 'generate' ? <ImageIcon className="w-3 h-3" /> :
-                                        <ScanEye className="w-3 h-3" />}
-                                  <span>{job.taskType === 'smart-crop' ? 'Crop' :
-                                    job.taskType === 'video' ? 'Video' :
-                                      job.taskType === 'generate' ? 'Gen' :
-                                        'Scan'}</span>
-                                </div>
                               </div>
                             </div>
-                            <div className="flex flex-col items-end gap-0.5 text-xs text-neutral-400">
-                              <span>{(job.size / 1024).toFixed(1)} KB</span>
-                              <span>{((Date.now() - job.startTime) / 1000).toFixed(1)}s</span>
+
+                            <div className="flex items-center gap-2 ml-auto">
+                              <div className="flex flex-col items-end text-xs text-neutral-400 mr-2">
+                                <span>{((job.size || 0) / 1024).toFixed(1)} KB</span>
+                                <span>{((Date.now() - (job.startTime || Date.now())) / 1000).toFixed(1)}s</span>
+                              </div>
+                              {/* Task Badge */}
+                              <div className={cn("flex items-center gap-1 w-fit px-1.5 py-0.5 rounded border text-[10px] uppercase font-bold tracking-wider",
+                                job.taskType === 'smart-crop' ? "bg-amber-500/10 text-amber-400 border-amber-500/20" :
+                                  job.taskType === 'video' ? "bg-pink-500/10 text-pink-400 border-pink-500/20" :
+                                    job.taskType === 'generate' ? "bg-blue-500/10 text-blue-400 border-blue-500/20" :
+                                      "bg-violet-500/10 text-violet-400 border-violet-500/20"
+                              )}>
+                                {job.taskType === 'smart-crop' ? <Crop className="w-3 h-3" /> :
+                                  job.taskType === 'video' ? <Film className="w-3 h-3" /> :
+                                    job.taskType === 'generate' ? <ImageIcon className="w-3 h-3" /> :
+                                      <ScanEye className="w-3 h-3" />}
+                                <span>{job.taskType === 'smart-crop' ? 'Crop' :
+                                  job.taskType === 'video' ? 'Video' :
+                                    job.taskType === 'generate' ? 'Gen' :
+                                      'Scan'}</span>
+                              </div>
                             </div>
                           </div>
                         ))}
@@ -576,12 +714,12 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
                               <span className="truncate text-neutral-300 max-w-[200px]">{job.fileName}</span>
                             </div>
                             <div className="flex items-center gap-2 text-xs text-neutral-500">
-                              {/* Task Type Badge */}
-                              <div className={cn("flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] uppercase font-bold tracking-wider",
+                              {/* Task Badge */}
+                              <div className={cn("flex items-center gap-1 w-fit px-1.5 py-0.5 rounded border text-[10px] uppercase font-bold tracking-wider",
                                 job.taskType === 'smart-crop' ? "bg-amber-500/10 text-amber-400 border-amber-500/20" :
                                   job.taskType === 'video' ? "bg-pink-500/10 text-pink-400 border-pink-500/20" :
                                     job.taskType === 'generate' ? "bg-blue-500/10 text-blue-400 border-blue-500/20" :
-                                      "bg-violet-500/10 text-violet-400 border-violet-500/20" // Analysis/Default
+                                      "bg-violet-500/10 text-violet-400 border-violet-500/20"
                               )}>
                                 {job.taskType === 'smart-crop' ? <Crop className="w-3 h-3" /> :
                                   job.taskType === 'video' ? <Film className="w-3 h-3" /> :
@@ -599,11 +737,9 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
                       </div>
                     </div>
                   )}
-
                 </div>
               </div>
             </div>
-
           )}
         </div>
 
@@ -611,7 +747,7 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
         <ProviderBenchmark settings={settings} />
 
         {/* Charts Section */}
-        <div className="bg-neutral-900/50 border border-white/10 rounded-2xl p-6">
+        <div className="bg-neutral-900/50 border border-white/10 rounded-2xl p-6" >
           <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
             <div>
               <h3 className="text-lg font-semibold text-white">Inference Speed History</h3>
@@ -660,7 +796,7 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
                   }}
                   itemStyle={{ color: '#818cf8' }}
                   labelFormatter={(ts) => new Date(ts).toLocaleString()}
-                  formatter={(value: number) => [`${value.toFixed(2)} t / s`, 'Speed']}
+                  formatter={(value: number) => [`${(value || 0).toFixed(2)} t / s`, 'Speed']}
                 />
                 <Line
                   type="monotone"
@@ -674,67 +810,72 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
               </LineChart>
             </ResponsiveContainer>
           </div>
-        </div>
+        </div >
 
-      </div>
+      </div >
       {/* Custom Reset Modal */}
-      {resetModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="bg-neutral-900 border border-neutral-800 text-white rounded-lg max-w-md w-full p-6 shadow-xl animate-in fade-in zoom-in duration-200">
-            <div className="flex items-center gap-2 text-red-500 text-lg font-semibold mb-2">
-              <AlertTriangle className="w-5 h-5" />
-              Reset GPU Warning
-            </div>
-            <div className="text-neutral-400 text-sm mb-6">
-              This will forcibly reset the GPU PCIe bus.
-              <br /><br />
-              <strong className="text-white">⚠️ DANGER:</strong> If your display is connected to this GPU, your screen may <strong>FREEZE</strong> or go <strong>BLACK</strong>.
-              <br /><br />
-              Only proceed if you know what you are doing and have saved all work.
-            </div>
-
-            {showSetupInstructions && (
-              <div className="bg-black/40 p-4 rounded-lg border border-amber-500/20 mb-4">
-                <div className="flex items-center gap-2 text-amber-400 mb-2 text-sm font-medium">
-                  <Lock className="w-4 h-4" />
-                  Permission Denied
-                </div>
-                <p className="text-xs text-neutral-400 mb-2">
-                  Passwordless sudo is required for this feature. Run this in your terminal:
-                </p>
-                <div className="bg-black p-2 rounded border border-white/10 flex items-center gap-2">
-                  <Terminal className="w-3 h-3 text-neutral-500" />
-                  <code className="text-xs font-mono text-emerald-400">./setup_gpu_reset.sh</code>
-                </div>
+      {
+        resetModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+            <div className="bg-neutral-900 border border-neutral-800 text-white rounded-lg max-w-md w-full p-6 shadow-xl animate-in fade-in zoom-in duration-200">
+              <div className="flex items-center gap-2 text-red-500 text-lg font-semibold mb-2">
+                <AlertTriangle className="w-5 h-5" />
+                {showSetupInstructions ? "Permission Denied" : "Reset GPU Warning"}
               </div>
-            )}
-
-            {resetError && (
-              <div className="bg-red-500/10 p-3 rounded-lg border border-red-500/20 text-red-400 text-sm mb-4">
-                Error: {resetError}
-              </div>
-            )}
-
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setResetModalOpen(false)}
-                className="px-4 py-2 rounded-md bg-transparent border border-neutral-700 hover:bg-neutral-800 text-white text-sm transition-colors"
-              >
-                {showSetupInstructions ? "Close" : "Cancel"}
-              </button>
               {!showSetupInstructions && (
-                <button
-                  onClick={(e) => { e.preventDefault(); handleResetGpu(); }}
-                  disabled={resetting}
-                  className="px-4 py-2 rounded-md bg-red-600 hover:bg-red-700 text-white border-none text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {resetting ? "Resetting..." : "I Understand, Reset GPU"}
-                </button>
+                <div className="text-neutral-400 text-sm mb-6">
+                  This will forcibly reset the GPU PCIe bus.
+                  <br /><br />
+                  <strong className="text-white">⚠️ DANGER:</strong> If your display is connected to this GPU, your screen may <strong>FREEZE</strong> or go <strong>BLACK</strong>.
+                  <br /><br />
+                  Only proceed if you know what you are doing and have saved all work.
+                </div>
               )}
+
+              {showSetupInstructions && (
+                <div className="bg-black/40 p-4 rounded-lg border border-amber-500/20 mb-4">
+                  <div className="flex items-center gap-2 text-amber-400 mb-2 text-sm font-medium">
+                    <Lock className="w-4 h-4" />
+                    Privileges Required
+                  </div>
+                  <p className="text-xs text-neutral-400 mb-2">
+                    To perform this action without a password prompt, you need to configure sudo access.
+                    Run this command in your terminal:
+                  </p>
+                  <div className="bg-black p-2 rounded border border-white/10 flex items-center gap-2">
+                    <Terminal className="w-3 h-3 text-neutral-500" />
+                    <code className="text-xs font-mono text-emerald-400">{setupCommand}</code>
+                  </div>
+                </div>
+              )}
+
+              {resetError && (
+                <div className="bg-red-500/10 p-3 rounded-lg border border-red-500/20 text-red-400 text-sm mb-4">
+                  Error: {resetError}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setResetModalOpen(false)}
+                  className="px-4 py-2 rounded-md bg-transparent border border-neutral-700 hover:bg-neutral-800 text-white text-sm transition-colors"
+                >
+                  {showSetupInstructions ? "Close" : "Cancel"}
+                </button>
+                {!showSetupInstructions && (
+                  <button
+                    onClick={(e) => { e.preventDefault(); handleResetGpu(); }}
+                    disabled={resetting}
+                    className="px-4 py-2 rounded-md bg-red-600 hover:bg-red-700 text-white border-none text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {resetting ? "Resetting..." : "I Understand, Reset GPU"}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
     </div >
   );
 }

@@ -30,6 +30,8 @@ import UploadProgressIndicator from './components/UploadProgressIndicator';
 import AnalysisProgressIndicator from './components/AnalysisProgressIndicator';
 import UserProfilePage from './components/UserProfilePage';
 import NavigationBenchmark from './components/NavigationBenchmark';
+import LogViewer from './components/LogViewer';
+import DuplicatesPage from './components/DuplicatesPage';
 
 const SETTINGS_STORAGE_KEY = 'ai_gallery_settings_v2'; // Updated key for new structure
 const OLD_SETTINGS_STORAGE_KEY = 'ai_gallery_settings'; // Old key for migration
@@ -242,6 +244,8 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [galleryView, setGalleryView] = useState<GalleryView>('public');
+  const [showSystemLogs, setShowSystemLogs] = useState(false);
+  const [showDuplicates, setShowDuplicates] = useState(false);
   const [promptModalConfig, setPromptModalConfig] = useState<PromptModalConfig | null>(null);
   const [isDbLoading, setIsDbLoading] = useState(true);
 
@@ -250,6 +254,8 @@ const App: React.FC = () => {
   const [veoRetryState, setVeoRetryState] = useState<{ sourceImage: ImageInfo | null, prompt: string, aspectRatio: AspectRatio } | null>(null);
 
   const [isSlideshowActive, setIsSlideshowActive] = useState(false);
+  const [slideshowNeedsSlowdown, setSlideshowNeedsSlowdown] = useState(false);
+  const [triggerBulkDownload, setTriggerBulkDownload] = useState(false);
   const idleTimerRef = useRef<number | null>(null);
   const [promptHistory, setPromptHistory] = useState<string[]>([]);
 
@@ -274,10 +280,18 @@ const App: React.FC = () => {
   const queuedAnalysisIds = useRef<Set<string>>(new Set());
   const apiQueue = useMemo(() => new RateLimitedApiQueue(), []);
 
+  // Upload cancellation ref
+  const uploadAbortRef = useRef<boolean>(false);
+
   const addNotification = useCallback((notification: Omit<Notification, 'id'> & { id?: string }) => {
     const id = notification.id || self.crypto.randomUUID();
     setNotifications(prev => [...prev.filter(n => n.id !== id), { ...notification, id }]);
   }, []);
+
+  const handleCancelUpload = useCallback(() => {
+    uploadAbortRef.current = true;
+    addNotification({ status: 'warning', message: 'Cancelling import...' });
+  }, [addNotification]);
 
   const updateNotification = useCallback((id: string, updates: Partial<Omit<Notification, 'id'>>) => {
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, ...updates } : n));
@@ -775,9 +789,18 @@ const App: React.FC = () => {
     const processingTimes: number[] = [];
     const newImages: ImageInfo[] = [];
 
+    // Reset abort flag
+    uploadAbortRef.current = false;
     setUploadProgress({ current: 0, total: totalFiles, eta: -1, speed: 0, fileName: '' });
 
     for (let i = 0; i < totalFiles; i++) {
+      // Check for cancellation
+      if (uploadAbortRef.current) {
+        addNotification({ status: 'info', message: `Import cancelled. ${newImages.length} of ${totalFiles} images imported.` });
+        setUploadProgress(null);
+        break;
+      }
+
       const file = imageFiles[i];
       const processStartTime = Date.now();
 
@@ -1633,27 +1656,34 @@ const App: React.FC = () => {
     setSelectedIds(new Set());
   };
 
-  // Auto Smart Crop Effect for Slideshow
+  // Auto Smart Crop Effect for Slideshow with Lookahead
   useEffect(() => {
     if (!isSlideshowActive || !currentUser?.slideshowSmartCrop || !settings) return;
 
-    // Find the next candidate that needs cropping
-    // We prioritize visible images in the slideshow logic, but here we just grab the first one
-    // in the filtered list that hasn't been done yet. 
-    // Ideally, we'd sync with the slideshow index, but global improvement is also fine.
-    const candidate = filteredImages.find(img => !img.smartCrop && !img.isGenerating);
+    // Find images that need smart cropping
+    // Process up to 3 images ahead to ensure smooth transitions
+    const LOOKAHEAD_COUNT = 3;
+    const candidates = filteredImages
+      .filter(img => !img.smartCrop && !img.isGenerating && !processingSmartCropIds.has(img.id))
+      .slice(0, LOOKAHEAD_COUNT);
 
-    if (candidate) {
-      // Debounce slightly to not hammer the UI thread if many transitions happen
-      const timer = setTimeout(() => {
-        // Check concurrency
-        if (activeRequestsRef.current < 1) { // Only do one background task at a time
-          performSmartCrop(candidate, true);
-        }
-      }, 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [isSlideshowActive, currentUser?.slideshowSmartCrop, filteredImages, settings, queueStatus.activeCount]); // Re-run when queue changes to pick up next slot
+    if (candidates.length === 0) return;
+
+    // Process candidates in order, respecting concurrency limits
+    const timer = setTimeout(() => {
+      candidates.forEach((candidate, index) => {
+        // Stagger processing slightly to avoid overwhelming the queue
+        setTimeout(() => {
+          // Check concurrency - allow up to 2 concurrent smart crop operations
+          if (activeRequestsRef.current < 2) {
+            performSmartCrop(candidate, true);
+          }
+        }, index * 200); // 200ms stagger between each
+      });
+    }, 500); // Initial delay to let current image settle
+
+    return () => clearTimeout(timer);
+  }, [isSlideshowActive, currentUser?.slideshowSmartCrop, filteredImages, settings, queueStatus.activeCount, processingSmartCropIds]); // Re-run when queue changes to pick up next slot
 
   const showUploadArea = galleryView === 'my-gallery' && currentUser && filteredImages.length === 0 && !searchQuery;
 
@@ -1718,6 +1748,18 @@ const App: React.FC = () => {
     setSearchQuery('');
   }, [galleryView]);
 
+  // Handle drag-to-desktop download
+  const handleDragEnd = useCallback((e: React.DragEvent) => {
+    // Check if drag ended outside the browser window (to desktop/file system)
+    // When dropEffect is 'none', it usually means dropped outside browser
+    if (e.dataTransfer.dropEffect === 'none' && selectedIds.size > 0) {
+      // Trigger bulk download
+      setTriggerBulkDownload(true);
+      // Reset after a short delay
+      setTimeout(() => setTriggerBulkDownload(false), 100);
+    }
+  }, [selectedIds]);
+
 
   const handleSelectionChange = (newSelectedIds: Set<string>) => {
     setSelectedIds(newSelectedIds);
@@ -1759,6 +1801,16 @@ const App: React.FC = () => {
               aria-label="Settings"
             >
               <SettingsIcon className="w-6 h-6" />
+            </button>
+            <button
+              onClick={() => setShowSystemLogs(true)}
+              className="p-2 rounded-lg transition-colors text-gray-400 hover:text-white hover:bg-gray-800"
+              title="System Logs"
+              aria-label="System Logs"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
             </button>
             <button
               onClick={() => setIsSlideshowActive(!isSlideshowActive)}
@@ -1810,13 +1862,13 @@ const App: React.FC = () => {
               <div className="sticky top-0 z-40 bg-gray-900/95 backdrop-blur-xl -mx-4 px-4 py-3 mb-6 border-b border-gray-800 shadow-lg md:shadow-none md:static md:bg-transparent md:mx-0 md:px-0 md:py-0 md:border-none flex flex-col sm:flex-row justify-between items-center gap-4 transition-all duration-300">
                 <div className="flex items-center bg-gray-800 p-1 rounded-lg">
                   <button onClick={() => setGalleryView('public')} className={'px-4 py-1.5 text-sm font-medium rounded-md transition-colors ' + (galleryView === 'public' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700')}>
-                    Featured Images
+                    Public Gallery
                   </button>
                   <button onClick={() => setGalleryView('my-gallery')} disabled={!currentUser} className={'px-4 py-1.5 text-sm font-medium rounded-md transition-colors ' + (galleryView === 'my-gallery' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700') + ' disabled:text-gray-500 disabled:cursor-not-allowed disabled:hover:bg-transparent'}>
                     My Gallery
                   </button>
                   <button onClick={() => setGalleryView('creations')} disabled={!currentUser} className={'px-4 py-1.5 text-sm font-medium rounded-md transition-colors ' + (galleryView === 'creations' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700') + ' disabled:text-gray-500 disabled:cursor-not-allowed disabled:hover:bg-transparent'}>
-                    Creations
+                    Creations Gallery
                   </button>
                   <button onClick={() => setGalleryView('prompt-history')} disabled={!currentUser} className={'px-4 py-1.5 text-sm font-medium rounded-md transition-colors ' + (galleryView === 'prompt-history' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700') + ' disabled:text-gray-500 disabled:cursor-not-allowed disabled:hover:bg-transparent'}>
                     Prompt History
@@ -1870,6 +1922,18 @@ const App: React.FC = () => {
                         aria-label="Clear search"
                       >
                         <CloseIcon className="h-5 w-5" />
+                      </button>
+                    )}
+                    {currentUser && galleryView === 'my-gallery' && (
+                      <button
+                        onClick={() => setShowDuplicates(true)}
+                        className="absolute right-12 top-1/2 -translate-y-1/2 text-gray-400 hover:text-yellow-400 transition-colors"
+                        title="Find Duplicates"
+                        aria-label="Find duplicate images"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
                       </button>
                     )}
                   </div>
@@ -1928,6 +1992,7 @@ const App: React.FC = () => {
                   onSelectionChange={handleSelectionChange}
                   blurNsfw={settings?.contentSafety?.blurNsfw}
                   layout={currentUser?.galleryLayout || 'masonry'}
+                  onDragEnd={handleDragEnd}
                 />
               ) : (
                 <div className="text-center py-16 text-gray-500">
@@ -1963,13 +2028,14 @@ const App: React.FC = () => {
           />
         )}
 
-        <UploadProgressIndicator progress={uploadProgress} />
+        <UploadProgressIndicator progress={uploadProgress} onCancel={handleCancelUpload} />
         <AnalysisProgressIndicator progress={analysisProgress} />
         <NotificationArea notifications={notifications} onDismiss={removeNotification} />
 
         {isSelectionMode && (
           <SelectionActionBar
             count={selectedIds.size}
+            selectedImages={images.filter(img => selectedIds.has(img.id))}
             onClear={() => setSelectedIds(new Set())}
             onDelete={handleDeleteSelected}
             onMakePublic={handleBatchMakePublic}
@@ -1978,6 +2044,7 @@ const App: React.FC = () => {
             onRegenerate={handleBatchRegenerate}
             onSelectAll={handleSelectAll}
             onSmartCrop={handleSmartCrop}
+            triggerDownload={triggerBulkDownload}
           />
         )}
 
@@ -2044,17 +2111,30 @@ const App: React.FC = () => {
           transition={currentUser?.slideshowTransition || 'fade'}
           useSmartCrop={!!currentUser?.slideshowSmartCrop}
           useAdaptivePan={!!currentUser?.slideshowAdaptivePan}
-          interval={currentUser?.slideshowInterval}
+          interval={slideshowNeedsSlowdown ? Math.max((currentUser?.slideshowInterval || 5000) * 2, 8000) : currentUser?.slideshowInterval}
           animationDuration={currentUser?.slideshowAnimationDuration}
           enableBounce={!!currentUser?.slideshowBounce}
           randomOrder={currentUser?.slideshowRandomOrder}
           processingSmartCropIds={processingSmartCropIds}
+          onRequestSlowdown={setSlideshowNeedsSlowdown}
         />
         <BottomNav
           currentView={galleryView}
           onViewChange={setGalleryView}
           onFilesSelected={handleFilesChange}
         />
+
+        {showSystemLogs && <LogViewer onClose={() => setShowSystemLogs(false)} />}
+        {showDuplicates && (
+          <DuplicatesPage
+            images={images.filter(img => img.ownerId === currentUser?.id)}
+            onDeleteImages={(ids) => {
+              deleteImages(ids);
+              setShowDuplicates(false);
+            }}
+            onClose={() => setShowDuplicates(false)}
+          />
+        )}
       </div>
     </div>
   );

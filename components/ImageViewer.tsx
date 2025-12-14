@@ -4,6 +4,7 @@ import { ImageInfo, AdminSettings, User, AspectRatio } from '../types';
 import { CloseIcon, ChevronLeftIcon, ChevronRightIcon, CopyIcon, SparklesIcon, VideoCameraIcon, DownloadIcon, WandIcon, WarningIcon, RefreshIcon, CropIcon, PlayIcon, StopIcon } from './icons';
 import Spinner from './Spinner';
 import { isAnyProviderConfiguredFor, generateKeywordsForPrompt, enhancePromptWithKeywords } from '../services/aiService';
+import { logger } from '../services/loggingService';
 import { getClosestSupportedAspectRatio, reverseAspectRatio } from '../utils/fileUtils';
 import { PromptModalConfig } from './PromptSubmissionModal';
 import KeywordSelectionModal from './KeywordSelectionModal';
@@ -33,8 +34,9 @@ interface ImageViewerProps {
 
 interface ActionButtonsProps {
   image: ImageInfo;
-  onRecreate: (aspectRatio: AspectRatio) => void;
-  onAnimate: (aspectRatio: AspectRatio) => void;
+  activePrompt?: string; // Prompt to use for actions
+  onRecreate: (aspectRatio: AspectRatio, promptOverride?: string) => void;
+  onAnimate: (aspectRatio: AspectRatio) => void; // Animation usually needs dedicated prompt or uses active
   onEnhance: () => void;
   onRegenerateCaption?: () => void;
   onSmartCrop: () => void;
@@ -46,7 +48,7 @@ interface ActionButtonsProps {
   isFloating: boolean;
 }
 
-const ActionButtons: React.FC<ActionButtonsProps> = ({ image, onRecreate, onAnimate, onEnhance, onRegenerateCaption, onSmartCrop, isSmartCropping, isSmartFilled, isPreparingAnimation, settings, currentUser, isFloating }) => {
+const ActionButtons: React.FC<ActionButtonsProps> = ({ image, activePrompt, onRecreate, onAnimate, onEnhance, onRegenerateCaption, onSmartCrop, isSmartCropping, isSmartFilled, isPreparingAnimation, settings, currentUser, isFloating }) => {
   const supportedAR = image.aspectRatio ? getClosestSupportedAspectRatio(image.aspectRatio) : '1:1';
   const reversedAR = reverseAspectRatio(supportedAR) as AspectRatio;
 
@@ -118,7 +120,10 @@ const ActionButtons: React.FC<ActionButtonsProps> = ({ image, onRecreate, onAnim
       </div>
       <div title={getEnhanceTooltip()}>
         <button
-          onClick={onEnhance}
+          onClick={() => {
+            logger.track('User Action: Enhance', { imageId: image.id });
+            onEnhance();
+          }}
           className={`${buttonClass} bg-purple-600/80 hover:bg-purple-600`}
           disabled={!canEnhance || isPreparingAnimation || !currentUser || isOfflineVideo}
         >
@@ -138,7 +143,10 @@ const ActionButtons: React.FC<ActionButtonsProps> = ({ image, onRecreate, onAnim
       )}
       <div title={getAnimationTooltip()}>
         <button
-          onClick={() => onAnimate(supportedAR)}
+          onClick={() => {
+            logger.track('User Action: Animate', { imageId: image.id, aspectRatio: supportedAR });
+            onAnimate(supportedAR);
+          }}
           className={`${buttonClass} bg-green-600/80 hover:bg-green-600 flex items-center justify-center`}
           disabled={!canAnimate || isPreparingAnimation || !currentUser || isOfflineVideo}
         >
@@ -147,7 +155,7 @@ const ActionButtons: React.FC<ActionButtonsProps> = ({ image, onRecreate, onAnim
       </div>
       <div title={getGenerationTooltip(supportedAR)}>
         <button
-          onClick={() => onRecreate(supportedAR)}
+          onClick={() => onRecreate(supportedAR, activePrompt)}
           className={`${buttonClass} bg-indigo-600/80 hover:bg-indigo-600`}
           disabled={!canGenerate || isPreparingAnimation || !currentUser}
         >
@@ -157,7 +165,7 @@ const ActionButtons: React.FC<ActionButtonsProps> = ({ image, onRecreate, onAnim
       {!isFloating && supportedAR !== '1:1' && (
         <div title={getGenerationTooltip(reversedAR)}>
           <button
-            onClick={() => onRecreate(reversedAR)}
+            onClick={() => onRecreate(reversedAR, activePrompt)}
             className={`${buttonClass} bg-indigo-600/80 hover:bg-indigo-600`}
             disabled={!canGenerate || isPreparingAnimation || !currentUser}
           >
@@ -209,53 +217,84 @@ const MetadataPanel: React.FC<MetadataPanelProps> = ({
   const [isHoveringPrompt, setIsHoveringPrompt] = useState(false);
   const [isHoveringKeywords, setIsHoveringKeywords] = useState(false);
 
-  // Auto-scroll prompt text
+  // Context Toggle State
+  const [activeContext, setActiveContext] = useState<'caption' | 'metadata'>('caption');
+
+  // Derived active text
+  const hasMetadata = !!image.originalMetadataPrompt;
+  const activeText = activeContext === 'caption' ? image.recreationPrompt : image.originalMetadataPrompt;
+
+  // Auto-switch to metadata if caption missing (on load)
+  useEffect(() => {
+    if (!image.recreationPrompt && image.originalMetadataPrompt) {
+      setActiveContext('metadata');
+    } else {
+      setActiveContext('caption'); // Default back to caption when image changes
+    }
+  }, [image.id, image.recreationPrompt, image.originalMetadataPrompt]);
+
+  // Refactored Auto-scroll Logic
+  // "Scroll once at 50% human readable speed and then scroll back to the top and stop."
   useEffect(() => {
     const el = promptScrollRef.current;
-    if (!el || !image?.recreationPrompt || isHoveringPrompt) return;
+    if (!el || !activeText || isHoveringPrompt) return;
 
-    // Small delay before starting scroll to let user read start
+    let scrollInterval: NodeJS.Timeout;
+    let returnTimeout: NodeJS.Timeout;
+
+    // Initial delay before starting
     const startTimeout = setTimeout(() => {
-      let scrollInterval: NodeJS.Timeout;
+      let state: 'scroll' | 'wait' | 'return' | 'stop' = 'scroll';
 
-      const scroll = () => {
+      scrollInterval = setInterval(() => {
         if (!el || isHoveringPrompt) return;
-        // Stop if reached bottom
-        if (el.scrollTop + el.clientHeight >= el.scrollHeight) {
-          return;
+
+        if (state === 'scroll') {
+          // Scroll Down
+          // previous speed was 50ms. "50% human readable speed" -> slower. 
+          // 100ms interval = 50% speed of 50ms interval (assuming visual steps are same).
+          if (el.scrollTop + el.clientHeight >= el.scrollHeight) {
+            state = 'wait';
+            // Pause at bottom
+            returnTimeout = setTimeout(() => {
+              state = 'return';
+            }, 2000);
+          } else {
+            el.scrollTop += 1;
+          }
+        } else if (state === 'return') {
+          // Scroll Back to Top
+          el.scrollTo({ top: 0, behavior: 'smooth' });
+          state = 'stop';
+          clearInterval(scrollInterval); // Stop
         }
-        el.scrollTop += 1;
-      };
-
-      scrollInterval = setInterval(scroll, 50); // Slow readable pace
-
-      return () => clearInterval(scrollInterval);
+      }, 100); // 100ms = Slower pace
     }, 2000);
 
-    return () => clearTimeout(startTimeout);
-  }, [image?.recreationPrompt, isHoveringPrompt, isVisible]);
+    return () => {
+      clearTimeout(startTimeout);
+      clearInterval(scrollInterval);
+      clearTimeout(returnTimeout);
+    };
+  }, [activeText, isHoveringPrompt, isVisible, activeContext]); // Re-run when text changes
 
-  // Auto-scroll keywords (Horizontal)
+  // Auto-scroll keywords (Existing logic preserved)
   useEffect(() => {
     const el = keywordsScrollRef.current;
     if (!el || !image?.keywords || isHoveringKeywords) return;
-
     const startTimeout = setTimeout(() => {
       let scrollInterval: NodeJS.Timeout;
       const scroll = () => {
         if (!el || isHoveringKeywords) return;
-        // Stop if reached end
         if (el.scrollLeft + el.clientWidth >= el.scrollWidth) return;
-        el.scrollLeft += 1; // Slow horizontal scroll
+        el.scrollLeft += 1;
       };
       scrollInterval = setInterval(scroll, 50);
       return () => clearInterval(scrollInterval);
     }, 2000);
-
     return () => clearTimeout(startTimeout);
   }, [image?.keywords, isHoveringKeywords, isVisible]);
 
-  // Mouse wheel handler for horizontal scrolling of keywords
   const handleKeywordsWheel = (e: React.WheelEvent) => {
     if (keywordsScrollRef.current && e.deltaY !== 0) {
       e.preventDefault();
@@ -263,14 +302,53 @@ const MetadataPanel: React.FC<MetadataPanelProps> = ({
     }
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!image) return;
-    const link = document.createElement('a');
-    link.href = image.isVideo && image.videoUrl ? image.videoUrl : image.dataUrl;
-    link.download = image.fileName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    try {
+      let downloadUrl = '';
+      let shouldRevoke = false;
+      let mimeType = '';
+
+      if (image.file instanceof Blob) {
+        const blob = new Blob([image.file], { type: image.file.type });
+        downloadUrl = URL.createObjectURL(blob);
+        mimeType = image.file.type;
+        shouldRevoke = true;
+      }
+      else if (image.dataUrl && image.dataUrl.startsWith('data:')) {
+        const blob = await fetch(image.dataUrl).then(res => res.blob());
+        mimeType = blob.type;
+        downloadUrl = URL.createObjectURL(blob);
+        shouldRevoke = true;
+      }
+      else if (image.videoUrl) {
+        downloadUrl = image.videoUrl;
+        mimeType = 'video/mp4';
+      }
+
+      if (!downloadUrl) return;
+
+      let originalName = image.displayName || image.fileName || 'image';
+      originalName = originalName.replace(/\.[^/.]+$/, "").replace(/[<>:"/\\|?*]/g, '');
+
+
+      let ext = '.png';
+      if (mimeType.includes('video') || image.isVideo) ext = '.mp4';
+      else if (mimeType.includes('jpeg') || mimeType.includes('jpg')) ext = '.jpg';
+      else if (mimeType.includes('gif')) ext = '.gif';
+      let safeFileName = originalName + ext;
+
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = safeFileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      if (shouldRevoke) setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+    } catch (e) {
+      console.error("Download failed:", e);
+    }
   };
 
   const isOwner = currentUser && image.ownerId === currentUser.id;
@@ -286,7 +364,6 @@ const MetadataPanel: React.FC<MetadataPanelProps> = ({
       onClick={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
     >
-      {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto lg:overflow-visible p-3 lg:p-6">
         <div className="grid grid-cols-1 lg:grid-cols-[auto_1fr_auto] gap-2 lg:gap-8 items-start">
 
@@ -312,45 +389,27 @@ const MetadataPanel: React.FC<MetadataPanelProps> = ({
               <div>
                 <h3 className="text-[10px] font-bold uppercase tracking-widest text-white/40 mb-2">Visibility</h3>
                 <label htmlFor="is-public-toggle" className="flex items-center cursor-pointer group w-fit">
+                  {/* Toggle UI preserved but condensed */}
                   <div className="relative">
-                    <input
-                      type="checkbox"
-                      id="is-public-toggle"
-                      className="sr-only peer"
-                      checked={!!image.isPublic}
-                      onChange={() => onTogglePublicStatus(image.id)}
-                    />
-                    <div className="w-9 h-5 bg-white/10 rounded-full peer peer-focus:ring-2 peer-focus:ring-offset-2 peer-focus:ring-offset-black peer-focus:ring-indigo-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-500 transition-colors"></div>
+                    <input type="checkbox" id="is-public-toggle" className="sr-only peer" checked={!!image.isPublic} onChange={() => onTogglePublicStatus(image.id)} />
+                    <div className="w-9 h-5 bg-white/10 rounded-full peer peer-focus:ring-2 peer-focus:indigo-500 peer-checked:bg-indigo-500 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full transition-colors"></div>
                   </div>
                   <span className="ml-3 text-sm text-white/70 group-hover:text-white transition-colors">{image.isPublic ? 'Public' : 'Private'}</span>
                 </label>
               </div>
             )}
 
+            {/* Slideshow controls preserved */}
             {hasMultipleImages && (
               <div>
                 <h3 className="text-[10px] font-bold uppercase tracking-widest text-white/40 mb-2">Slideshow</h3>
                 <div className="flex items-center gap-3">
-                  <button
-                    onClick={onToggleSlideshow}
-                    className={`p-2 rounded-full transition-all duration-300 ${isSlideshowActive ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'bg-white/10 text-white/70 hover:bg-white/20 hover:text-white'}`}
-                    title={isSlideshowActive ? "Pause" : "Play"}
-                  >
+                  <button onClick={onToggleSlideshow} className={`p-2 rounded-full transition-all ${isSlideshowActive ? 'bg-indigo-500 text-white' : 'bg-white/10 text-white/70'}`}>
                     {isSlideshowActive ? <StopIcon className="w-4 h-4" /> : <PlayIcon className="w-4 h-4 ml-0.5" />}
                   </button>
-
                   {isSlideshowActive && (
                     <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-2 pl-3 py-1 rounded-full">
-                      <span className="text-xs text-white/60 font-mono w-6 text-right">{(slideshowDelay / 1000).toFixed(0)}s</span>
-                      <input
-                        type="range"
-                        min="2000"
-                        max="20000"
-                        step="1000"
-                        value={slideshowDelay}
-                        onChange={(e) => onSlideshowDelayChange(Number(e.target.value))}
-                        className="w-16 h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                      />
+                      <input type="range" min="2000" max="20000" step="1000" value={slideshowDelay} onChange={(e) => onSlideshowDelayChange(Number(e.target.value))} className="w-16 h-1 bg-white/20 rounded-lg accent-indigo-500" />
                     </div>
                   )}
                 </div>
@@ -358,13 +417,34 @@ const MetadataPanel: React.FC<MetadataPanelProps> = ({
             )}
           </div>
 
-          {/* Column 2: Content (Prompt & Keywords) */}
+          {/* Column 2: Content (Prompt & Keywords) - UPDATED */}
           <div className="flex flex-col gap-4 min-w-0">
             <div className="flex items-center justify-between">
-              <h3 className="text-[10px] font-bold uppercase tracking-widest text-white/40 flex items-center gap-2">
-                <span className="w-1 h-1 rounded-full bg-purple-400"></span> AI Context
-              </h3>
-              {image.recreationPrompt && (
+              {/* TABS for Context */}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setActiveContext('caption')}
+                  className={`text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 transition-colors ${activeContext === 'caption' ? 'text-white' : 'text-white/40 hover:text-white/70'}`}
+                >
+                  <span className={`w-1 h-1 rounded-full ${activeContext === 'caption' ? 'bg-purple-400' : 'bg-gray-600'}`}></span>
+                  AI Context
+                </button>
+
+                {hasMetadata && (
+                  <>
+                    <div className="h-3 w-px bg-white/10"></div>
+                    <button
+                      onClick={() => setActiveContext('metadata')}
+                      className={`text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 transition-colors ${activeContext === 'metadata' ? 'text-white' : 'text-white/40 hover:text-white/70'}`}
+                    >
+                      <span className={`w-1 h-1 rounded-full ${activeContext === 'metadata' ? 'bg-blue-400' : 'bg-gray-600'}`}></span>
+                      Metadata
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {activeText && (
                 <button
                   onClick={onCopyPrompt}
                   className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-medium uppercase tracking-wide text-white/50 hover:text-white hover:bg-white/10 transition-colors"
@@ -376,89 +456,64 @@ const MetadataPanel: React.FC<MetadataPanelProps> = ({
             </div>
 
             <div className="relative group/prompt">
-              {image.recreationPrompt ? (
+              {activeText ? (
                 <div
                   ref={promptScrollRef}
                   onMouseEnter={() => setIsHoveringPrompt(true)}
                   onMouseLeave={() => setIsHoveringPrompt(false)}
-                  onTouchStart={() => setIsHoveringPrompt(true)} // Allow touch interaction to pause/control
+                  onTouchStart={() => setIsHoveringPrompt(true)}
                   className="text-sm leading-relaxed text-white/90 font-light bg-black/20 p-4 rounded-xl border border-white/5 max-h-[120px] overflow-y-auto scrollbar-none hover:scrollbar-thin scrollbar-thumb-white/10 hover:scrollbar-thumb-white/20 transition-all"
-                  style={{ scrollBehavior: 'auto' }} // Ensure auto-scroll isn't jerky with smooth scrolling
+                  style={{ scrollBehavior: 'auto' }}
                 >
-                  {image.recreationPrompt}
+                  {activeText}
                 </div>
               ) : (
                 <div className="text-sm text-white/40 italic bg-black/20 p-4 rounded-xl border border-white/5 border-dashed">
-                  No AI description available.
+                  {activeContext === 'caption' ? 'No AI description available.' : 'No original prompt metadata found.'}
                 </div>
               )}
 
-              {image.analysisFailed && onRetryAnalysis && (
+              {/* Retry only for analysis failures when viewing caption */}
+              {activeContext === 'caption' && image.analysisFailed && onRetryAnalysis && (
                 <div className="mt-3 flex items-center justify-between p-2 pl-3 bg-red-500/10 border border-red-500/20 rounded-lg">
-                  <span className="text-xs text-red-300 font-medium flex items-center gap-2">
-                    <WarningIcon className="w-3.5 h-3.5" /> Analysis Failed
-                  </span>
-                  <button
-                    onClick={() => onRetryAnalysis(image.id)}
-                    className="px-2 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-200 text-[10px] uppercase font-bold tracking-wider rounded transition-colors"
-                  >
-                    Retry
-                  </button>
+                  <span className="text-xs text-red-300 font-medium flex items-center gap-2">Analysis Failed</span>
+                  <button onClick={() => onRetryAnalysis(image.id)} className="px-2 py-1 bg-red-500/20 text-red-200 text-[10px] uppercase font-bold rounded">Retry</button>
                 </div>
               )}
             </div>
 
+            {/* Keywords */}
             {image.keywords && image.keywords.length > 0 && (
-              <div
-                ref={keywordsScrollRef}
-                onMouseEnter={() => setIsHoveringKeywords(true)}
-                onMouseLeave={() => setIsHoveringKeywords(false)}
-                onTouchStart={() => setIsHoveringKeywords(true)}
-                onWheel={handleKeywordsWheel}
-                className="flex flex-nowrap overflow-x-auto scrollbar-none gap-1.5 py-1"
-                style={{ scrollBehavior: 'auto' }}
-              >
+              <div ref={keywordsScrollRef} onWheel={handleKeywordsWheel} className="flex flex-nowrap overflow-x-auto scrollbar-none gap-1.5 py-1">
                 {image.keywords.map((kw, i) => (
-                  <button
-                    key={i}
-                    onClick={() => onKeywordClick(kw)}
-                    className="px-2.5 py-1 text-xs bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/20 rounded-full text-white/70 hover:text-white transition-all duration-200 whitespace-nowrap flex-shrink-0"
-                  >
-                    #{kw}
-                  </button>
+                  <button key={i} onClick={() => onKeywordClick(kw)} className="px-2.5 py-1 text-xs bg-white/5 border border-white/5 rounded-full text-white/70 whitespace-nowrap">#{kw}</button>
                 ))}
               </div>
             )}
           </div>
 
-          {/* Column 3: Actions (Desktop Only) */}
+          {/* Column 3: Actions */}
           <div className="hidden lg:flex flex-col items-end gap-3 border-l border-white/10 pl-6 h-full">
             <div className="w-full">
               <h3 className="text-[10px] font-bold uppercase tracking-widest text-white/40 mb-3 text-right">Actions</h3>
               <div className="flex flex-col gap-2 justify-end w-full">
-                <ActionButtons {...{
-                  image,
-                  onRecreate,
-                  onAnimate,
-                  onEnhance,
-                  onRegenerateCaption: onRegenerateCaption ? () => onRegenerateCaption(image.id) : undefined,
-                  onSmartCrop,
-                  isSmartCropping,
-                  isSmartFilled,
-                  isPreparingAnimation,
-                  settings,
-                  currentUser,
-                  isFloating: false
-                }} />
-
+                <ActionButtons
+                  image={image}
+                  activePrompt={activeText} // Pass the visible text
+                  onRecreate={onRecreate}
+                  onAnimate={onAnimate}
+                  onEnhance={onEnhance}
+                  onRegenerateCaption={onRegenerateCaption ? () => onRegenerateCaption(image.id) : undefined}
+                  onSmartCrop={onSmartCrop}
+                  isSmartCropping={isSmartCropping}
+                  isSmartFilled={isSmartFilled}
+                  isPreparingAnimation={isPreparingAnimation}
+                  settings={settings}
+                  currentUser={currentUser}
+                  isFloating={false}
+                />
                 <div className="h-px w-full bg-white/10 my-2"></div>
-
-                <button
-                  onClick={handleDownload}
-                  disabled={image.isVideo && !image.videoUrl}
-                  className="p-3 text-white/70 hover:text-white bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/20 rounded-xl transition-all disabled:opacity-50 flex items-center justify-center group"
-                  title={image.isVideo && !image.videoUrl ? "Unavailable" : "Download Original"}
-                >
+                <button onClick={handleDownload} disabled={image.isVideo && !image.videoUrl} className="p-3 text-white/70 bg-white/5 border border-white/5 rounded-xl flex items-center justify-center group">
                   <DownloadIcon className="w-5 h-5 group-hover:scale-110 transition-transform" />
                 </button>
               </div>
@@ -468,30 +523,25 @@ const MetadataPanel: React.FC<MetadataPanelProps> = ({
         </div>
       </div>
 
-      {/* Sticky Mobile Footer Actions */}
-      <div className="lg:hidden p-3 border-t border-white/10 bg-black/40 backdrop-blur-xl flex items-center justify-between gap-3 shrink-0">
-        <ActionButtons {...{
-          image,
-          onRecreate,
-          onAnimate,
-          onEnhance,
-          onRegenerateCaption: onRegenerateCaption ? () => onRegenerateCaption(image.id) : undefined,
-          onSmartCrop,
-          isSmartCropping,
-          isSmartFilled,
-          isPreparingAnimation,
-          settings,
-          currentUser,
-          isFloating: false
-        }} />
+      {/* Mobile Footer */}
+      <div className={`lg:hidden p-3 border-t border-white/10 bg-black/40 backdrop-blur-xl flex items-center justify-between gap-3 shrink-0 ${isVisible ? 'block' : 'hidden'}`}>
+        <ActionButtons
+          image={image}
+          activePrompt={activeText}
+          onRecreate={onRecreate}
+          onAnimate={onAnimate}
+          onEnhance={onEnhance}
+          onRegenerateCaption={onRegenerateCaption ? () => onRegenerateCaption(image.id) : undefined}
+          onSmartCrop={onSmartCrop}
+          isSmartCropping={isSmartCropping}
+          isSmartFilled={isSmartFilled}
+          isPreparingAnimation={isPreparingAnimation}
+          settings={settings}
+          currentUser={currentUser}
+          isFloating={false}
+        />
         <div className="w-px h-8 bg-white/10"></div>
-        <button
-          onClick={handleDownload}
-          disabled={image.isVideo && !image.videoUrl}
-          className="p-3 text-white bg-white/10 rounded-xl transition-all disabled:opacity-50 flex items-center justify-center group shadow-sm"
-        >
-          <DownloadIcon className="w-5 h-5" />
-        </button>
+        <button onClick={handleDownload} className="p-3 text-white bg-white/10 rounded-xl"><DownloadIcon className="w-5 h-5" /></button>
       </div>
     </div>
   );
@@ -532,7 +582,11 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
 
   const [isSmartFilled, setIsSmartFilled] = useState(false);
 
-  const [isDetailsVisible, setIsDetailsVisible] = useState(true);
+  const [viewMode, setViewMode] = useState<'details' | 'carousel' | 'fullscreen'>('details');
+
+  const isDetailsVisible = viewMode === 'details';
+  const isCarouselVisible = viewMode === 'carousel';
+  const isFullscreen = viewMode === 'fullscreen';
   const slideshowTimerRef = useRef<number | null>(null);
   const lastTapTimeRef = useRef<number>(0);
   const touchStartRef = useRef<{ x: number, y: number } | null>(null);
@@ -600,11 +654,15 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
     }
   }, [currentIndex, isSmartFilled, currentImage?.smartCrop, currentImage?.id]);
 
-  const handleRecreate = (aspectRatio: AspectRatio) => {
-    if (!currentImage.recreationPrompt || !currentUser) return;
+  const handleRecreate = (aspectRatio: AspectRatio, promptOverride?: string) => {
+    const promptToUse = promptOverride || currentImage.recreationPrompt;
+    if (!promptToUse || !currentUser) return;
+
+    logger.track('User Action: Recreate', { imageId: currentImage.id, aspectRatio });
+
     setPromptModalConfig({
       taskType: 'image',
-      initialPrompt: currentImage.recreationPrompt,
+      initialPrompt: promptToUse,
       aspectRatio,
       image: currentImage
     });
@@ -675,6 +733,23 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
     }
   };
 
+  /*
+   Animation Flow:
+   1. onStartAnimation calls this handler with current image & prompt
+   2. We check settings and availability
+   3. Trigger onStartAnimation prop which opens the modal/process
+*/
+  const handleStartAnimation = () => {
+    // In current logic, ActionButtons calls onAnimate which is passed from props.
+    // But ImageViewer actually defines onStartAnimation in props.
+    // Let's find where onAnimate is passed to ActionButtons.
+    // It's passed as `() => onStartAnimation(...)`.
+    // We should arguably track it there or here.
+    // Since ActionButtons is a subcomponent, let's track here if we can wrap it,
+    // or track in the parent (App.tsx) which actually implements onStartAnimation.
+    // However, App.tsx is huge. Let's do it in the wrapper prop in ImageViewer rendering.
+  };
+
   useEffect(() => {
     // If the navigation list changes significantly, try to keep the current image focused
     // or reset if not found.
@@ -726,7 +801,7 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
 
   // Scroll active thumbnail into view
   useEffect(() => {
-    if (thumbnailContainerRef.current && !isDetailsVisible) {
+    if (thumbnailContainerRef.current && isCarouselVisible) {
       const activeBtn = thumbnailContainerRef.current.children[currentIndex] as HTMLElement;
       if (activeBtn) {
         activeBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
@@ -754,10 +829,23 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
     const timeSinceLastTap = now - lastTapTimeRef.current;
 
     if (timeSinceLastTap < 300) {
-      if (!isDetailsVisible) setIsDetailsVisible(true);
-    } else {
-      setIsDetailsVisible(prev => !prev);
+      // Double tap or fast tap logic if needed, but manual says "one more click", implying sequential single clicks.
+      // Current manual instruction: "one more click on the image hides the carousel to be full screen... A single click will bring up properties"
+      // Let's implement sequential cycle on single click essentially.
+      // But existing code handled double tap logic? "if time < 300 setIsDetailsVisible(true)" suggests forcing show on double tap.
+      // Let's stick to simple toggle for now as user asked for "click".
+
+      // Actually, the user says "Navigate to carousel -> Navigate to fullscreen -> Navigate to details".
+      // Let's just use single click logic effectively. The debounce might interfere if we rely on it for "double tap".
+      // Let's treat standard click as the trigger.
     }
+
+    // Cycle modes
+    setViewMode(prev => {
+      if (prev === 'details') return 'carousel';
+      if (prev === 'carousel') return 'fullscreen';
+      return 'details';
+    });
 
     lastTapTimeRef.current = now;
   };
@@ -815,7 +903,7 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
 
   return (
     <>
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm" onClick={onClose}>
+      <div className={`fixed inset-0 flex items-center justify-center bg-black/90 backdrop-blur-sm ${isFullscreen ? 'z-[60]' : 'z-50'}`} onClick={onClose}>
         <div
           className={`relative w-full h-full flex flex-col items-center justify-center ${isSmartFilled ? '' : 'p-4'}`}
           style={{ touchAction: 'none' }}
@@ -825,12 +913,14 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
           onPointerUp={handlePointerUp}
         >
 
-          <button
-            onClick={onClose}
-            className="absolute top-4 right-4 z-50 text-white/70 hover:text-white transition-colors"
-          >
-            <CloseIcon className="w-8 h-8" />
-          </button>
+          {!isFullscreen && (
+            <button
+              onClick={onClose}
+              className="absolute top-4 right-4 z-50 text-white/70 hover:text-white transition-colors"
+            >
+              <CloseIcon className="w-8 h-8" />
+            </button>
+          )}
 
           <div className={`relative flex items-center justify-center w-full h-full ${isSmartFilled ? '' : 'max-h-[95vh] max-w-[95vw]'}`}>
             {isVideo && !isOfflineVideo ? (
@@ -917,57 +1007,58 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
           {!isVideo && navigationImages.length > 1 && !isLoading && (
             <>
               {/* Thumbnail Navigation Strip */}
-              {/* Thumbnail Navigation Strip - Only visible when details are hidden */}
-              {!isDetailsVisible && (
+              {/* Thumbnail Navigation Strip - Only visible in Carousel mode */}
+              {isCarouselVisible && (
                 <div
-                  className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 max-w-[85vw] flex flex-col items-center animate-fade-in-up"
+                  className="absolute bottom-16 lg:bottom-6 left-0 w-full z-30 animate-fade-in-up mask-image-linear-to-r"
                   onClick={(e) => e.stopPropagation()}
                   onPointerDown={(e) => e.stopPropagation()}
                 >
                   <div
                     ref={thumbnailContainerRef}
                     onWheel={handleThumbnailWheel}
-                    className="flex gap-2 p-2 overflow-x-auto scrollbar-none bg-black/40 backdrop-blur-md rounded-xl border border-white/10 shadow-lg px-3 transition-all duration-300 hover:bg-black/60 hover:scale-105"
+                    className="flex gap-2 overflow-x-auto scrollbar-none w-full px-4 transition-all duration-300"
                     style={{
                       scrollBehavior: 'smooth',
                       maxWidth: '100%',
                       '--thumb-hover-scale': currentUser?.thumbnailHoverScale ?? settings?.appearance?.thumbnailHoverScale ?? 1.2
                     } as React.CSSProperties}
                   >
-                    {navigationImages.map((img, index) => {
-                      const baseSize = currentUser?.thumbnailSize ?? settings?.appearance?.thumbnailSize ?? 40;
-                      // Calculate dynamic width based on aspect ratio
-                      // Default to 1:1 if dimensions missing
-                      const aspectRatio = (img.width && img.height) ? (img.width / img.height) : 1;
+                    {
+                      navigationImages.map((img, index) => {
+                        const baseSize = currentUser?.thumbnailSize ?? settings?.appearance?.thumbnailSize ?? 40;
+                        // Enforce 3:5 aspect ratio
+                        const aspectRatio = 3 / 5;
 
-                      const activeHeight = Math.round(baseSize * 1.4);
-                      const currentHeight = currentIndex === index ? activeHeight : baseSize;
+                        const activeHeight = Math.round(baseSize * 1.4);
+                        const currentHeight = currentIndex === index ? activeHeight : baseSize;
 
-                      // Calculate width maintaining aspect ratio
-                      const currentWidth = Math.round(currentHeight * aspectRatio);
+                        // Calculate width maintaining aspect ratio
+                        const currentWidth = Math.round(currentHeight * aspectRatio);
 
-                      return (
-                        <button
-                          key={img.id}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setCurrentIndex(index);
-                          }}
-                          style={{ width: `${currentWidth}px`, height: `${currentHeight}px` }}
-                          className={`thumbnail-btn relative flex-shrink-0 transition-all duration-300 ease-out focus:outline-none rounded-md overflow-hidden ${currentIndex === index
-                            ? 'ring-2 ring-white opacity-100 scale-100'
-                            : 'ring-0 opacity-50 hover:opacity-100'
-                            }`}
-                        >
-                          <img
-                            src={img.dataUrl}
-                            alt={`Thumbnail ${index + 1}`}
-                            className="w-full h-full object-cover"
-                            draggable={false}
-                          />
-                        </button>
-                      );
-                    })}
+                        return (
+                          <button
+                            key={img.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCurrentIndex(index);
+                            }}
+                            style={{ width: `${currentWidth}px`, height: `${currentHeight}px` }}
+                            className={`thumbnail-btn relative flex-shrink-0 transition-all duration-300 ease-out focus:outline-none rounded-md overflow-hidden ${currentIndex === index
+                              ? 'ring-2 ring-white opacity-100 scale-100'
+                              : 'ring-0 opacity-50 hover:opacity-100'
+                              }`}
+                          >
+                            <img
+                              src={img.dataUrl}
+                              alt={`Thumbnail ${index + 1}`}
+                              className="w-full h-full object-cover"
+                              draggable={false}
+                            />
+                          </button>
+                        );
+                      })
+                    }
                   </div>
                 </div>
               )}
@@ -1015,7 +1106,7 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
             z-index: 10;
           }
       `}</style>
-      </div>
+      </div >
     </>
   );
 };

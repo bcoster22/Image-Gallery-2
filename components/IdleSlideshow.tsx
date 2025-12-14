@@ -14,6 +14,7 @@ interface IdleSlideshowProps {
   animationDuration?: number;
   enableBounce?: boolean;
   randomOrder?: boolean;
+  onRequestSlowdown?: (shouldSlow: boolean) => void;
 }
 
 const IdleSlideshow: React.FC<IdleSlideshowProps> = ({
@@ -25,7 +26,8 @@ const IdleSlideshow: React.FC<IdleSlideshowProps> = ({
   interval = 4000,
   animationDuration = 1500,
   enableBounce = false,
-  randomOrder = false
+  randomOrder = false,
+  onRequestSlowdown
 }) => {
   // State for Adaptive Portrait
   const [isPortrait, setIsPortrait] = useState(typeof window !== 'undefined' ? window.innerHeight > window.innerWidth : false);
@@ -175,6 +177,27 @@ const IdleSlideshow: React.FC<IdleSlideshowProps> = ({
     }, duration);
 
   }, [transition, useAdaptivePan, isPortrait, currentDuration, randomOrder]);
+
+  // Check if next image needs smart crop processing
+  useEffect(() => {
+    if (!useSmartCrop || !isActive) return;
+
+    // Calculate what the next index will be
+    const nextIdx = randomOrder
+      ? (deckRef.current.length > 0 ? deckRef.current[deckRef.current.length - 1] : (activeIndex + 1) % images.length)
+      : (activeIndex + 1) % images.length;
+
+    const nextImg = images[nextIdx];
+
+    // Check if next image needs smart crop or is being processed
+    const needsProcessing = nextImg && !nextImg.smartCrop;
+    const isProcessing = nextImg && processingSmartCropIds?.has(nextImg.id);
+
+    // Request slowdown if next image isn't ready
+    if (onRequestSlowdown) {
+      onRequestSlowdown(needsProcessing || isProcessing);
+    }
+  }, [activeIndex, images, useSmartCrop, processingSmartCropIds, randomOrder, isActive, onRequestSlowdown]);
 
   // Main Timer Loop (Auto Advance)
   useEffect(() => {

@@ -1,9 +1,11 @@
-
 import React from 'react';
 import { TrashIcon, XCircleIcon, WandIcon, CheckCircleIcon, UserIcon, RefreshIcon, SelectAllIcon, ViewfinderIcon } from './icons';
+import { ImageInfo } from '../types';
+import BulkDownloader from './BulkDownloader';
 
 interface SelectionActionBarProps {
   count: number;
+  selectedImages: ImageInfo[];
   onDelete: () => void;
   onClear: () => void;
   onRemix: () => void;
@@ -12,97 +14,112 @@ interface SelectionActionBarProps {
   onRegenerate: () => void;
   onSelectAll: () => void;
   onSmartCrop: () => void;
+  triggerDownload?: boolean;
 }
 
-const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ count, onDelete, onClear, onRemix, onMakePublic, onMakePrivate, onRegenerate, onSelectAll, onSmartCrop }) => {
+const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ count, selectedImages, onDelete, onClear, onRemix, onMakePublic, onMakePrivate, onRegenerate, onSelectAll, onSmartCrop, triggerDownload }) => {
   return (
     <div className={`fixed bottom-0 left-0 right-0 z-40 p-4 flex justify-center transition-transform duration-300 ease-in-out ${count > 0 ? 'translate-y-0' : 'translate-y-full'}`}>
-      <div className="bg-gray-800/90 backdrop-blur-md border border-gray-700 rounded-lg shadow-2xl flex flex-wrap items-center justify-between p-3 gap-3 w-full max-w-2xl">
-        <div className="flex items-center gap-3 border-r border-gray-600 pr-3 mr-1">
-          <button onClick={onClear} className="p-2 text-gray-400 hover:text-white transition-colors" title="Clear selection">
-            <XCircleIcon className="w-6 h-6" />
-          </button>
-          <p className="text-white font-medium whitespace-nowrap">
-            <span className="text-indigo-400">{count}</span> selected
-          </p>
-        </div>
+      <div className="bg-gray-900/95 backdrop-blur-md border border-gray-700/50 rounded-lg shadow-2xl flex flex-wrap items-center gap-2 p-2 max-w-[95vw] sm:max-w-4xl mx-auto">
 
-        <div className="flex items-center gap-2 flex-grow justify-center sm:justify-start">
+        {/* Selection Info & Clear */}
+        <div className="flex items-center gap-2 pl-2 pr-3 border-r border-gray-700/50 mr-1">
+          <button
+            onClick={onClear}
+            className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded-full transition-all"
+            title="Clear selection"
+          >
+            <XCircleIcon className="w-5 h-5" />
+          </button>
+          <span className="text-sm font-medium text-gray-200 whitespace-nowrap">
+            <span className="text-white font-bold">{count}</span>
+            <span className="hidden sm:inline ml-1">selected</span>
+          </span>
           <button
             onClick={onSelectAll}
-            className="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-1.5 px-3 rounded-lg transition-colors flex items-center gap-1.5 text-sm"
-            title="Select all images"
+            className="ml-1 p-1.5 text-gray-400 hover:text-indigo-400 hover:bg-gray-700/50 rounded-full transition-all"
+            title="Select All"
           >
             <SelectAllIcon className="w-4 h-4" />
-            All
           </button>
+        </div>
 
-          <button
-            onClick={onRemix}
-            disabled={count === 0}
-            className="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-1.5 px-3 rounded-lg transition-colors flex items-center gap-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Adapt selected images to a new theme"
-          >
-            <WandIcon className="w-4 h-4" />
-            Remix
-          </button>
+        {/* Actions - Now ungrouped/flat */}
 
-          <button
-            onClick={onRegenerate}
-            disabled={count === 0}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-1.5 px-3 rounded-lg transition-colors flex items-center gap-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Regenerate captions for selected images"
-          >
-            <RefreshIcon className="w-4 h-4" />
-            Regenerate
-          </button>
+        <BulkDownloader
+          selectedImages={selectedImages}
+          className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-md transition-colors"
+        />
 
-          <button
-            onClick={onSmartCrop}
-            disabled={count === 0}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-1.5 px-3 rounded-lg transition-colors flex items-center gap-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Auto-crop to main subject"
-          >
-            <ViewfinderIcon className="w-4 h-4" />
-            Smart Crop
-          </button>
+        <div className="w-px h-6 bg-gray-700/50 mx-1 hidden sm:block"></div>
 
-          <div className="h-6 w-px bg-gray-600 mx-1"></div>
+        <button
+          onClick={onRemix}
+          className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-800 hover:text-white rounded-md transition-colors"
+          title="Remix selected"
+        >
+          <WandIcon className="w-4 h-4 text-purple-400" />
+          <span className="hidden sm:inline">Remix</span>
+        </button>
 
+        <button
+          onClick={onRegenerate}
+          className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-800 hover:text-white rounded-md transition-colors"
+          title="Regenerate selected"
+        >
+          <RefreshIcon className="w-4 h-4 text-blue-400" />
+          <span className="hidden sm:inline">Regenerate</span>
+        </button>
+
+        <button
+          onClick={onSmartCrop}
+          className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-800 hover:text-white rounded-md transition-colors"
+          title="Smart Crop"
+        >
+          <ViewfinderIcon className="w-4 h-4 text-indigo-400" />
+          <span className="hidden sm:inline">Smart Crop</span>
+        </button>
+
+        <div className="w-px h-6 bg-gray-700/50 mx-1 hidden sm:block"></div>
+
+        {/* Privacy */}
+        <div className="flex bg-gray-800/50 rounded-lg p-0.5 border border-gray-700/30">
           <button
             onClick={onMakePublic}
-            disabled={count === 0}
-            className="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-1.5 px-3 rounded-lg transition-colors flex items-center gap-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Make selected public"
+            className="p-1.5 rounded-md text-gray-400 hover:text-green-400 hover:bg-gray-700 transition-all"
+            title="Make Public"
           >
-            <CheckCircleIcon className="w-4 h-4 text-green-400" />
-            Public
+            <CheckCircleIcon className="w-4 h-4" />
           </button>
+          {/* BulkDownloader with trigger support */}
+          <BulkDownloader
+            selectedImages={selectedImages}
+            className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+            triggerDownload={triggerDownload}
+          />
           <button
             onClick={onMakePrivate}
-            disabled={count === 0}
-            className="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-1.5 px-3 rounded-lg transition-colors flex items-center gap-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Make selected private"
+            className="p-1.5 rounded-md text-gray-400 hover:text-gray-200 hover:bg-gray-700 transition-all"
+            title="Make Private"
           >
-            <UserIcon className="w-4 h-4 text-gray-300" />
-            Private
+            <UserIcon className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="border-l border-gray-600 pl-3 ml-1">
+        {/* Delete */}
+        <div className="pl-1 ml-auto sm:ml-1">
           <button
             onClick={onDelete}
-            disabled={count === 0}
-            className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="p-2 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-md transition-all"
+            title="Delete Selected"
           >
             <TrashIcon className="w-5 h-5" />
-            Delete
           </button>
         </div>
+
       </div>
     </div>
   );
 };
 
 export default SelectionActionBar;
-

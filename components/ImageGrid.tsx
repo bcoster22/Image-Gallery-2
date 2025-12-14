@@ -15,6 +15,7 @@ interface ImageGridProps {
   onSelectionChange?: (ids: Set<string>) => void;
   blurNsfw?: boolean;
   layout?: 'masonry' | 'grid';
+  onDragEnd?: (e: React.DragEvent) => void;
 }
 
 interface GridItemProps {
@@ -26,12 +27,16 @@ interface GridItemProps {
   isSelected: boolean;
   blurNsfw?: boolean;
   layout?: 'masonry' | 'grid';
+  onDragEnd?: (e: React.DragEvent) => void;
+  onDragStartSelection?: () => void;
+  getDragPreviews?: () => ImageInfo[];
 }
 
-const GridItem: React.FC<GridItemProps> = ({ image, onImageClick, isAnalyzing, isGeneratingSource, isSelectionMode, isSelected, blurNsfw, layout = 'masonry' }) => {
+const GridItem: React.FC<GridItemProps> = ({ image, onImageClick, isAnalyzing, isGeneratingSource, isSelectionMode, isSelected, blurNsfw, layout = 'masonry', onDragEnd, onDragStartSelection, getDragPreviews }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const isOfflineVideo = image.isVideo && !image.videoUrl;
   const longPressTimerRef = useRef<number | null>(null);
+  const ignoreClickRef = useRef(false);
 
   // Check if image should be blurred based on NSFW classification
   const shouldBlur = blurNsfw && image.nsfwClassification?.label === 'NSFW';
@@ -73,12 +78,130 @@ const GridItem: React.FC<GridItemProps> = ({ image, onImageClick, isAnalyzing, i
     }
   };
 
+  // Drag Logic
+  const handleDragStart = (e: React.DragEvent) => {
+    if (!isSelectionMode) {
+      e.preventDefault();
+      return;
+    }
+
+    // Auto-select if dragging an unselected item
+    if (!isSelected && onDragStartSelection) {
+      onDragStartSelection();
+    }
+
+    // Allow dragging out
+    e.dataTransfer.effectAllowed = 'copy';
+    // using a custom type prevents the OS from creating a text clipping
+    e.dataTransfer.setData('application/x-gallery-item', image.id);
+
+    // CUSTOM GHOST IMAGE LOGIC
+    if (getDragPreviews && isSelectionMode) {
+      const previews = getDragPreviews();
+      // Only create stack if we have multiple items or if we want to customize the single item drag too
+      // User asked for "stack say upto 6 images", implying stack mainly for multiple.
+
+      if (previews.length > 0) {
+        const container = document.createElement('div');
+        container.style.position = 'absolute';
+        container.style.top = '-9999px';
+        container.style.left = '-9999px';
+        // Z-index high to ensure it renders on top if visible, but it's offscreen
+        // Actually setDragImage requires element to be visible?
+        // It needs to be in DOM, but can be offscreen.
+
+        // Container visual style
+        container.style.width = '120px'; // Thumbnail size for drag
+        container.style.height = '120px';
+
+        // Stack items
+        previews.slice(0, 6).forEach((img, i) => {
+          const div = document.createElement('div');
+          div.style.position = 'absolute';
+          div.style.width = '100%';
+          div.style.height = '100%';
+          div.style.borderRadius = '8px';
+          div.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.15)';
+          div.style.overflow = 'hidden';
+          div.style.backgroundColor = '#1f2937'; // gray-800
+          div.style.border = '2px solid white';
+
+          // Stack offset logic
+          // Reverse index so first item is on top? Or last item on top?
+          // Usually the item being dragged (under cursor) should be visible or the stack should look like a pile.
+          // Let's create a "deck" look.
+          const offset = i * 4;
+          div.style.top = `${offset}px`;
+          div.style.left = `${offset}px`;
+          // Simple rotation for messiness?
+          // div.style.transform = `rotate(${Math.random() * 10 - 5}deg)`;
+          // Clean stack is better for UI.
+
+          const imgEl = document.createElement('img');
+          imgEl.src = img.dataUrl;
+          imgEl.style.width = '100%';
+          imgEl.style.height = '100%';
+          imgEl.style.objectFit = 'cover';
+
+          div.appendChild(imgEl);
+
+          // We want index 0 (the dragged item usually, or first selected) to be on TOP?
+          // z-index: (6 - i)
+          div.style.zIndex = (6 - i).toString();
+
+          container.appendChild(div);
+        });
+
+        // Badge for count
+        if (previews.length > 1) {
+          const badge = document.createElement('div');
+          badge.textContent = previews.length.toString();
+          badge.style.position = 'absolute';
+          badge.style.top = '-8px';
+          badge.style.right = '-8px';
+          badge.style.background = '#ef4444'; // red-500
+          badge.style.color = 'white';
+          badge.style.fontWeight = 'bold';
+          badge.style.borderRadius = '9999px';
+          badge.style.width = '24px';
+          badge.style.height = '24px';
+          badge.style.display = 'flex';
+          badge.style.alignItems = 'center';
+          badge.style.justifyContent = 'center';
+          badge.style.fontSize = '12px';
+          badge.style.zIndex = '20';
+          badge.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)';
+          container.appendChild(badge);
+        }
+
+        document.body.appendChild(container);
+        e.dataTransfer.setDragImage(container, 60, 60); // Center grab
+
+        // Cleanup
+        setTimeout(() => {
+          document.body.removeChild(container);
+        }, 0);
+      }
+    }
+  };
+
   // Long Press Logic
-  const handleTouchStart = (e: React.TouchEvent) => {
-    if (isSelectionMode) return;
+  const handleLongPressStart = (e: React.TouchEvent | React.MouseEvent) => {
+    // REMOVED: if (isSelectionMode) return;
+    // Allowing long press even in selection mode for consistent UX (user requested "hard to select next images")
+
+    // For Mouse events, ensure it's the left button (button 0)
+    if ('button' in e && e.button !== 0) return;
+
+    ignoreClickRef.current = false; // Reset to be safe
+
     longPressTimerRef.current = window.setTimeout(() => {
       // Long press triggered
       if (navigator.vibrate) navigator.vibrate(15);
+
+      // Raise flag to ignore the subsequent click event
+      ignoreClickRef.current = true;
+
       // Simulate Ctrl+Click
       const syntheticEvent = {
         ...e,
@@ -91,11 +214,25 @@ const GridItem: React.FC<GridItemProps> = ({ image, onImageClick, isAnalyzing, i
     }, 500);
   };
 
-  const handleTouchEnd = () => {
+  const handleTouchStart = (e: React.TouchEvent) => handleLongPressStart(e);
+  const handleMouseDown = (e: React.MouseEvent) => handleLongPressStart(e);
+
+  const handleLongPressEnd = () => {
     if (longPressTimerRef.current) {
       clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = null;
     }
+  };
+
+  // Intercept click to prevent double-toggle if long press occurred
+  const handleClick = (e: React.MouseEvent) => {
+    if (ignoreClickRef.current) {
+      ignoreClickRef.current = false;
+      e.stopPropagation();
+      e.preventDefault();
+      return;
+    }
+    onImageClick(image, e);
   };
 
   const isGrid = layout === 'grid';
@@ -108,12 +245,27 @@ const GridItem: React.FC<GridItemProps> = ({ image, onImageClick, isAnalyzing, i
   return (
     <div
       className={`group relative overflow-hidden rounded-lg shadow-lg transition-all duration-300 ${isGrid ? 'aspect-square h-full' : 'break-inside-avoid mb-3 sm:mb-4'} ${isSelectionMode ? 'cursor-pointer' : 'cursor-pointer'} ${isSelected ? 'ring-2 ring-offset-2 ring-offset-gray-900 ring-indigo-500 scale-95' : ''} ${isSelectionMode && !isSelected ? 'opacity-60 hover:opacity-100' : ''}`}
-      onClick={(e) => onImageClick(image, e)}
+      onClick={handleClick}
       onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
+      onMouseLeave={(e) => {
+        handleMouseLeave();
+        handleLongPressEnd();
+        ignoreClickRef.current = false;
+      }}
       onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
-      onTouchMove={handleTouchEnd} // Cancel on scroll/move
+      onTouchEnd={handleLongPressEnd}
+      onTouchMove={() => {
+        handleLongPressEnd();
+        ignoreClickRef.current = false;
+      }}
+      onMouseDown={(e) => {
+        e.stopPropagation();
+        handleMouseDown(e);
+      }}
+      onMouseUp={handleLongPressEnd}
+      draggable={isSelectionMode}
+      onDragStart={handleDragStart}
+      onDragEnd={onDragEnd}
     >
       {image.isVideo && image.videoUrl ? (
         <video
@@ -212,7 +364,7 @@ const GridItem: React.FC<GridItemProps> = ({ image, onImageClick, isAnalyzing, i
         <div className="absolute inset-0 bg-red-900/80 flex flex-col items-center justify-center p-2 text-center text-white z-20">
           <WarningIcon className="w-8 h-8 mb-1 text-red-300" />
           <p className="text-xs font-semibold">AI Analysis Failed</p>
-          <p className="text-xs text-red-300/80 mt-1">Rate limit, quota, or content policy error.</p>
+          <p className="text-xs text-red-300/80 mt-1 px-1 line-clamp-3" title={image.analysisError}>{image.analysisError || "Rate limit, quota, or content policy error."}</p>
         </div>
       )}
     </div>
@@ -253,7 +405,7 @@ const ListContainer = styled.div`
 `;
 
 // Styled components for Masonry Layout
-const MasonryListContainer = styled.div`
+const MasonryListContainer = styled('div')`
   padding: 0 8px;
   column-count: 2;
   column-gap: 16px;
@@ -263,17 +415,17 @@ const MasonryListContainer = styled.div`
   @media (min-width: 1024px) { column-count: 5; }
   @media (min-width: 1280px) { column-count: 6; }
   @media (min-width: 1536px) { column-count: 8; }
-`;
+` as any;
 
-const MasonryItemContainer = styled.div`
+const MasonryItemContainer = styled('div')`
   break-inside: avoid;
   margin-bottom: 16px;
   -webkit-column-break-inside: avoid;
   page-break-inside: avoid;
   width: 100%;
-`;
+` as any;
 
-const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, analyzingIds, generatingIds, disabled, isSelectionMode, selectedIds, onSelectionChange, blurNsfw, layout = 'masonry' }) => {
+const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, analyzingIds, generatingIds, disabled, isSelectionMode, selectedIds, onSelectionChange, blurNsfw, layout = 'masonry', onDragEnd }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [selectionBox, setSelectionBox] = React.useState<SelectionBox | null>(null);
   const isDragging = useRef(false);
@@ -355,6 +507,15 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, analyzingId
      For 'grid' layout, we use VirtuosoGrid for performance.
   */
 
+  // Helper to ensure item is selected when dragging starts
+  const ensureSelected = (id: string) => {
+    if (!selectedIds.has(id) && onSelectionChange) {
+      const newSet = new Set(selectedIds);
+      newSet.add(id);
+      onSelectionChange(newSet);
+    }
+  };
+
   const renderMasonry = () => (
     <div
       className={`h-[calc(100vh-140px)] w-full overflow-y-auto px-2 scrollbar-none ${disabled ? 'pointer-events-none opacity-60' : ''}`}
@@ -375,6 +536,8 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, analyzingId
               isSelected={selectedIds.has(image.id)}
               blurNsfw={blurNsfw}
               layout="masonry"
+              onDragEnd={onDragEnd}
+              onDragStartSelection={() => ensureSelected(image.id)}
             />
           </MasonryItemContainer>
         ))}
@@ -428,6 +591,8 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, analyzingId
                 isSelected={selectedIds.has(image.id)}
                 blurNsfw={blurNsfw}
                 layout="grid"
+                onDragEnd={onDragEnd}
+                onDragStartSelection={() => ensureSelected(image.id)}
               />
             </div>
           );

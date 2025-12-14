@@ -2,7 +2,7 @@
 import { HarmBlockThreshold } from "@google/genai";
 
 export type AiProvider = 'gemini' | 'openai' | 'grok' | 'moondream_cloud' | 'moondream_local' | 'comfyui';
-export type GalleryView = 'public' | 'my-gallery' | 'creations' | 'prompt-history' | 'status' | 'admin-settings' | 'profile-settings';
+export type GalleryView = 'public' | 'my-gallery' | 'creations' | 'prompt-history' | 'status' | 'admin-settings' | 'profile-settings' | 'duplicates';
 
 export interface ProviderCapabilities {
   vision: boolean;
@@ -57,9 +57,10 @@ export interface IAiProvider {
    */
   generateImageFromPrompt?(
     prompt: string,
-    settings: AdminSettings,
-    aspectRatio?: AspectRatio
-  ): Promise<string>;
+    aspectRatio: AspectRatio,
+    sourceImage: ImageInfo | undefined,
+    settings: AdminSettings
+  ): Promise<GenerationResult>;
 
   /**
    * Animates a static image or generates a video from prompt.
@@ -79,8 +80,9 @@ export interface IAiProvider {
   editImage?(
     image: ImageInfo,
     prompt: string,
+    strength: number | undefined,
     settings: AdminSettings
-  ): Promise<string>;
+  ): Promise<GenerationResult>;
 
   /**
    * Generates keywords for a given prompt.
@@ -209,6 +211,7 @@ export interface AdminSettings {
   performance: {
     downscaleImages: boolean;
     maxAnalysisDimension: number;
+    vramUsage: 'high' | 'balanced' | 'low';
   };
   prompts: {
     assignments: Record<string, string>; // providerId -> strategyId
@@ -235,13 +238,17 @@ export interface ImageInfo {
   id: string;
   file: File;
   fileName: string;
+  displayName?: string;
   dataUrl: string;
   keywords?: string[];
   recreationPrompt?: string;
+  originalMetadataPrompt?: string; // Prompt extracted from file metadata (e.g. PNG chunks)
   width?: number;
   height?: number;
   aspectRatio?: string;
+  dHash?: string; // Perceptual difference hash
   analysisFailed?: boolean;
+  analysisError?: string; // Specific error message from provider
   ownerId?: string;
   isPublic?: boolean;
   isVideo?: boolean;
@@ -267,7 +274,7 @@ export interface ImageInfo {
 export interface GenerationTask {
   id: string;
   type: 'video' | 'image' | 'enhance';
-  status: 'processing' | 'completed' | 'failed';
+  status: 'queued' | 'processing' | 'completed' | 'failed';
   sourceImageId?: string;
   sourceImageName?: string;
   prompt: string;
@@ -344,6 +351,13 @@ export interface ImageAnalysisResult {
     lastChecked?: number;
   };
 }
+
+export interface GenerationResult {
+  image: string; // base64 data URL or remote URL
+  stats?: ProviderStats;
+  metadata?: any;
+}
+
 // Queue Types
 export type JobTaskType = 'analysis' | 'smart-crop' | 'generate' | 'upload' | 'video' | 'other';
 

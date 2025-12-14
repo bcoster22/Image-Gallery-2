@@ -293,6 +293,13 @@ export const StandardCropIcon: React.FC<IconProps> = ({ className }) => (
 // Viewfinder / Smart Crop
 export const ViewfinderIcon: React.FC<IconProps> = ({ className }) => (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
+    </svg>
+);
+
+export const ActivityIcon: React.FC<IconProps> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" /> {/* Placeholder Heartbeat path */}
+        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12h3.884c.54 0 1.05.213 1.432.596l1.242 1.242a2.986 2.986 0 01.875 2.112v.011c0 .798.318 1.564.883 2.13.565.564 1.332.882 2.13.882h.01c.798 0 1.565-.318 2.13-.883.564-.565.882-1.332.882-2.129 0-.798-.318-1.565-.883-2.13l-1.242-1.242a2.986 2.986 0 00-2.112-.875H12" className="hidden" />
+        <path d="M2.25 12h4.5l3-7.5 4.5 15 3-7.5h4.5" />
     </svg>
 );

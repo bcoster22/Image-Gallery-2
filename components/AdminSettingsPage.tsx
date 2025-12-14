@@ -18,8 +18,11 @@ type ConnectionStatus = 'idle' | 'checking' | 'success' | 'error';
 type AdminTab = 'providers' | 'routing' | 'performance' | 'appearance' | 'content-safety' | 'prompts' | 'versions';
 
 const MOONDREAM_MODELS = [
-    { id: 'moondream-2', name: 'Moondream 2' },
-    { id: 'moondream-3-preview', name: 'Moondream 3 Preview' },
+    { id: 'moondream-2', name: 'Moondream 2 (Vision)' },
+    { id: 'moondream-3-preview', name: 'Moondream 3 Preview (Vision)' },
+    { id: 'sdxl-realism', name: 'SDXL Realism (Generation)' },
+    { id: 'sdxl-anime', name: 'SDXL Anime (Generation)' },
+    { id: 'sdxl-surreal', name: 'SDXL Surreal (Generation)' },
     { id: 'nsfw-detector', name: 'NSFW Detector' }
 ];
 
@@ -64,12 +67,13 @@ const DEFAULTS: AdminSettings = {
         vision: ['gemini', 'grok', 'moondream_cloud', 'moondream_local'],
         generation: ['gemini', 'openai', 'grok', 'comfyui'],
         animation: ['gemini', 'comfyui'],
-        editing: ['gemini', 'comfyui'],
+        editing: ['moondream_local', 'gemini', 'comfyui'],
         textGeneration: ['openai', 'gemini', 'grok'],
     },
     performance: {
         downscaleImages: true,
         maxAnalysisDimension: 1024,
+        vramUsage: 'balanced',
     },
     prompts: {
         assignments: {
@@ -138,6 +142,96 @@ const DEFAULTS: AdminSettings = {
     }
 };
 
+
+
+const RestartServerButton: React.FC<{ endpoint?: string }> = ({ endpoint }) => {
+    const [status, setStatus] = useState<'idle' | 'restarting' | 'success' | 'error'>('idle');
+    const [message, setMessage] = useState('');
+
+    const handleRestart = async () => {
+        if (!endpoint) return;
+
+        setStatus('restarting');
+        setMessage('Restarting server...');
+
+        try {
+            const baseUrl = endpoint.replace(/\/+$/, '');
+            const restartUrl = `${baseUrl}/system/restart`;
+
+            const response = await fetch(restartUrl, { method: 'POST' });
+
+            if (response.ok) {
+                setStatus('success');
+                setMessage('Restart triggered. Waiting for service...');
+
+                const healthUrl = endpoint.replace(/\/v1\/?$/, '/health');
+                let retries = 0;
+                const maxRetries = 20;
+
+                const poll = setInterval(async () => {
+                    retries++;
+                    try {
+                        const healthRes = await fetch(healthUrl);
+                        if (healthRes.ok) {
+                            clearInterval(poll);
+                            setStatus('idle');
+                            setMessage('Server back online!');
+                            setTimeout(() => setMessage(''), 3000);
+                        }
+                    } catch (e) {
+                        // Ignore connection errors
+                    }
+
+                    if (retries >= maxRetries) {
+                        clearInterval(poll);
+                        setStatus('error');
+                        setMessage('Server restart timed out. Check logs.');
+                    }
+                }, 2000);
+
+            } else {
+                throw new Error('Server returned error');
+            }
+        } catch (error) {
+            setStatus('error');
+            setMessage('Failed to trigger restart');
+            setTimeout(() => setStatus('idle'), 3000);
+        }
+    };
+
+    return (
+        <div className="flex items-center justify-between">
+            <span className="text-xs text-gray-400">Server Management</span>
+            <button
+                onClick={handleRestart}
+                disabled={status === 'restarting'}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${status === 'restarting' ? 'bg-yellow-500/20 text-yellow-500 cursor-wait' :
+                    status === 'success' ? 'bg-green-500/20 text-green-500' :
+                        status === 'error' ? 'bg-red-500/20 text-red-500' :
+                            'bg-red-900/30 text-red-300 hover:bg-red-900/50 border border-red-900/50'
+                    }`}
+            >
+                {status === 'restarting' ? (
+                    <>
+                        <RefreshIcon className="w-3.5 h-3.5 animate-spin" />
+                        Restarting...
+                    </>
+                ) : status === 'success' ? (
+                    <>
+                        <CheckCircleIcon className="w-3.5 h-3.5" />
+                        Restarted
+                    </>
+                ) : (
+                    <>
+                        <RefreshIcon className="w-3.5 h-3.5" />
+                        Restart Server
+                    </>
+                )}
+            </button>
+            {message && <span className="ml-2 text-xs text-gray-400 animate-fade-in">{message}</span>}
+        </div>
+    );
+};
 
 const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel, currentSettings }) => {
     const [activeTab, setActiveTab] = useState<AdminTab>('providers');
@@ -367,17 +461,89 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel,
         }
     }
 
-    const CapabilityTag: React.FC<{ capability: Capability, configured: boolean }> = ({ capability, configured }) => {
+    const CapabilityTag: React.FC<{ capability: Capability, configured: boolean, providerId: AiProvider }> = ({ capability, configured, providerId }) => {
+        const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'failure'>('idle');
+        const [errorMessage, setErrorMessage] = useState<string>('');
         const details = capabilityDetails[capability];
+
         if (!details) return null;
         const Icon = details.icon;
+
+        // Better short names
+        const shortName = {
+            vision: 'Vision',
+            generation: 'Generation',
+            animation: 'Animation',
+            editing: 'Editing',
+            textGeneration: 'Text'
+        }[capability] || details.name.split(' ')[0];
+
+        const handleTest = async (e: React.MouseEvent) => {
+            e.stopPropagation();
+            if (!configured) return;
+
+            setTestStatus('testing');
+            setErrorMessage('');
+
+            try {
+                // Dynamic import to avoid circular dependencies
+                const { registry } = await import('../services/providerRegistry');
+                const provider = registry.getProvider(providerId);
+
+                if (provider && 'testCapability' in provider) {
+                    await (provider as any).testCapability(capability, settings);
+                    setTestStatus('success');
+                } else {
+                    // Fallback mock check if not implemented
+                    // Just mimic success for now if it's not Moondream (as per previous logic)
+                    if (providerId !== 'moondream_local') {
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                        setTestStatus('success');
+                    } else {
+                        throw new Error("Capability test not implemented");
+                    }
+                }
+            } catch (error: any) {
+                setTestStatus('failure');
+                setErrorMessage(error.message || "Test failed");
+            }
+        };
+
         return (
-            <div
-                className={`flex items-center gap-1.5 text-xs py-1 px-2.5 rounded-full border ${configured ? 'bg-green-500/10 text-green-300 border-green-500/30' : 'bg-gray-700/50 text-gray-400 border-gray-600'}`}
-                title={`${details.name} - ${configured ? 'Configured & Ready' : 'Not fully configured'}`}
+            <div className={`flex items-center gap-1.5 text-xs py-1 px-2.5 rounded-full border transition-colors cursor-default relative group ${testStatus === 'success' ? 'bg-green-500/20 text-green-300 border-green-500/50' :
+                testStatus === 'failure' ? 'bg-red-500/20 text-red-300 border-red-500/50' :
+                    configured ? 'bg-green-500/10 text-green-300 border-green-500/30' :
+                        'bg-gray-700/50 text-gray-400 border-gray-600'
+                }`}
+                title={errorMessage || `${details.name} - ${configured ? 'Configured' : 'Not configured'}`}
             >
-                <Icon className={`w-3.5 h-3.5 ${configured ? 'text-green-400' : 'text-gray-500'}`} />
-                <span>{details.name.split(' ')[0]}</span>
+                {testStatus === 'testing' ? (
+                    <RefreshIcon className="w-3.5 h-3.5 animate-spin text-yellow-400" />
+                ) : (
+                    <Icon className={`w-3.5 h-3.5 ${testStatus === 'success' ? 'text-green-400' :
+                        testStatus === 'failure' ? 'text-red-400' :
+                            configured ? 'text-green-400' : 'text-gray-500'
+                        }`} />
+                )}
+                <span>{shortName}</span>
+
+                {/* Test Button (Only for Moondream Local for now as per request) */}
+                {configured && providerId === 'moondream_local' && (capability === 'vision' || capability === 'generation') && (
+                    <button
+                        onClick={handleTest}
+                        className={`ml-1 focus:outline-none transition-opacity ${testStatus === 'failure' ? 'opacity-100' : 'opacity-50 hover:opacity-100'}`}
+                        title="Run Test"
+                    >
+                        <div className={`w-3 h-3 rounded-full ${testStatus === 'failure' ? 'bg-red-400 animate-pulse' : 'bg-current'}`}></div>
+                    </button>
+                )}
+
+                {/* Error Tooltip */}
+                {testStatus === 'failure' && errorMessage && (
+                    <div className="absolute left-0 top-full mt-2 w-max max-w-[200px] z-50 p-2 bg-red-900 border border-red-700 text-white text-xs rounded shadow-xl hidden group-hover:block">
+                        {errorMessage}
+                    </div>
+                )}
             </div>
         );
     };
@@ -463,6 +629,9 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel,
                             ))}
                         </select>
                     </div>
+                    <div className="mt-4 pt-2 border-t border-gray-700/50">
+                        <RestartServerButton endpoint={providerSetting.endpoint} />
+                    </div>
                 </>
             );
         }
@@ -533,7 +702,7 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel,
                                         <h4 className="text-xs font-semibold text-gray-400 mb-2">Supported & Configured Capabilities</h4>
                                         <div className="flex flex-wrap gap-2">
                                             {(Object.keys(providerCapabilities[provider]) as Capability[]).filter(c => providerCapabilities[provider][c]).map(capability => (
-                                                <CapabilityTag key={capability} capability={capability} configured={isCapabilityConfigured(provider, capability)} />
+                                                <CapabilityTag key={capability} capability={capability} configured={isCapabilityConfigured(provider, capability)} providerId={provider} />
                                             ))}
                                         </div>
                                     </div>
@@ -726,6 +895,42 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel,
                             <div className="flex items-center justify-between">
                                 <label htmlFor="dimension-input" className="text-sm font-medium text-gray-200">Max dimension (pixels)</label>
                                 <input type="number" id="dimension-input" value={settings.performance?.maxAnalysisDimension ?? 1024} onChange={e => handlePerformanceChange('maxAnalysisDimension', parseInt(e.target.value, 10))} className="w-24 bg-gray-700 border border-gray-600 rounded-md p-1 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50" disabled={!settings.performance?.downscaleImages} />
+                            </div>
+                        </div>
+
+                        <div className="mt-4 p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <h3 className="text-lg font-bold text-white mb-1">VRAM Management</h3>
+                                        <div className="group relative">
+                                            <div className="cursor-help text-gray-400 hover:text-white transition-colors">
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                </svg>
+                                            </div>
+                                            <div className="absolute left-full top-0 ml-2 w-72 p-3 bg-gray-900 border border-gray-700 rounded-lg shadow-xl text-xs z-50 hidden group-hover:block">
+                                                <h4 className="font-bold text-indigo-400 mb-2">VRAM Strategies:</h4>
+                                                <ul className="space-y-2 text-gray-300">
+                                                    <li><strong className="text-white">High:</strong> Keeps all models loaded. Best for 24GB+ VRAM. Fastest switching.</li>
+                                                    <li><strong className="text-white">Balanced:</strong> Smart switching. Unloads the unused model when switching tasks. Best for 12-16GB VRAM.</li>
+                                                    <li><strong className="text-white">Low:</strong> Aggressively unloads models after every request. Best for 8GB VRAM.</li>
+                                                </ul>
+                                                <p className="mt-2 text-gray-500 italic">System naturally recovers from OOM errors by unloading all models and retrying.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <p className="text-sm text-gray-400 mb-2">Configure how GPU memory is managed between models.</p>
+                                </div>
+                                <select
+                                    value={settings.performance?.vramUsage || 'balanced'}
+                                    onChange={(e) => handlePerformanceChange('vramUsage', e.target.value as any)}
+                                    className="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                                >
+                                    <option value="high">High Performance (Keep All Loaded)</option>
+                                    <option value="balanced">Balanced (Smart Switching)</option>
+                                    <option value="low">Low VRAM (Unload After Use)</option>
+                                </select>
                             </div>
                         </div>
                     </div>
