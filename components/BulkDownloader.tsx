@@ -256,30 +256,52 @@ const BulkDownloader: React.FC<BulkDownloaderProps> = ({ selectedImages = [], on
                 <span className="hidden sm:inline">Processing...</span>
             </button>
 
+
             {/* Floating Progress Card */}
-            <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 shadow-xl z-50">
-                <div className="flex justify-between items-center mb-2">
-                    <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
-                        <Loader2 className="animate-spin text-blue-500" size={12} />
+            <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-72 bg-white dark:bg-gray-800 border-2 border-blue-500 dark:border-blue-400 rounded-lg p-4 shadow-2xl z-50">
+                <div className="flex justify-between items-center mb-3">
+                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-200 flex items-center gap-2">
+                        <Loader2 className="animate-spin text-blue-500" size={16} />
                         {status === 'downloading' ? 'Downloading...' : 'Compressing...'}
                     </span>
-                    <span className="text-[10px] text-gray-500 font-mono">
-                        {progress.current} / {progress.total}
-                    </span>
+                    <button
+                        onClick={cancelDownload}
+                        className="text-red-500 hover:text-red-700 dark:hover:text-red-400 transition-colors"
+                        title="Cancel Download"
+                    >
+                        <XCircle size={20} />
+                    </button>
                 </div>
 
-                <div className="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-1.5 mb-2 overflow-hidden">
-                    <div
-                        className="bg-blue-600 h-1.5 rounded-full transition-all duration-300 ease-out"
-                        style={{ width: `${(progress.current / progress.total) * 100}%` }}
-                    ></div>
+                {/* Progress Bar */}
+                <div className="mb-2">
+                    <div className="flex justify-between text-xs text-gray-600 dark:text-gray-400 mb-1">
+                        <span>{progress.current} / {progress.total} files</span>
+                        <span>{Math.round((progress.current / progress.total) * 100)}%</span>
+                    </div>
+                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
+                        <div
+                            className="bg-blue-500 h-full transition-all duration-300"
+                            style={{ width: `${(progress.current / progress.total) * 100}%` }}
+                        />
+                    </div>
                 </div>
 
+                {/* Logs */}
+                {logs.length > 0 && (
+                    <div className="mt-2 max-h-20 overflow-y-auto text-[10px] text-gray-500 dark:text-gray-400 font-mono space-y-0.5">
+                        {logs.map((log, i) => (
+                            <div key={i}>{log}</div>
+                        ))}
+                    </div>
+                )}
+
+                {/* Cancel Button (prominent) */}
                 <button
                     onClick={cancelDownload}
-                    className="w-full py-1 text-[10px] text-red-500 hover:text-red-700 font-medium border border-red-200 dark:border-red-900/30 hover:border-red-300 rounded bg-red-50 dark:bg-red-900/10"
+                    className="mt-3 w-full py-2 px-4 bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium text-sm transition-colors"
                 >
-                    Cancel
+                    Cancel Download
                 </button>
             </div>
         </div>

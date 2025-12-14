@@ -106,6 +106,13 @@ interface OtelMetrics {
     temperature: number;
     fan_control_supported?: boolean;
   }[];
+  loaded_models?: {
+    id: string;
+    name: string;
+    vram_mb: number;
+    ram_mb: number;
+    loaded_at: number;
+  }[];
 }
 
 interface StatusPageProps {
@@ -118,12 +125,28 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
   const [timeRange, setTimeRange] = useState<'1h' | '6h' | '12h' | '24h' | '1w'>('1h');
   const [otelMetrics, setOtelMetrics] = useState<OtelMetrics | null>(null);
   const [vramHistory, setVramHistory] = useState<{ timestamp: number; used: number; total: number }[]>([]);
+  const [vramTimeRange, setVramTimeRange] = useState<'realtime' | '1min' | '5min' | '30min' | '1hr' | '6hr' | '12hr' | '24hr' | '1w'>('5min');
+  const [loadHistory, setLoadHistory] = useState<{ timestamp: number; load: number }[]>([]);
+  const [loadTimeRange, setLoadTimeRange] = useState<'realtime' | '1min' | '5min' | '30min' | '1hr' | '6hr' | '12hr' | '24hr' | '1w'>('5min');
+  const [tempHistory, setTempHistory] = useState<{ timestamp: number; temp: number }[]>([]);
+  const [tempTimeRange, setTempTimeRange] = useState<'realtime' | '1min' | '5min' | '30min' | '1hr' | '6hr' | '12hr' | '24hr' | '1w'>('5min');
   const [resetModalOpen, setResetModalOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
   const [showSetupInstructions, setShowSetupInstructions] = useState(false);
-  const [setupCommand, setSetupCommand] = useState<string>("/home/bcoster/.moondream-station/moondream-station/setup_gpu_reset.sh");
+  const [setupCommand, setSetupCommand] = useState<string>("/home/bcoster/.gemini/antigravity/brain/5d2b2b6e-62df-4aef-9214-aa14de5529d3/setup_gpu_reset.sh");
   const [primeProfile, setPrimeProfile] = useState<string | null>(null);
+  const [availableModels, setAvailableModels] = useState<Array<{ id: string; name: string; description: string; last_known_vram_mb?: number }>>([]);
+  const [modelLoadCounts, setModelLoadCounts] = useState<Record<string, number>>({});
+  const [lastVramUsed, setLastVramUsed] = useState(0);
+  const [currentlyLoadedModels, setCurrentlyLoadedModels] = useState<Set<string>>(new Set());
+
+  // CSS for hiding scrollbar
+  const scrollbarHideStyle = `
+    .models-list-scroll::-webkit-scrollbar {
+      display: none;
+    }
+  `;
 
   const moondreamUrl = useMemo(() => {
     const url = settings?.providers.moondream_local.endpoint || 'http://localhost:2020';
@@ -224,6 +247,7 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
         const res = await fetch(`${moondreamUrl}/metrics`);
         if (res.ok) {
           const data = await res.json();
+          console.log('[StatusPage] Metrics loaded_models:', data.loaded_models);
           setOtelMetrics(data);
         }
         // Also fetch Prime status occasionally or once
@@ -239,20 +263,97 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
 
     fetchMetrics();
     const interval = setInterval(fetchMetrics, 2000); // Poll every 2s
+
+    // Fetch available models once
+    const fetchModels = async () => {
+      try {
+        console.log('[StatusPage] Fetching models from:', `${moondreamUrl}/v1/models`);
+        const res = await fetch(`${moondreamUrl}/v1/models`);
+        console.log('[StatusPage] Models response status:', res.status);
+        if (res.ok) {
+          const data = await res.json();
+          console.log('[StatusPage] Models data:', data);
+          console.log('[StatusPage] Setting availableModels to:', data.models);
+          setAvailableModels(data.models || []);
+        } else {
+          console.error('[StatusPage] Models fetch failed with status:', res.status);
+        }
+      } catch (e) {
+        console.error("[StatusPage] Failed to fetch models", e);
+      }
+    };
+    fetchModels();
+
     return () => clearInterval(interval);
   }, [moondreamUrl]);
 
-  // Update VRAM History from metrics
+  // Update GPU metrics history and track model loads/unloads
   useEffect(() => {
     if (otelMetrics?.gpus?.[0]) {
       const gpu = otelMetrics.gpus[0];
+      const timestamp = Date.now();
+
+      // Sync loaded models from backend
+      if (otelMetrics.loaded_models) {
+        const backendLoadedIds = new Set(otelMetrics.loaded_models.map(m => m.id));
+
+        // Capture VRAM stats from live models into 'Last Known' history
+        // This ensures that even auto-switched models leave a record before unloading
+        setAvailableModels(prev => {
+          let changed = false;
+          const newModels = prev.map(m => {
+            const loaded = otelMetrics.loaded_models?.find(lm => lm.id === m.id);
+            // Update if we have new data and it differs from stored 'last known'
+            // Note: We check if loaded.vram_mb > 0 to avoid zeroing out valid history if backend reports 0 briefly
+            if (loaded && loaded.vram_mb > 0 && m.last_known_vram_mb !== loaded.vram_mb) {
+              changed = true;
+              return { ...m, last_known_vram_mb: loaded.vram_mb };
+            }
+            return m;
+          });
+          return changed ? newModels : prev;
+        });
+
+        // Detect new loads by comparing with previous state
+        backendLoadedIds.forEach((modelId: string) => {
+          if (!currentlyLoadedModels.has(modelId)) {
+            // Model just loaded
+            setModelLoadCounts(prev => ({
+              ...prev,
+              [modelId]: (prev[modelId] || 0) + 1
+            }));
+          }
+        });
+
+        // Only update if the set actually changed
+        const currentIds = Array.from(currentlyLoadedModels).sort().join(',');
+        const newIds = Array.from(backendLoadedIds).sort().join(',');
+        if (currentIds !== newIds) {
+          setCurrentlyLoadedModels(backendLoadedIds);
+        }
+      }
+
+      setLastVramUsed(gpu.memory_used);
+
+      // Update VRAM history
       setVramHistory(prev => {
-        const newState = [...prev, { timestamp: Date.now(), used: gpu.memory_used, total: gpu.memory_total }];
-        // Keep last 60 points (2 minutes at 2s poll)
-        return newState.slice(-60);
+        const newState = [...prev, { timestamp, used: gpu.memory_used, total: gpu.memory_total }];
+        return newState.slice(-2000);
+      });
+
+      // Update Load history
+      setLoadHistory(prev => {
+        const newState = [...prev, { timestamp, load: gpu.load }];
+        return newState.slice(-2000);
+      });
+
+      // Update Temperature history
+      setTempHistory(prev => {
+        const newState = [...prev, { timestamp, temp: gpu.temperature }];
+        return newState.slice(-2000);
       });
     }
-  }, [otelMetrics]);
+  }, [otelMetrics, lastVramUsed]); // Removed currentlyLoadedModels from dependencies
 
   const filteredStats = useMemo(() => {
     const now = Date.now();
@@ -283,8 +384,9 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
     : '0.0';
 
   return (
-    <div className="min-h-screen w-full bg-neutral-950 text-white p-4 sm:p-8">
-      <div className="max-w-6xl mx-auto space-y-8">
+    <div className="min-h-screen bg-gradient-to-br from-neutral-950 via-neutral-900 to-neutral-950 text-white p-6">
+      <style>{scrollbarHideStyle}</style>
+      <div className="max-w-7xl mx-auto space-y-6">
 
         {/* Header */}
         <div className="flex items-center gap-4">
@@ -441,21 +543,14 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
                 {otelMetrics.gpus.map((gpu) => (
                   <div key={gpu.id} className="bg-neutral-900/50 border border-white/10 rounded-2xl p-6 group">
 
-                    {/* Header: Icon + Meta */}
+                    {/* Header: Icon + GPU Name */}
                     <div className="flex items-center gap-4 mb-4">
                       <div className="p-3 bg-green-500/10 rounded-xl">
                         <Cpu className="w-6 h-6 text-green-400" />
                       </div>
                       <div className="flex-1">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <div className="text-xs text-neutral-400 font-medium">System Memory</div>
-                            <div className="text-xs text-neutral-500">Host RAM Used</div>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-lg font-bold text-white">{otelMetrics.memory}%</div>
-                          </div>
-                        </div>
+                        <div className="text-sm font-semibold text-white">{gpu.name}</div>
+                        <div className="text-xs text-neutral-400">GPU #{gpu.id}</div>
                       </div>
                     </div>
 
@@ -526,31 +621,93 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
                       </div>
                     </div>
 
-                    {/* Name */}
-                    <div className="font-bold text-white leading-tight mb-6 text-lg">{gpu.name}</div>
 
                     <div className="space-y-4">
                       {/* Load */}
                       <div className="space-y-1">
-                        <div className="flex justify-between text-xs">
+                        <div className="flex justify-between items-center text-xs">
                           <span className="text-neutral-400">Load</span>
+                          <div className="flex gap-1">
+                            {(['realtime', '1min', '5min', '30min', '1hr', '6hr', '12hr', '24hr', '1w'] as const).map(range => (
+                              <button
+                                key={range}
+                                onClick={() => setLoadTimeRange(range)}
+                                className={`px-1.5 py-0.5 rounded text-[10px] transition-colors ${loadTimeRange === range
+                                  ? 'bg-blue-600 text-white'
+                                  : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'
+                                  }`}
+                              >
+                                {range === 'realtime' ? 'RT' : range}
+                              </button>
+                            ))}
+                          </div>
                           <span className="text-white font-medium">{gpu.load}%</span>
                         </div>
-                        <div className="h-2 w-full bg-neutral-800 rounded-full overflow-hidden">
-                          <div
-                            className="h-full transition-all duration-500"
-                            style={{
-                              width: `${gpu.load}%`,
-                              backgroundColor: getSmoothColor(gpu.load)
-                            }}
-                          />
+                        <div className="h-16 w-full bg-neutral-900/50 rounded-lg overflow-hidden border border-white/5 relative">
+                          <div className="absolute inset-0 z-10 p-1">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <AreaChart data={(() => {
+                                const now = Date.now();
+                                let cutoff = now;
+                                switch (loadTimeRange) {
+                                  case 'realtime': cutoff = now - 30 * 1000; break;
+                                  case '1min': cutoff = now - 60 * 1000; break;
+                                  case '5min': cutoff = now - 5 * 60 * 1000; break;
+                                  case '30min': cutoff = now - 30 * 60 * 1000; break;
+                                  case '1hr': cutoff = now - 60 * 60 * 1000; break;
+                                  case '6hr': cutoff = now - 6 * 60 * 60 * 1000; break;
+                                  case '12hr': cutoff = now - 12 * 60 * 60 * 1000; break;
+                                  case '24hr': cutoff = now - 24 * 60 * 60 * 1000; break;
+                                  case '1w': cutoff = now - 7 * 24 * 60 * 60 * 1000; break;
+                                }
+                                return loadHistory.filter(d => d.timestamp >= cutoff);
+                              })()}>
+                                <defs>
+                                  <linearGradient id="loadGradient" x1="0" y1="0" x2="0" y2="1">
+                                    {(() => {
+                                      const color = getSmoothColor(gpu.load);
+                                      return (
+                                        <>
+                                          <stop offset="5%" stopColor={color} stopOpacity={0.8} />
+                                          <stop offset="95%" stopColor={color} stopOpacity={0} />
+                                        </>
+                                      );
+                                    })()}
+                                  </linearGradient>
+                                </defs>
+                                <YAxis domain={[0, 100]} hide />
+                                <Area
+                                  type="monotone"
+                                  dataKey="load"
+                                  stroke={getSmoothColor(gpu.load)}
+                                  fillOpacity={1}
+                                  fill="url(#loadGradient)"
+                                  isAnimationActive={false}
+                                />
+                              </AreaChart>
+                            </ResponsiveContainer>
+                          </div>
                         </div>
                       </div>
 
                       {/* VRAM Graph */}
                       <div className="space-y-1">
-                        <div className="flex justify-between text-xs">
+                        <div className="flex justify-between items-center text-xs">
                           <span className="text-neutral-400">VRAM Usage History</span>
+                          <div className="flex gap-1">
+                            {(['realtime', '1min', '5min', '30min', '1hr', '6hr', '12hr', '24hr', '1w'] as const).map(range => (
+                              <button
+                                key={range}
+                                onClick={() => setVramTimeRange(range)}
+                                className={`px-1.5 py-0.5 rounded text-[10px] transition-colors ${vramTimeRange === range
+                                  ? 'bg-blue-600 text-white'
+                                  : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'
+                                  }`}
+                              >
+                                {range === 'realtime' ? 'RT' : range}
+                              </button>
+                            ))}
+                          </div>
                           <span className="text-white">{gpu.memory_used} / {gpu.memory_total} MB</span>
                         </div>
                         <div className="h-16 w-full bg-neutral-900/50 rounded-lg overflow-hidden border border-white/5 relative">
@@ -563,15 +720,51 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
 
                           <div className="absolute inset-0 z-10 p-1">
                             <ResponsiveContainer width="100%" height="100%">
-                              <AreaChart data={vramHistory}>
+                              <AreaChart data={(() => {
+                                const now = Date.now();
+                                let cutoff = now;
+                                switch (vramTimeRange) {
+                                  case 'realtime': cutoff = now - 30 * 1000; break; // 30 seconds
+                                  case '1min': cutoff = now - 60 * 1000; break;
+                                  case '5min': cutoff = now - 5 * 60 * 1000; break;
+                                  case '30min': cutoff = now - 30 * 60 * 1000; break;
+                                  case '1hr': cutoff = now - 60 * 60 * 1000; break;
+                                  case '6hr': cutoff = now - 6 * 60 * 60 * 1000; break;
+                                  case '12hr': cutoff = now - 12 * 60 * 60 * 1000; break;
+                                  case '24hr': cutoff = now - 24 * 60 * 60 * 1000; break;
+                                  case '1w': cutoff = now - 7 * 24 * 60 * 60 * 1000; break;
+                                }
+                                return vramHistory.filter(d => d.timestamp >= cutoff);
+                              })()}>
                                 <defs>
                                   <linearGradient id="vramGradient" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#8884d8" stopOpacity={0.8} />
-                                    <stop offset="95%" stopColor="#8884d8" stopOpacity={0} />
+                                    {/* Dynamic gradient based on current VRAM usage percentage */}
+                                    {(() => {
+                                      const currentUsage = vramHistory[vramHistory.length - 1]?.used || 0;
+                                      const usagePercent = (currentUsage / gpu.memory_total) * 100;
+                                      const color = getSmoothColor(usagePercent);
+                                      return (
+                                        <>
+                                          <stop offset="5%" stopColor={color} stopOpacity={0.8} />
+                                          <stop offset="95%" stopColor={color} stopOpacity={0} />
+                                        </>
+                                      );
+                                    })()}
                                   </linearGradient>
                                 </defs>
                                 <YAxis domain={[0, gpu.memory_total]} hide />
-                                <Area type="monotone" dataKey="used" stroke="#8884d8" fillOpacity={1} fill="url(#vramGradient)" isAnimationActive={false} />
+                                <Area
+                                  type="monotone"
+                                  dataKey="used"
+                                  stroke={(() => {
+                                    const currentUsage = vramHistory[vramHistory.length - 1]?.used || 0;
+                                    const usagePercent = (currentUsage / gpu.memory_total) * 100;
+                                    return getSmoothColor(usagePercent);
+                                  })()}
+                                  fillOpacity={1}
+                                  fill="url(#vramGradient)"
+                                  isAnimationActive={false}
+                                />
                               </AreaChart>
                             </ResponsiveContainer>
                           </div>
@@ -580,18 +773,287 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
 
                       {/* Temperature */}
                       <div className="space-y-1">
-                        <div className="flex justify-between text-xs">
+                        <div className="flex justify-between items-center text-xs">
                           <span className="text-neutral-400">Temperature</span>
+                          <div className="flex gap-1">
+                            {(['realtime', '1min', '5min', '30min', '1hr', '6hr', '12hr', '24hr', '1w'] as const).map(range => (
+                              <button
+                                key={range}
+                                onClick={() => setTempTimeRange(range)}
+                                className={`px-1.5 py-0.5 rounded text-[10px] transition-colors ${tempTimeRange === range
+                                  ? 'bg-blue-600 text-white'
+                                  : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'
+                                  }`}
+                              >
+                                {range === 'realtime' ? 'RT' : range}
+                              </button>
+                            ))}
+                          </div>
                           <span className="text-white font-medium">{gpu.temperature}°C</span>
                         </div>
-                        <div className="h-2 bg-neutral-800 rounded-full overflow-hidden">
-                          <div
-                            className="h-full transition-all duration-500"
-                            style={{
-                              width: `${Math.min(100, gpu.temperature)}%`, // Temp usually 0-100 scale fits well visually
-                              backgroundColor: getSmoothColor(gpu.temperature)
+                        <div className="h-16 w-full bg-neutral-900/50 rounded-lg overflow-hidden border border-white/5 relative">
+                          <div className="absolute inset-0 z-10 p-1">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <AreaChart data={(() => {
+                                const now = Date.now();
+                                let cutoff = now;
+                                switch (tempTimeRange) {
+                                  case 'realtime': cutoff = now - 30 * 1000; break;
+                                  case '1min': cutoff = now - 60 * 1000; break;
+                                  case '5min': cutoff = now - 5 * 60 * 1000; break;
+                                  case '30min': cutoff = now - 30 * 60 * 1000; break;
+                                  case '1hr': cutoff = now - 60 * 60 * 1000; break;
+                                  case '6hr': cutoff = now - 6 * 60 * 60 * 1000; break;
+                                  case '12hr': cutoff = now - 12 * 60 * 60 * 1000; break;
+                                  case '24hr': cutoff = now - 24 * 60 * 60 * 1000; break;
+                                  case '1w': cutoff = now - 7 * 24 * 60 * 60 * 1000; break;
+                                }
+                                return tempHistory.filter(d => d.timestamp >= cutoff);
+                              })()}>
+                                <defs>
+                                  <linearGradient id="tempGradient" x1="0" y1="0" x2="0" y2="1">
+                                    {(() => {
+                                      const color = getSmoothColor(gpu.temperature);
+                                      return (
+                                        <>
+                                          <stop offset="5%" stopColor={color} stopOpacity={0.8} />
+                                          <stop offset="95%" stopColor={color} stopOpacity={0} />
+                                        </>
+                                      );
+                                    })()}
+                                  </linearGradient>
+                                </defs>
+                                <YAxis domain={[0, 100]} hide />
+                                <Area
+                                  type="monotone"
+                                  dataKey="temp"
+                                  stroke={getSmoothColor(gpu.temperature)}
+                                  fillOpacity={1}
+                                  fill="url(#tempGradient)"
+                                  isAnimationActive={false}
+                                />
+                              </AreaChart>
+                            </ResponsiveContainer>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Models Section */}
+                      <div className="space-y-2 pt-2 border-t border-white/10">
+                        <div className="flex items-center justify-between text-xs text-neutral-400 font-semibold mb-1">
+                          <div className="flex items-center gap-2">
+                            <span>Available Models ({availableModels.length})</span>
+                            <div className="relative">
+                              <div className="group w-3.5 h-3.5">
+                                <svg
+                                  className="w-3.5 h-3.5 text-neutral-500 hover:text-neutral-300 cursor-help transition-colors"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                  stroke="currentColor"
+                                >
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                {/* Tooltip */}
+                                <div className="pointer-events-none invisible group-hover:visible absolute left-0 top-full mt-1 w-64 bg-neutral-800 border border-neutral-700 rounded-lg p-3 shadow-xl z-[100] text-[10px] leading-relaxed">
+                                  <div className="font-semibold text-white mb-2">VRAM Tracking</div>
+                                  <div className="space-y-1.5 text-neutral-300">
+                                    <div className="flex items-start gap-2">
+                                      <span className="text-sm">🟢</span>
+                                      <div>
+                                        <span className="text-yellow-400 font-medium">Yellow</span> - Currently loaded (real-time)
+                                      </div>
+                                    </div>
+                                    <div className="flex items-start gap-2">
+                                      <span className="text-sm">⚪</span>
+                                      <div>
+                                        <span className="text-neutral-400 italic font-medium">Gray italic</span> - Unloaded (last known)
+                                      </div>
+                                    </div>
+                                    <div className="flex items-start gap-2">
+                                      <span className="text-sm">⚪</span>
+                                      <div>
+                                        <span className="text-neutral-600 font-medium">Dark gray "—"</span> - Never loaded
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="mt-2 pt-2 border-t border-neutral-700 text-neutral-400">
+                                    Hover over VRAM to see RAM usage
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Test Button - Modern 2025 Style */}
+                          <button
+                            onClick={async (e) => {
+                              const button = e.currentTarget;
+                              const originalText = button.innerHTML;
+
+                              try {
+                                button.disabled = true;
+                                button.innerHTML = '<span class="flex items-center gap-1.5"><svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Loading...</span>';
+
+                                console.log('[Test] Starting model load cycle...');
+
+                                for (let i = 0; i < availableModels.length; i++) {
+                                  const model = availableModels[i];
+                                  try {
+                                    console.log(`[Test] [${i + 1}/${availableModels.length}] Loading ${model.id}...`);
+                                    button.innerHTML = `<span class="flex items-center gap-1.5"><svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>${i + 1}/${availableModels.length}</span>`;
+
+                                    const res = await fetch(`${moondreamUrl}/v1/models/switch`, {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ model: model.id })
+                                    });
+
+                                    if (res.ok) {
+                                      const data = await res.json();
+                                      console.log(`[Test] ✓ Loaded ${model.id}:`, data);
+
+                                      // Backend now returns VRAM/RAM usage in the response!
+                                      // Update local state immediately without waiting for metrics
+                                      if (data.vram_mb !== undefined) {
+                                        setModelLoadCounts(prev => ({
+                                          ...prev,
+                                          [model.id]: (prev[model.id] || 0) + 1
+                                        }));
+
+                                        // Update the available models list with new last_known_vram
+                                        setAvailableModels(prev => prev.map(m =>
+                                          m.id === model.id
+                                            ? { ...m, last_known_vram_mb: data.vram_mb }
+                                            : m
+                                        ));
+
+                                        // Update the display text for this specific button run
+                                        // (Optional: could show the measured VRAM momentarily)
+                                        console.log(`[Test] Measured VRAM: ${data.vram_mb}MB`);
+                                      }
+
+                                      // Short delay just to separate the requests visually
+                                      await new Promise(resolve => setTimeout(resolve, 2000));
+                                    } else {
+                                      const error = await res.text();
+                                      console.error(`[Test] ✗ Failed to load ${model.id}:`, error);
+                                    }
+                                  } catch (e) {
+                                    console.error(`[Test] ✗ Error loading ${model.id}:`, e);
+                                  }
+                                }
+
+                                console.log('[Test] ✓ Cycle complete! Check the models list for VRAM values.');
+                                button.innerHTML = '<span class="flex items-center gap-1.5"><svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>Done!</span>';
+                                await new Promise(resolve => setTimeout(resolve, 2000));
+                              } catch (e) {
+                                console.error('[Test] Fatal error:', e);
+                                button.innerHTML = '<span class="flex items-center gap-1.5">Error</span>';
+                                await new Promise(resolve => setTimeout(resolve, 2000));
+                              } finally {
+                                button.disabled = false;
+                                button.innerHTML = originalText;
+                              }
                             }}
-                          />
+                            className="group relative px-2.5 py-1 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white text-[10px] font-semibold rounded-md transition-all duration-200 shadow-lg shadow-blue-500/20 hover:shadow-blue-500/40 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <span className="flex items-center gap-1.5">
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                              </svg>
+                              Test Load
+                            </span>
+                          </button>
+                        </div>
+
+                        {/* Table Header */}
+                        <div className="grid grid-cols-[20px_1fr_65px_50px] gap-2 text-[9px] text-neutral-500 uppercase tracking-wide pb-0.5 border-b border-white/5">
+                          <div className="text-center">●</div>
+                          <div>Model</div>
+                          <div className="text-right">VRAM</div>
+                          <div className="text-right">Loads</div>
+                        </div>
+
+                        {/* Models List - Loaded first, then unloaded */}
+                        <div
+                          className="models-list-scroll space-y-0.5 max-h-48 overflow-y-auto"
+                          style={{
+                            scrollbarWidth: 'none', /* Firefox */
+                            msOverflowStyle: 'none', /* IE/Edge */
+                          }}
+                        >
+                          {availableModels
+                            .sort((a, b) => {
+                              // Sort: loaded models first
+                              const aLoaded = currentlyLoadedModels.has(a.id);
+                              const bLoaded = currentlyLoadedModels.has(b.id);
+                              if (aLoaded && !bLoaded) return -1;
+                              if (!aLoaded && bLoaded) return 1;
+                              return 0;
+                            })
+                            .map(model => {
+                              const isLoaded = currentlyLoadedModels.has(model.id);
+                              const loadCount = modelLoadCounts[model.id] || 0;
+
+                              // Get real VRAM/RAM usage from backend
+                              const loadedModel = otelMetrics?.loaded_models?.find(m => m.id === model.id);
+                              let vramUsage = '—';
+                              let ramUsage = '—';
+                              let isHistorical = false;
+
+                              if (loadedModel) {
+                                // Real measurements from backend (currently loaded)
+                                vramUsage = `${(loadedModel.vram_mb / 1024).toFixed(1)}GB`;
+                                ramUsage = `${(loadedModel.ram_mb / 1024).toFixed(1)}GB`;
+                              } else if (model.last_known_vram_mb && model.last_known_vram_mb > 0) {
+                                // Last known VRAM (model was loaded before, now unloaded)
+                                vramUsage = `${(model.last_known_vram_mb / 1024).toFixed(1)}GB`;
+                                isHistorical = true;
+                              }
+
+                              return (
+                                <div
+                                  key={model.id}
+                                  className="grid grid-cols-[20px_1fr_65px_50px] gap-2 text-xs items-center py-0.5 hover:bg-white/5 rounded transition-colors"
+                                >
+                                  {/* Loaded Indicator */}
+                                  <div className="text-center text-sm leading-none">
+                                    {isLoaded ? '🟢' : '⚪'}
+                                  </div>
+
+                                  {/* Model Name */}
+                                  <div className="flex-1 min-w-0">
+                                    <div className={`text-[10px] leading-tight truncate ${isLoaded ? 'text-white font-medium' : 'text-neutral-400'}`}>
+                                      {model.name}
+                                    </div>
+                                  </div>
+
+                                  {/* VRAM Usage */}
+                                  <div
+                                    className={`text-right text-[9px] tabular-nums ${isLoaded
+                                      ? 'text-yellow-400'
+                                      : isHistorical
+                                        ? 'text-neutral-500 italic'
+                                        : 'text-neutral-600'
+                                      }`}
+                                    title={
+                                      loadedModel
+                                        ? `RAM: ${ramUsage}`
+                                        : isHistorical
+                                          ? 'Last known VRAM usage'
+                                          : ''
+                                    }
+                                  >
+                                    {vramUsage}
+                                  </div>
+
+                                  {/* Load Count */}
+                                  <div className={`text-right text-[10px] tabular-nums ${loadCount > 0 ? 'text-green-400 font-semibold' : 'text-neutral-600'}`}>
+                                    {loadCount}
+                                  </div>
+                                </div>
+                              );
+                            })}
                         </div>
                       </div>
 

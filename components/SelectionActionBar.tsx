@@ -49,6 +49,7 @@ const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ count, selected
         <BulkDownloader
           selectedImages={selectedImages}
           className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-md transition-colors"
+          triggerDownload={triggerDownload}
         />
 
         <div className="w-px h-6 bg-gray-700/50 mx-1 hidden sm:block"></div>
@@ -91,12 +92,6 @@ const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ count, selected
           >
             <CheckCircleIcon className="w-4 h-4" />
           </button>
-          {/* BulkDownloader with trigger support */}
-          <BulkDownloader
-            selectedImages={selectedImages}
-            className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
-            triggerDownload={triggerDownload}
-          />
           <button
             onClick={onMakePrivate}
             className="p-1.5 rounded-md text-gray-400 hover:text-gray-200 hover:bg-gray-700 transition-all"

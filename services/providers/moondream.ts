@@ -1,4 +1,4 @@
-import { ImageInfo, AdminSettings, AspectRatio, ImageAnalysisResult, ProviderCapabilities, ProviderStats } from "../../types";
+import { ImageInfo, AdminSettings, AspectRatio, ImageAnalysisResult, ProviderCapabilities, ProviderStats, Capability, GenerationResult } from "../../types";
 import { BaseProvider } from "../baseProvider";
 import { registry } from "../providerRegistry";
 import { executeStrategy } from "../promptStrategy";
@@ -10,7 +10,8 @@ const callMoondreamApi = async (
   apiKey: string | null,
   body: object,
   isCloud: boolean,
-  timeoutSeconds: number = 120
+  timeoutSeconds: number = 120,
+  vramMode: string = 'balanced'
 ): Promise<{ text: string, stats?: any }> => {
   if (!fullUrl) {
     throw new Error("Moondream API endpoint URL is missing.");
@@ -18,6 +19,7 @@ const callMoondreamApi = async (
 
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
+    'X-VRAM-Mode': vramMode
   };
 
   if (apiKey) {
@@ -262,9 +264,9 @@ export class MoondreamLocalProvider extends BaseProvider {
   readonly name = 'Moondream Local';
   readonly capabilities: ProviderCapabilities = {
     vision: true,
-    generation: false,
+    generation: true,
     animation: false,
-    editing: false,
+    editing: true,
     textGeneration: false
   };
 
@@ -291,14 +293,18 @@ export class MoondreamLocalProvider extends BaseProvider {
     settings: AdminSettings,
     onStatus?: (message: string) => void
   ): Promise<ImageAnalysisResult> {
-    const { endpoint, model } = settings.providers.moondream_local;
-    const baseUrl = normalizeEndpoint(endpoint || 'http://localhost:2021/v1');
+    const providerConfig = settings?.providers?.moondream_local || {};
+    const { endpoint, model } = providerConfig as any;
+    let usedEndpoint = endpoint || 'http://127.0.0.1:2020/v1';
+    if (usedEndpoint.includes('localhost')) { usedEndpoint = usedEndpoint.replace('localhost', '127.0.0.1'); }
+    const baseUrl = normalizeEndpoint(usedEndpoint);
 
     if (model === 'nsfw-detector') {
       if (onStatus) onStatus("Checking for NSFW content...");
       const classifyUrl = `${baseUrl}/v1/classify`;
       const body = { image_url: image.dataUrl, model: 'nsfw-detector' };
-      const { text: responseText, stats } = await callMoondreamApi(classifyUrl, "", body, false);
+      const vramMode = settings.performance?.vramUsage || 'balanced';
+      const { text: responseText, stats } = await callMoondreamApi(classifyUrl, "", body, false, 120, vramMode);
 
       try {
         const result = JSON.parse(responseText);
@@ -333,12 +339,13 @@ export class MoondreamLocalProvider extends BaseProvider {
         image,
         async (prompt) => {
           const body = {
-            model: model || "moondream-2",
+            model: (!model || model.startsWith('sdxl-')) ? "moondream-2" : model,
             messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: image.dataUrl } }] }],
             stream: false,
             max_tokens: 1024
           };
-          return await callMoondreamApi(apiUrl, "", body, false);
+          const vramMode = settings.performance?.vramUsage || 'balanced';
+          return await callMoondreamApi(apiUrl, "", body, false, 120, vramMode);
         },
         onStatus
       );
@@ -346,13 +353,14 @@ export class MoondreamLocalProvider extends BaseProvider {
 
     const prompt = "Describe this image.";
     const body = {
-      model: model || "moondream-2",
+      model: (!model || model.startsWith('sdxl-')) ? "moondream-2" : model,
       messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: image.dataUrl } }] }],
       stream: false,
       max_tokens: 1024
     };
 
-    const { text: responseText, stats } = await callMoondreamApi(apiUrl, "", body, false);
+    const vramMode = settings.performance?.vramUsage || 'balanced';
+    const { text: responseText, stats } = await callMoondreamApi(apiUrl, "", body, false, 120, vramMode);
     return { recreationPrompt: responseText, keywords: [], stats };
   }
 
@@ -360,15 +368,18 @@ export class MoondreamLocalProvider extends BaseProvider {
     image: ImageInfo,
     settings: AdminSettings
   ): Promise<{ x: number, y: number }> {
-    const { endpoint, model } = settings.providers.moondream_local;
-    const baseUrl = normalizeEndpoint(endpoint || 'http://localhost:2021/v1');
+    const providerConfig = settings?.providers?.moondream_local || {};
+    const { endpoint, model } = providerConfig as any;
+    let usedEndpoint = endpoint || 'http://127.0.0.1:2020/v1';
+    if (usedEndpoint.includes('localhost')) { usedEndpoint = usedEndpoint.replace('localhost', '127.0.0.1'); }
+    const baseUrl = normalizeEndpoint(usedEndpoint);
     const apiUrl = `${baseUrl}/v1/chat/completions`;
 
     // Prompt for JSON coordinates
     const prompt = 'Detect the main subject. Return the bounding box coordinates as a JSON object: {"ymin": 0.0, "xmin": 0.0, "ymax": 1.0, "xmax": 1.0}.';
 
     const body = {
-      model: model || "moondream-2",
+      model: (!model || model.startsWith('sdxl-')) ? "moondream-2" : model,
       messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: image.dataUrl } }] }],
       stream: false,
       max_tokens: 256,
@@ -399,6 +410,250 @@ export class MoondreamLocalProvider extends BaseProvider {
     } catch (e) {
       console.error("detectSubject failed:", e);
       return { x: 50, y: 50 };
+    }
+  }
+
+  async testCapability(capability: Capability, settings: AdminSettings): Promise<void> {
+    const providerConfig = settings?.providers?.moondream_local || {};
+    const { endpoint } = providerConfig as any;
+    let usedEndpoint = endpoint || 'http://127.0.0.1:2020/v1';
+    if (usedEndpoint.includes('localhost')) { usedEndpoint = usedEndpoint.replace('localhost', '127.0.0.1'); }
+    const baseUrl = normalizeEndpoint(usedEndpoint);
+    const cleanBaseUrl = baseUrl.replace(/\/v1\/?$/, '');
+
+    if (capability === 'vision') {
+      const apiUrl = `${baseUrl}/v1/chat/completions`;
+      const body = {
+        model: "moondream-2", // Always test vision with a vision model
+        messages: [{ role: "user", content: [{ type: "text", text: "test" }, { type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=" } }] }],
+        max_tokens: 10
+      };
+      await callMoondreamApi(apiUrl, "", body, false);
+    } else if (capability === 'generation') {
+      const apiUrl = `${cleanBaseUrl}/v1/generate`;
+      const body = {
+        prompt: "test",
+        model: "sdxl-realism",
+        width: 256,
+        height: 256,
+        steps: 1
+      };
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (!response.ok) throw new Error("Generation test failed");
+    } else {
+      throw new Error("Capability not supported for testing");
+    }
+  }
+
+  async generateImageFromPrompt(
+    prompt: string,
+    aspectRatio: AspectRatio,
+    sourceImage: ImageInfo | undefined,
+    settings: AdminSettings
+  ): Promise<GenerationResult> {
+    const startTime = Date.now();
+    const providerConfig = settings?.providers?.moondream_local || {};
+    const { endpoint, model } = providerConfig as any;
+    let usedEndpoint = endpoint || 'http://127.0.0.1:2020/v1';
+    if (usedEndpoint.includes('localhost')) { usedEndpoint = usedEndpoint.replace('localhost', '127.0.0.1'); }
+    const baseUrl = normalizeEndpoint(usedEndpoint);
+    const cleanBaseUrl = baseUrl.replace(/\/v1\/?$/, '');
+    const apiUrl = `${cleanBaseUrl}/v1/generate`;
+
+    let selectedModel = model || 'sdxl-realism';
+    if (!selectedModel.startsWith('sdxl-')) {
+      selectedModel = 'sdxl-realism';
+    }
+
+    // Default dimensions (1:1)
+    let width = 1024;
+    let height = 1024;
+
+    // Use source image dimensions if available AND no specific aspect ratio is requested
+    // OR if we want to respect source aspect ratio. 
+    // Ideally, if sourceImage is present, we start with its aspect ratio.
+    if (sourceImage && sourceImage.width && sourceImage.height) {
+      // We calculate dimensions based on source image to preserve its aspect ratio
+      // But we must snap to 64px grid for SDXL
+      const targetPixels = 1024 * 1024;
+      const scale = Math.sqrt(targetPixels / (sourceImage.width * sourceImage.height));
+      width = Math.round((sourceImage.width * scale) / 64) * 64;
+      height = Math.round((sourceImage.height * scale) / 64) * 64;
+    }
+
+    // Apply requests aspect ratio override
+    if (aspectRatio) {
+      if (aspectRatio === '16:9') { width = 1280; height = 720; }
+      else if (aspectRatio === '9:16') { width = 720; height = 1280; }
+      else if (aspectRatio === '4:3') { width = 1024; height = 768; }
+      else if (aspectRatio === '3:4') { width = 768; height = 1024; }
+      else if (aspectRatio === '1:1') { width = 1024; height = 1024; }
+    }
+
+    const body: any = {
+      prompt,
+      model: selectedModel,
+      width,
+      height,
+      steps: 8,
+      guidance_scale: 2.0
+    };
+
+    // If source image is provided, pass it for img2img (Remix)
+    if (sourceImage && sourceImage.dataUrl) {
+      body.image = sourceImage.dataUrl;
+      body.strength = 0.75; // Default strength for remix
+    }
+
+    try {
+      const vramMode = settings.performance?.vramUsage || 'balanced';
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-VRAM-Mode': vramMode
+        },
+        body: JSON.stringify(body)
+      });
+
+      if (!response.ok) {
+        const err = await response.text();
+        throw new Error(`Generation failed: ${err}`);
+      }
+
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+
+      let imageUrl = '';
+      if (data.result && Array.isArray(data.result) && data.result.length > 0) {
+        imageUrl = data.result[0];
+      } else if (data.images && Array.isArray(data.images) && data.images.length > 0) {
+        imageUrl = data.images[0];
+      } else {
+        imageUrl = data.image || data.url;
+      }
+
+      const duration = (Date.now() - startTime) / 1000;
+      return {
+        image: imageUrl,
+        stats: {
+          duration,
+          tokensPerSec: duration > 0 ? 1 / duration : 0, // Placeholder: 1 image per duration
+          device: data.device || 'GPU', // Assume GPU if not returned
+          totalTokens: 0
+        }
+      };
+
+    } catch (error: any) {
+      console.error("Error generating image:", error);
+      throw new Error(error.message || "Failed to generate image.");
+    }
+  }
+
+  async editImage(
+    image: ImageInfo,
+    prompt: string,
+    strength: number | undefined,
+    settings: AdminSettings
+  ): Promise<GenerationResult> {
+    const startTime = Date.now();
+    const providerConfig = settings?.providers?.moondream_local || {};
+    const { endpoint, model } = providerConfig as any;
+    // Fix endpoint connection
+    let usedEndpoint = endpoint || 'http://127.0.0.1:2020/v1';
+    if (usedEndpoint.includes('localhost')) { usedEndpoint = usedEndpoint.replace('localhost', '127.0.0.1'); }
+    const baseUrl = normalizeEndpoint(usedEndpoint);
+    const cleanBaseUrl = baseUrl.replace(/\/v1\/?$/, '');
+    const apiUrl = `${cleanBaseUrl}/v1/generate`; // Same endpoint, backend handles 'image' param
+
+    // Logic to select the correct model for generation/editing
+    let selectedModel = model || 'sdxl-realism';
+    // If a vision model is selected, fallback to default generation model
+    if (!selectedModel.startsWith('sdxl-')) {
+      selectedModel = 'sdxl-realism';
+    }
+
+    // Calculate optimal dimensions preserving aspect ratio
+    let width = 1024;
+    let height = 1024;
+
+    if (image.width && image.height) {
+      const targetPixels = 1024 * 1024;
+      const aspectRatio = image.width / image.height;
+      // Scale to target pixel count
+      const scale = Math.sqrt(targetPixels / (image.width * image.height));
+      let newWidth = Math.round(image.width * scale);
+      let newHeight = Math.round(image.height * scale);
+
+      // Snap to multiples of 64 (SDXL requirement)
+      width = Math.round(newWidth / 64) * 64;
+      height = Math.round(newHeight / 64) * 64;
+
+      // Ensure max dimension isn't excessive (e.g. > 1536) to prevent OOM
+      const maxDim = 1536;
+      if (width > maxDim || height > maxDim) {
+        const resizeScale = maxDim / Math.max(width, height);
+        width = Math.round((width * resizeScale) / 64) * 64;
+        height = Math.round((height * resizeScale) / 64) * 64;
+      }
+    }
+
+    const body: any = {
+      prompt,
+      model: selectedModel,
+      width,
+      height,
+      steps: 8, // Increased for higher quality
+      guidance_scale: 2.0, // Better detail retention
+      image: image.dataUrl, // Pass source image for img2img
+      strength: strength || 0.75 // Default to 0.75 if not provided
+    };
+
+    try {
+      const vramMode = settings.performance?.vramUsage || 'balanced';
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-VRAM-Mode': vramMode
+        },
+        body: JSON.stringify(body)
+      });
+
+      if (!response.ok) {
+        const err = await response.text();
+        throw new Error(`Edit failed: ${err}`);
+      }
+
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+
+      let imageUrl = '';
+      if (data.result && Array.isArray(data.result) && data.result.length > 0) {
+        imageUrl = data.result[0];
+      } else if (data.images && Array.isArray(data.images) && data.images.length > 0) {
+        imageUrl = data.images[0];
+      } else {
+        imageUrl = data.image || data.url;
+      }
+
+      const duration = (Date.now() - startTime) / 1000;
+      return {
+        image: imageUrl,
+        stats: {
+          duration,
+          tokensPerSec: duration > 0 ? 1 / duration : 0,
+          device: data.device || 'GPU',
+          totalTokens: 0
+        }
+      };
+    } catch (error: any) {
+      console.error("Error editing image:", error);
+      throw new Error(error.message || "Failed to edit image.");
     }
   }
 }

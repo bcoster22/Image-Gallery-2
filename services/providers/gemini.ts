@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, Modality, HarmCategory, HarmBlockThreshold, SafetySetting } from "@google/genai";
-import { ImageInfo, AdminSettings, GeminiSafetySettings, AspectRatio, ImageAnalysisResult, ProviderCapabilities } from "../../types";
+import { ImageInfo, AdminSettings, GeminiSafetySettings, AspectRatio, ImageAnalysisResult, ProviderCapabilities, GenerationResult } from "../../types";
 import { dataUrlToBase64, getMimeTypeFromDataUrl, resizeImage } from '../../utils/fileUtils';
 import { BaseProvider } from "../baseProvider";
 import { registry } from "../providerRegistry";
@@ -153,11 +153,12 @@ export class GeminiProvider extends BaseProvider {
     }
   }
 
-  async generateImage(
+  async generateImageFromPrompt(
     prompt: string,
-    settings: AdminSettings,
-    aspectRatio?: AspectRatio
-  ): Promise<string> {
+    aspectRatio: AspectRatio,
+    sourceImage: ImageInfo | undefined,
+    settings: AdminSettings
+  ): Promise<GenerationResult> {
     const apiKey = settings.providers.gemini.apiKey;
     const model = settings.providers.gemini.generationModel;
     if (!apiKey) throw new Error("API key is missing for Gemini.");
@@ -177,7 +178,13 @@ export class GeminiProvider extends BaseProvider {
 
       if (response.generatedImages && response.generatedImages.length > 0) {
         const base64ImageBytes: string = response.generatedImages[0].image.imageBytes;
-        return base64ImageBytes;
+        return {
+          image: base64ImageBytes,
+          metadata: {
+            format: 'base64',
+            mimeType: 'image/png'
+          }
+        };
       }
 
       throw new Error("Gemini image generation failed to produce an image.");
@@ -190,8 +197,9 @@ export class GeminiProvider extends BaseProvider {
   async editImage(
     image: ImageInfo,
     prompt: string,
+    strength: number | undefined,
     settings: AdminSettings
-  ): Promise<string> {
+  ): Promise<GenerationResult> {
     const apiKey = settings.providers.gemini.apiKey;
     if (!apiKey) throw new Error("API key is missing for Gemini.");
     const ai = new GoogleGenAI({ apiKey });
@@ -235,7 +243,12 @@ export class GeminiProvider extends BaseProvider {
         for (const part of candidate.content.parts) {
           if (part.inlineData) {
             const base64ImageBytes: string = part.inlineData.data;
-            return base64ImageBytes;
+            return {
+              image: base64ImageBytes,
+              metadata: {
+                format: 'base64'
+              }
+            };
           }
         }
       }

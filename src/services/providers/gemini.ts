@@ -1,7 +1,7 @@
 
 import { GoogleGenAI, Type, Modality, HarmCategory, HarmBlockThreshold, SafetySetting } from "@google/genai";
 import { ImageInfo, AdminSettings, GeminiSafetySettings, AspectRatio } from "../../types";
-import { dataUrlToBase64, getMimeTypeFromDataUrl, resizeImage } from '../../utils/fileUtils';
+import { dataUrlToBase64, getMimeTypeFromDataUrl, resizeImage } from '../../../utils/fileUtils';
 
 const DEFAULT_SAFETY_SETTINGS: GeminiSafetySettings = {
   harassment: HarmBlockThreshold.BLOCK_NONE,
@@ -11,36 +11,36 @@ const DEFAULT_SAFETY_SETTINGS: GeminiSafetySettings = {
 };
 
 const buildGeminiSafetySettings = (settings: AdminSettings): SafetySetting[] => {
-    const customSettings = settings.providers.gemini.safetySettings || DEFAULT_SAFETY_SETTINGS;
-    return [
-        { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: customSettings.harassment },
-        { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: customSettings.hateSpeech },
-        { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: customSettings.sexuallyExplicit },
-        { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: customSettings.dangerousContent },
-    ];
+  const customSettings = settings.providers.gemini.safetySettings || DEFAULT_SAFETY_SETTINGS;
+  return [
+    { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: customSettings.harassment },
+    { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: customSettings.hateSpeech },
+    { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: customSettings.sexuallyExplicit },
+    { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: customSettings.dangerousContent },
+  ];
 }
 
 export const testConnection = async (settings: AdminSettings): Promise<void> => {
-    const apiKey = settings.providers.gemini.apiKey;
-    if (!apiKey) throw new Error("API key is missing.");
-    
-    const ai = new GoogleGenAI({ apiKey });
-    // Use a lightweight model for the connection test
-    const model = 'gemini-2.5-flash';
+  const apiKey = settings.providers.gemini.apiKey;
+  if (!apiKey) throw new Error("API key is missing.");
 
-    try {
-        // Attempt a minimal generation to verify key and access
-        await ai.models.generateContent({
-            model,
-            contents: "test",
-            config: {
-                maxOutputTokens: 1,
-            }
-        });
-    } catch (error: any) {
-        console.error("Gemini connection test failed:", error);
-        throw new Error(error.message || "Failed to connect to Gemini API.");
-    }
+  const ai = new GoogleGenAI({ apiKey });
+  // Use a lightweight model for the connection test
+  const model = 'gemini-2.5-flash';
+
+  try {
+    // Attempt a minimal generation to verify key and access
+    await ai.models.generateContent({
+      model,
+      contents: "test",
+      config: {
+        maxOutputTokens: 1,
+      }
+    });
+  } catch (error: any) {
+    console.error("Gemini connection test failed:", error);
+    throw new Error(error.message || "Failed to connect to Gemini API.");
+  }
 };
 
 export const analyzeImage = async (
@@ -59,7 +59,7 @@ export const analyzeImage = async (
       mimeType: getMimeTypeFromDataUrl(image.dataUrl)
     }
   };
-  
+
   const contents = { parts: [{ text: prompt }, imagePart] };
 
   try {
@@ -86,7 +86,7 @@ export const analyzeImage = async (
         safetySettings: buildGeminiSafetySettings(settings),
       },
     });
-    
+
     const promptBlockReason = response.promptFeedback?.blockReason;
     if (promptBlockReason) {
       throw new Error(`Gemini analysis was blocked for image ${image.file.name} for safety reasons: ${promptBlockReason}.`);
@@ -96,10 +96,10 @@ export const analyzeImage = async (
     if (!candidate) {
       throw new Error("Gemini analysis returned an invalid response with no candidates.");
     }
-    
+
     if (candidate.finishReason && candidate.finishReason !== 'STOP') {
-        const details = candidate.finishMessage || response.promptFeedback?.blockReason || 'No details provided.';
-        throw new Error(`Gemini analysis failed for image ${image.file.name}. Reason: ${candidate.finishReason}. Details: ${details}`);
+      const details = candidate.finishMessage || response.promptFeedback?.blockReason || 'No details provided.';
+      throw new Error(`Gemini analysis failed for image ${image.file.name}. Reason: ${candidate.finishReason}. Details: ${details}`);
     }
 
     const text = response?.text;
@@ -117,7 +117,7 @@ export const analyzeImage = async (
 };
 
 export const generateImageFromPrompt = async (
-  prompt: string, 
+  prompt: string,
   settings: AdminSettings,
   aspectRatio: AspectRatio,
 ): Promise<string> => {
@@ -136,16 +136,16 @@ export const generateImageFromPrompt = async (
         outputMimeType: 'image/png',
         aspectRatio: aspectRatio,
       },
-       // Safety settings not applicable to generateImages endpoint
+      // Safety settings not applicable to generateImages endpoint
     });
-    
+
     if (response.generatedImages && response.generatedImages.length > 0) {
       const base64ImageBytes: string = response.generatedImages[0].image.imageBytes;
       return base64ImageBytes;
     }
-    
+
     throw new Error("Gemini image generation failed to produce an image.");
-  } catch(e: any) {
+  } catch (e: any) {
     console.error("Error during Gemini API call for image generation:", e);
     throw new Error(e.message || "An unknown error occurred during Gemini image generation.");
   }
@@ -159,7 +159,7 @@ export const editImage = async (
   const apiKey = settings.providers.gemini.apiKey;
   if (!apiKey) throw new Error("API key is missing for Gemini.");
   const ai = new GoogleGenAI({ apiKey });
-  
+
   const resizedDataUrl = await resizeImage(image.dataUrl, { maxDimension: 1536 });
 
   const imagePart = {
@@ -187,12 +187,12 @@ export const editImage = async (
 
     const candidate = response?.candidates?.[0];
     if (!candidate) {
-        throw new Error("Gemini image editing returned an invalid response with no candidates.");
+      throw new Error("Gemini image editing returned an invalid response with no candidates.");
     }
-    
+
     if (candidate.finishReason && candidate.finishReason !== 'STOP') {
-        const details = candidate.finishMessage || 'No details provided.';
-        throw new Error(`Gemini image editing failed. Reason: ${candidate.finishReason}. This is often due to the source image content. Details: ${details}`);
+      const details = candidate.finishMessage || 'No details provided.';
+      throw new Error(`Gemini image editing failed. Reason: ${candidate.finishReason}. This is often due to the source image content. Details: ${details}`);
     }
 
     if (candidate.content?.parts) {
@@ -206,8 +206,8 @@ export const editImage = async (
 
     console.error("Gemini image editing response did not contain an image. Full response:", JSON.stringify(response, null, 2));
     throw new Error("Gemini image editing failed to produce an image.");
-    
-  } catch(e: any) {
+
+  } catch (e: any) {
     console.error("Error during Gemini API call for image editing:", e);
     throw new Error(e.message || "An unknown error occurred during Gemini image editing.");
   }
@@ -215,14 +215,14 @@ export const editImage = async (
 
 const getVeoSupportedAspectRatio = (aspectRatio: AspectRatio): '16:9' | '9:16' => {
   switch (aspectRatio) {
-      case '3:4':
-      case '9:16':
-          return '9:16'; // Portrait
-      case '1:1':
-      case '4:3':
-      case '16:9':
-      default:
-          return '16:9'; // Landscape or square
+    case '3:4':
+    case '9:16':
+      return '9:16'; // Portrait
+    case '1:1':
+    case '4:3':
+    case '16:9':
+    default:
+      return '16:9'; // Landscape or square
   }
 };
 
@@ -232,66 +232,66 @@ export const animateImage = async (
   prompt: string,
   aspectRatio: AspectRatio,
   settings: AdminSettings
-): Promise<{uri: string, apiKey: string}> => {
+): Promise<{ uri: string, apiKey: string }> => {
   const apiKey = settings.providers.gemini.apiKey;
   const model = settings.providers.gemini.veoModel;
   if (!apiKey) throw new Error("API key is missing for Gemini.");
   if (!model) throw new Error("Video generation model is not configured for Gemini.");
-  
+
   // Do not create AI instance at the top level to ensure the latest key is used.
   const ai = new GoogleGenAI({ apiKey });
-  
+
   const veoAspectRatio = getVeoSupportedAspectRatio(aspectRatio);
-  
+
   const requestBody: any = {
-      model: model,
-      prompt: prompt,
-      config: {
-        numberOfVideos: 1,
-        resolution: '720p',
-        aspectRatio: veoAspectRatio,
-      }
+    model: model,
+    prompt: prompt,
+    config: {
+      numberOfVideos: 1,
+      resolution: '720p',
+      aspectRatio: veoAspectRatio,
+    }
   };
 
   if (image) {
     const resizedDataUrl = await resizeImage(image.dataUrl, { maxDimension: 1024 });
     requestBody.image = {
-        imageBytes: dataUrlToBase64(resizedDataUrl),
-        mimeType: getMimeTypeFromDataUrl(resizedDataUrl),
+      imageBytes: dataUrlToBase64(resizedDataUrl),
+      mimeType: getMimeTypeFromDataUrl(resizedDataUrl),
     };
   }
 
   try {
     let operation = await ai.models.generateVideos(requestBody);
-    
+
     // Poll for completion
     while (!operation.done) {
       await new Promise(resolve => setTimeout(resolve, 5000));
-      operation = await ai.operations.getVideosOperation({operation: operation});
+      operation = await ai.operations.getVideosOperation({ operation: operation });
     }
 
     if (operation.error) {
       throw new Error(`Veo operation failed: ${operation.error.message}`);
     }
-    
-    const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
-    
-    if (!downloadLink) {
-        const raiReasons = operation.response?.raiMediaFilteredReasons?.join(', ');
-        
-        let errorMessage = "Veo operation finished without error, but no video URI was found.";
 
-        if (raiReasons) {
-            errorMessage = `Video generation was blocked by safety policies. Reason: ${raiReasons}`;
-        } 
-        
-        console.error("Veo operation finished without error, but no video URI was found. Full response:", JSON.stringify(operation.response, null, 2));
-        throw new Error(errorMessage);
+    const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
+
+    if (!downloadLink) {
+      const raiReasons = operation.response?.raiMediaFilteredReasons?.join(', ');
+
+      let errorMessage = "Veo operation finished without error, but no video URI was found.";
+
+      if (raiReasons) {
+        errorMessage = `Video generation was blocked by safety policies. Reason: ${raiReasons}`;
+      }
+
+      console.error("Veo operation finished without error, but no video URI was found. Full response:", JSON.stringify(operation.response, null, 2));
+      throw new Error(errorMessage);
     }
 
     return { uri: downloadLink, apiKey };
 
-  } catch(e: any) {
+  } catch (e: any) {
     console.error("Error during Gemini Veo API call:", JSON.stringify(e, null, 2));
     throw new Error(e.message || "An unknown error occurred during Gemini video generation.");
   }
@@ -344,10 +344,10 @@ export const generateKeywordsForPrompt = async (
         safetySettings: buildGeminiSafetySettings(settings),
       },
     });
-    
+
     const text = response.text.trim();
     if (!text) {
-        return [];
+      return [];
     }
     return text.split(',').map(kw => kw.trim().toLowerCase()).filter(Boolean);
 
@@ -365,7 +365,7 @@ export const enhancePromptWithKeywords = async (
   const apiKey = settings.providers.gemini.apiKey;
   if (!apiKey) throw new Error("API key is missing for Gemini.");
   const ai = new GoogleGenAI({ apiKey });
-  
+
   const keywordsString = keywords.join(', ');
   const systemInstruction = `You are a creative director for short, viral videos. Your task is to take a descriptive prompt for a static image and enhance it to be a dynamic video prompt. You MUST incorporate the feeling and ideas from the following keywords: ${keywordsString}. Infuse the original prompt with motion, feeling, and emotion. The output must be a single, concise video prompt only, without any conversational text, labels, or explanations.`;
 
@@ -387,9 +387,9 @@ export const enhancePromptWithKeywords = async (
 };
 
 export const adaptPromptToTheme = async (
-    originalPrompt: string,
-    theme: string,
-    settings: AdminSettings
+  originalPrompt: string,
+  theme: string,
+  settings: AdminSettings
 ): Promise<string> => {
   const apiKey = settings.providers.gemini.apiKey;
   if (!apiKey) throw new Error("API key is missing for Gemini.");
