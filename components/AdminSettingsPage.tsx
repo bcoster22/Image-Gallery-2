@@ -404,6 +404,22 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel,
         });
     };
 
+    const handleRoutingReorder = (capability: Capability, oldIndex: number, newIndex: number) => {
+        const currentRoute = [...(settings.routing[capability] || [])];
+        if (newIndex < 0 || newIndex >= currentRoute.length || oldIndex === newIndex) return;
+
+        const [item] = currentRoute.splice(oldIndex, 1);
+        currentRoute.splice(newIndex, 0, item);
+
+        setSettings({
+            ...settings,
+            routing: {
+                ...settings.routing,
+                [capability]: currentRoute
+            }
+        });
+    };
+
     const isProviderConfigured = (provider: AiProvider): boolean => {
         const providerSettings = settings.providers[provider];
         if (!providerSettings) return false;
@@ -729,10 +745,27 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel,
                                         <p className="text-xs text-gray-400 mt-1 mb-3">{details.description}</p>
                                         <div className="space-y-2">
                                             {route.map((providerId, index) => (
-                                                <div key={providerId} className="flex items-center gap-2 bg-gray-700/50 p-2 rounded-md">
-                                                    <span className="text-xs font-bold text-indigo-300 bg-indigo-900/50 px-2 py-1 rounded-full">{index + 1}</span>
-                                                    <span className="text-sm text-gray-200 flex-grow">{capabilityDetails[providerId as AiProvider]?.name || providerId}</span>
-                                                    <button onClick={() => handleRoutingChange(capability, providerId as AiProvider)} className="text-red-400 hover:text-red-300">
+                                                <div key={providerId} className="flex items-center gap-2 bg-gray-700/50 p-2 rounded-md transition-all hover:bg-gray-700">
+                                                    <div className="relative">
+                                                        <select
+                                                            value={index}
+                                                            onChange={(e) => handleRoutingReorder(capability, index, parseInt(e.target.value))}
+                                                            className="appearance-none text-xs font-bold text-indigo-300 bg-indigo-900/50 pl-2 pr-6 py-1 rounded-full cursor-pointer hover:bg-indigo-900/80 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                                            title="Change order"
+                                                        >
+                                                            {route.map((_, i) => (
+                                                                <option key={i} value={i} className="bg-gray-800 text-gray-200">
+                                                                    {i + 1}
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                        {/* Custom Arrow because appearance-none hides it */}
+                                                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-1.5 text-indigo-300">
+                                                            <svg className="fill-current h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
+                                                        </div>
+                                                    </div>
+                                                    <span className="text-sm text-gray-200 flex-grow font-medium">{capabilityDetails[providerId as AiProvider]?.name || providerId}</span>
+                                                    <button onClick={() => handleRoutingChange(capability, providerId as AiProvider)} className="p-1 text-gray-500 hover:text-red-400 transition-colors rounded hover:bg-gray-600/50" title="Remove provider">
                                                         <XCircleIcon className="w-5 h-5" />
                                                     </button>
                                                 </div>

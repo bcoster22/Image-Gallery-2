@@ -97,6 +97,7 @@ const IdleSlideshow: React.FC<IdleSlideshowProps> = ({
 
   // Ref to track if we are manually navigating to debounce
   const isNavigatingRef = useRef(false);
+  const isFirstActivationRef = useRef(true); // Track first activation for initial delay
   const [direction, setDirection] = useState(1); // 1 = Next, -1 = Prev
 
   // TRIGGER SLIDE (Next or Prev)
@@ -200,23 +201,53 @@ const IdleSlideshow: React.FC<IdleSlideshowProps> = ({
   }, [activeIndex, images, useSmartCrop, processingSmartCropIds, randomOrder, isActive, onRequestSlowdown]);
 
   // Main Timer Loop (Auto Advance)
+  const [isWarmingUp, setIsWarmingUp] = useState(false);
+
+  // Effect to handle Initial Delay (Warmup)
   useEffect(() => {
-    if (!isActive || isPaused) {
+    if (isActive && !isPaused) {
+      // Start 2s Warmup
+      setIsWarmingUp(true);
+      const timer = setTimeout(() => {
+        setIsWarmingUp(false);
+      }, 2000);
+      return () => clearTimeout(timer);
+    } else {
+      // If stopped/paused, reset warmup state
+      setIsWarmingUp(false);
+    }
+  }, [isActive, isPaused]);
+
+  // Effect for Regular Interval Slideshow
+  useEffect(() => {
+    if (!isActive || isPaused || isWarmingUp) {
       if (!isNavigatingRef.current) {
-        // ensure we don't auto advance if paused
-        if (slideTimerRef.current) clearTimeout(slideTimerRef.current);
+        if (slideTimerRef.current) {
+          clearTimeout(slideTimerRef.current);
+          slideTimerRef.current = null;
+        }
       }
       return;
     }
 
-    if (nextIndex === null && !isNavigatingRef.current) {
-      slideTimerRef.current = window.setTimeout(() => triggerSlide(1), currentInterval);
+    // Only set timer if there isn't one already running AND nextIndex is null
+    const shouldSetTimer = (nextIndex === null && !isNavigatingRef.current && !slideTimerRef.current);
+
+    if (shouldSetTimer) {
+      // Normal interval timer
+      slideTimerRef.current = window.setTimeout(() => {
+        triggerSlide(1);
+        slideTimerRef.current = null;
+      }, currentInterval);
     }
 
     return () => {
-      if (slideTimerRef.current) clearTimeout(slideTimerRef.current);
+      if (slideTimerRef.current) {
+        clearTimeout(slideTimerRef.current);
+        slideTimerRef.current = null;
+      }
     };
-  }, [isActive, nextIndex, triggerSlide, currentInterval, isPaused]);
+  }, [isActive, nextIndex, triggerSlide, currentInterval, isPaused, isWarmingUp]);
 
 
   // CONTROLS Handlers (Wheel, Swipe, Tap-exit)

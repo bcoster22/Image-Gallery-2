@@ -254,6 +254,8 @@ const App: React.FC = () => {
   const [veoRetryState, setVeoRetryState] = useState<{ sourceImage: ImageInfo | null, prompt: string, aspectRatio: AspectRatio } | null>(null);
 
   const [isSlideshowActive, setIsSlideshowActive] = useState(false);
+  // Default to false, user must enable the "Screensaver" mode
+  const [isSlideshowEnabled, setIsSlideshowEnabled] = useState(false);
   const [slideshowNeedsSlowdown, setSlideshowNeedsSlowdown] = useState(false);
   const [triggerBulkDownload, setTriggerBulkDownload] = useState(false);
   const idleTimerRef = useRef<number | null>(null);
@@ -607,6 +609,7 @@ const App: React.FC = () => {
             performance: {
               downscaleImages: true,
               maxAnalysisDimension: 1024,
+              vramUsage: 'balanced',
             },
             prompts: {
               assignments: {},
@@ -824,12 +827,12 @@ const App: React.FC = () => {
           authorAvatarUrl: currentUser!.avatarUrl,
           likes: Math.floor(Math.random() * 1000),
           commentsCount: Math.floor(Math.random() * 200),
-          recreationPrompt: aiMetadata?.recreationPrompt,
-          keywords: aiMetadata?.keywords,
+          ...(aiMetadata?.originalMetadataPrompt ? { originalMetadataPrompt: aiMetadata.originalMetadataPrompt } : {}),
+          ...(aiMetadata?.keywords ? { keywords: aiMetadata.keywords } : {}),
         };
         newImages.push(newImage);
 
-        if (aiMetadata?.recreationPrompt) {
+        if (aiMetadata?.originalMetadataPrompt) {
           addNotification({ status: 'success', message: `Imported ${newImage.fileName} with embedded prompt.` });
         }
       } catch (e: any) {
@@ -1174,8 +1177,16 @@ const App: React.FC = () => {
     prompt: string,
     taskType: 'image' | 'enhance',
     aspectRatio: AspectRatio,
+    providerOverride?: AiProvider // Add override support
   ) => {
-    if (!settings || !currentUser) return;
+    if (!currentUser) {
+      addNotification({ status: 'error', message: 'Please sign in to generate images.' });
+      return;
+    }
+    if (!settings) {
+      addNotification({ status: 'error', message: 'System settings are not loaded. Please refresh or check configuration.' });
+      return;
+    }
     addPromptToHistory(prompt);
 
     const taskId = self.crypto.randomUUID();
@@ -1190,14 +1201,24 @@ const App: React.FC = () => {
     setGenerationTasks(prev => [...prev, newTask]);
     addNotification({ status: 'success', message: `Starting AI image ${taskType}...` });
 
+
+    // Create ephemeral settings if a provider override is active
+    const runSettings = providerOverride ? {
+      ...settings,
+      routing: {
+        ...settings.routing,
+        [taskType === 'image' ? 'generation' : 'editing']: [providerOverride]
+      }
+    } : settings;
+
     (async () => {
       try {
         let generatedResult: GenerationResult;
         if (taskType === 'image') {
-          generatedResult = await generateImageFromPrompt(prompt, settings, aspectRatio);
+          generatedResult = await generateImageFromPrompt(prompt, runSettings, aspectRatio);
           await handleSaveGeneratedImage(generatedResult.image, false, prompt);
         } else { // enhance
-          generatedResult = await editImage(sourceImage, prompt, settings);
+          generatedResult = await editImage(sourceImage, prompt, runSettings);
           await handleSaveEnhancedImage(generatedResult.image, false, prompt);
         }
         setGenerationTasks(prev => prev.filter(t => t.id !== taskId));
@@ -1542,6 +1563,9 @@ const App: React.FC = () => {
       displayedImages = images.filter(img => img.isPublic);
     } else if (galleryView === 'my-gallery' && currentUser) {
       displayedImages = images.filter(img => img.ownerId === currentUser.id);
+    } else if (galleryView === 'creations') {
+      // Include completed creations (generated/enhanced images)
+      displayedImages = images.filter(img => img.source && img.source !== 'upload' && !img.isGenerating);
     } else {
       displayedImages = [];
     }
@@ -1704,16 +1728,19 @@ const App: React.FC = () => {
     if (idleTimerRef.current) {
       clearTimeout(idleTimerRef.current);
     }
-    if (isSelectionMode || isSlideshowActive || selectedImage || (galleryView !== 'public' && galleryView !== 'my-gallery')) {
+
+    // If auto-start is disabled, or blocking conditions are met, do not schedule
+    if (!isSlideshowEnabled || isSelectionMode || isSlideshowActive || selectedImage || (galleryView !== 'public' && galleryView !== 'my-gallery')) {
       return;
     }
 
+    // Auto-start slideshow after 3 seconds of inactivity
     idleTimerRef.current = window.setTimeout(() => {
       if (filteredImages.length > 0) {
         setIsSlideshowActive(true);
       }
-    }, 8000); // 8 seconds
-  }, [isSelectionMode, isSlideshowActive, selectedImage, galleryView, filteredImages.length]);
+    }, 3000);
+  }, [isSelectionMode, isSlideshowActive, isSlideshowEnabled, selectedImage, galleryView, filteredImages.length]);
 
   useEffect(() => {
     window.addEventListener('mousemove', resetIdleTimer);
@@ -1733,7 +1760,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     resetIdleTimer();
-  }, [galleryView, selectedImage, isSlideshowActive]);
+  }, [galleryView, selectedImage, isSlideshowActive, isSlideshowEnabled]);
 
   useEffect(() => {
     // Automatically exit selection mode if the user logs out.
@@ -1813,13 +1840,29 @@ const App: React.FC = () => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
             </button>
-            <button
-              onClick={() => setIsSlideshowActive(!isSlideshowActive)}
-              className={'p-2 rounded-lg transition-colors ' + (isSlideshowActive ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-800')}
-              title={isSlideshowActive ? "Stop Slideshow" : "Start Slideshow"}
+            {/* Slideshow Toggle Slider */}
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
+                // Toggle the ENABLED state
+                const newState = !isSlideshowEnabled;
+                setIsSlideshowEnabled(newState);
+
+                // If turning off, immediately stop any running slideshow
+                if (!newState) {
+                  setIsSlideshowActive(false);
+                }
+              }}
+              className="flex items-center gap-2 cursor-pointer group"
+              title={isSlideshowEnabled ? "Slideshow Auto-Start On" : "Slideshow Auto-Start Off"}
             >
-              {isSlideshowActive ? <StopIcon className="w-6 h-6" /> : <PlayIcon className="w-6 h-6" />}
-            </button>
+              <div className="relative">
+                <div className={`w-11 h-6 rounded-full transition-colors ${isSlideshowEnabled ? 'bg-indigo-600' : 'bg-gray-700'} relative`}>
+                  <div className={`absolute top-[2px] left-[2px] bg-white rounded-full h-5 w-5 transition-transform ${isSlideshowEnabled ? 'translate-x-full' : 'translate-x-0'}`}></div>
+                </div>
+              </div>
+              <span className="text-xs text-gray-400 group-hover:text-white transition-colors hidden sm:inline">{isSlideshowEnabled ? 'Auto' : 'Off'}</span>
+            </div>
             <button
               onClick={() => setGalleryView('status')}
               className={'p-2 rounded-full transition-colors ' + (galleryView === 'status' ? 'text-white bg-gray-700' : 'text-gray-400 hover:text-white hover:bg-gray-700')}
@@ -2083,21 +2126,26 @@ const App: React.FC = () => {
             onClose={() => setPromptModalConfig(null)}
             config={promptModalConfig}
             promptHistory={promptHistory}
+            settings={settings}
             onSubmit={(prompt, options) => {
+              if (!promptModalConfig) return;
+
               const { image } = promptModalConfig;
               const aspectRatio = options.aspectRatio || '1:1';
               const useSourceImage = options.useSourceImage;
+              const providerId = options.providerId;
 
               if (promptModalConfig.taskType === 'image') {
                 const dummyImage: ImageInfo = image || {
                   id: '', file: new File([], ''), fileName: 'prompt-history.png',
                   dataUrl: '', ownerId: currentUser!.id, isPublic: false
                 };
-                handleGenerationSubmit(dummyImage, prompt, 'image', aspectRatio);
+                handleGenerationSubmit(dummyImage, prompt, 'image', aspectRatio, providerId);
               } else if (promptModalConfig.taskType === 'enhance' && image) {
-                handleGenerationSubmit(image, prompt, 'enhance', aspectRatio);
+                handleGenerationSubmit(image, prompt, 'enhance', aspectRatio, providerId);
               } else if (promptModalConfig.taskType === 'video') {
                 const sourceImage = useSourceImage ? image : null;
+                // TODO: Support Video Provider Override
                 handleStartAnimation(sourceImage, prompt, aspectRatio);
               }
 

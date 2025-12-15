@@ -25,7 +25,7 @@ const AnalysisProgressIndicator: React.FC<AnalysisProgressIndicatorProps> = ({ p
   const isComplete = currentProgress.current === currentProgress.total;
 
   return (
-    <div className={`fixed bottom-0 left-0 right-0 z-50 p-4 flex justify-center pointer-events-none transition-transform duration-500 ease-in-out ${isActive ? 'translate-y-0' : 'translate-y-full'}`}>
+    <div className={`fixed top-24 left-0 right-0 z-50 p-4 flex justify-center pointer-events-none transition-transform duration-500 ease-in-out ${isActive ? 'translate-y-0' : '-translate-y-full'}`}>
       <div className="bg-gray-800/80 backdrop-blur-md border border-gray-700 rounded-lg shadow-2xl w-full max-w-lg p-4 pointer-events-auto">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">

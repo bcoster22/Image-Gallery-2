@@ -113,6 +113,10 @@ interface OtelMetrics {
     ram_mb: number;
     loaded_at: number;
   }[];
+  ghost_memory?: {
+    detected: boolean;
+    ghost_vram_mb: number;
+  };
 }
 
 interface StatusPageProps {
@@ -138,8 +142,11 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
   const [primeProfile, setPrimeProfile] = useState<string | null>(null);
   const [availableModels, setAvailableModels] = useState<Array<{ id: string; name: string; description: string; last_known_vram_mb?: number }>>([]);
   const [modelLoadCounts, setModelLoadCounts] = useState<Record<string, number>>({});
+  const [modelUnloadCounts, setModelUnloadCounts] = useState<Record<string, number>>({});
   const [lastVramUsed, setLastVramUsed] = useState(0);
+
   const [currentlyLoadedModels, setCurrentlyLoadedModels] = useState<Set<string>>(new Set());
+  const [autoFixTriggered, setAutoFixTriggered] = useState<{ timestamp: number; active: boolean }>({ timestamp: 0, active: false });
 
   // CSS for hiding scrollbar
   const scrollbarHideStyle = `
@@ -203,19 +210,19 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
     }
   };
 
-  const handleFreeRam = async () => {
+  const handleFreeRam = async (silent: boolean = false) => {
     try {
       const response = await fetch(`${moondreamUrl}/v1/system/unload`, { method: 'POST' });
       const data = await response.json();
       if (data.status === 'success') {
         // Visual feedback
-        alert("RAM Freed! Model unloaded.");
+        if (!silent) alert("RAM Freed! Model unloaded.");
       } else {
-        alert("Failed to free RAM: " + data.message);
+        if (!silent) alert("Failed to free RAM: " + data.message);
       }
     } catch (e) {
       console.error(e);
-      alert("Error sending unload command");
+      if (!silent) alert("Error sending unload command");
     }
   };
 
@@ -325,6 +332,17 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
           }
         });
 
+        // Detect unloads
+        currentlyLoadedModels.forEach((modelId) => {
+          if (!backendLoadedIds.has(modelId)) {
+            // Model just unloaded
+            setModelUnloadCounts(prev => ({
+              ...prev,
+              [modelId]: (prev[modelId] || 0) + 1
+            }));
+          }
+        });
+
         // Only update if the set actually changed
         const currentIds = Array.from(currentlyLoadedModels).sort().join(',');
         const newIds = Array.from(backendLoadedIds).sort().join(',');
@@ -353,7 +371,30 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
         return newState.slice(-2000);
       });
     }
-  }, [otelMetrics, lastVramUsed]); // Removed currentlyLoadedModels from dependencies
+  }, [otelMetrics, currentlyLoadedModels]); // Dependencies for this useEffect
+
+  // Auto-Fix Zombie Memory
+  useEffect(() => {
+    if (otelMetrics?.ghost_memory?.detected) {
+      const now = Date.now();
+      // Cooldown: 60 seconds between auto-fixes
+      if (now - autoFixTriggered.timestamp > 60000 && !autoFixTriggered.active) {
+        console.log("[StatusPage] Zombie Memory Detected! Auto-fixing...");
+        setAutoFixTriggered({ timestamp: now, active: true });
+
+        // Trigger Free Ram
+        handleFreeRam(true).then(() => {
+          // Reset active flag after a short delay to allow UI to settle
+          setTimeout(() => {
+            setAutoFixTriggered(prev => ({ ...prev, active: false }));
+          }, 5000);
+        }).catch(err => {
+          console.error("Auto-fix failed:", err);
+          setAutoFixTriggered(prev => ({ ...prev, active: false }));
+        });
+      }
+    }
+  }, [otelMetrics, autoFixTriggered]); // Dependencies
 
   const filteredStats = useMemo(() => {
     const now = Date.now();
@@ -554,6 +595,31 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
                       </div>
                     </div>
 
+                    {/* Ghost/Zombie Memory Warning */}
+                    {otelMetrics.ghost_memory?.detected && (
+                      <div className="mb-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-xl flex items-start gap-3 animate-pulse">
+                        <AlertTriangle className="w-5 h-5 text-yellow-400 shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <h4 className="text-sm font-semibold text-yellow-100">
+                            {autoFixTriggered.active ? "Auto-Fixing Zombie Memory..." : "Zombie Memory Detected"}
+                          </h4>
+                          <p className="text-xs text-yellow-200/80 mt-1">
+                            {autoFixTriggered.active
+                              ? "Automatically freeing VRAM to resolve the issue."
+                              : `Found ~${Math.round(otelMetrics.ghost_memory.ghost_vram_mb)}MB of unaccounted VRAM usage.`}
+                          </p>
+                          {!autoFixTriggered.active && (
+                            <button
+                              onClick={() => handleFreeRam(false)}
+                              className="mt-2 text-[10px] font-bold uppercase tracking-wider bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-300 px-3 py-1.5 rounded-lg border border-yellow-500/30 transition-colors"
+                            >
+                              Free VRAM to Fix
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Controls */}
                     <div className="flex flex-col gap-2 mb-4">
                       {/* Prime Select Toggle */}
@@ -616,7 +682,7 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
                           onClick={handleFreeRam}
                           title="Unload model to free VRAM"
                         >
-                          Free RAM
+                          Free VRAM
                         </button>
                       </div>
                     </div>
@@ -967,11 +1033,12 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
                         </div>
 
                         {/* Table Header */}
-                        <div className="grid grid-cols-[20px_1fr_65px_50px] gap-2 text-[9px] text-neutral-500 uppercase tracking-wide pb-0.5 border-b border-white/5">
+                        <div className="grid grid-cols-[20px_1fr_65px_50px_65px] gap-2 text-[9px] text-neutral-500 uppercase tracking-wide pb-0.5 border-b border-white/5">
                           <div className="text-center">●</div>
                           <div>Model</div>
                           <div className="text-right">VRAM</div>
                           <div className="text-right">Loads</div>
+                          <div className="text-right">Unloads</div>
                         </div>
 
                         {/* Models List - Loaded first, then unloaded */}
@@ -994,6 +1061,7 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
                             .map(model => {
                               const isLoaded = currentlyLoadedModels.has(model.id);
                               const loadCount = modelLoadCounts[model.id] || 0;
+                              const unloadCount = modelUnloadCounts[model.id] || 0;
 
                               // Get real VRAM/RAM usage from backend
                               const loadedModel = otelMetrics?.loaded_models?.find(m => m.id === model.id);
@@ -1014,7 +1082,7 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
                               return (
                                 <div
                                   key={model.id}
-                                  className="grid grid-cols-[20px_1fr_65px_50px] gap-2 text-xs items-center py-0.5 hover:bg-white/5 rounded transition-colors"
+                                  className="grid grid-cols-[20px_1fr_65px_50px_65px] gap-2 text-xs items-center py-0.5 hover:bg-white/5 rounded transition-colors"
                                 >
                                   {/* Loaded Indicator */}
                                   <div className="text-center text-sm leading-none">
@@ -1050,6 +1118,11 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
                                   {/* Load Count */}
                                   <div className={`text-right text-[10px] tabular-nums ${loadCount > 0 ? 'text-green-400 font-semibold' : 'text-neutral-600'}`}>
                                     {loadCount}
+                                  </div>
+
+                                  {/* Unload Count */}
+                                  <div className={`text-right text-[10px] tabular-nums ${unloadCount > 0 ? 'text-blue-400 font-semibold' : 'text-neutral-600'}`}>
+                                    {unloadCount}
                                   </div>
                                 </div>
                               );

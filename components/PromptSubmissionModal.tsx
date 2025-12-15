@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { ImageInfo, AspectRatio } from '../types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { ImageInfo, AspectRatio, AdminSettings, AiProvider } from '../types';
 import { CloseIcon, SparklesIcon, VideoCameraIcon, WandIcon } from './icons';
 
 export interface PromptModalConfig {
@@ -12,9 +12,10 @@ export interface PromptModalConfig {
 interface PromptSubmissionModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onSubmit: (prompt: string, options: { aspectRatio?: AspectRatio; useSourceImage?: boolean; }) => void;
+    onSubmit: (prompt: string, options: { aspectRatio?: AspectRatio; useSourceImage?: boolean; providerId?: AiProvider }) => void;
     config: PromptModalConfig | null;
     promptHistory: string[];
+    settings: AdminSettings | null;
 }
 
 const titles = {
@@ -23,44 +24,69 @@ const titles = {
     enhance: { icon: WandIcon, text: "Enhance & Upscale Image" },
 }
 
-const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, onClose, onSubmit, config, promptHistory }) => {
+const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, onClose, onSubmit, config, promptHistory, settings }) => {
     const [prompt, setPrompt] = useState('');
     const [selectedAspectRatio, setSelectedAspectRatio] = useState<AspectRatio | undefined>(undefined);
     const [useSourceImage, setUseSourceImage] = useState(true);
-    
+    const [selectedProvider, setSelectedProvider] = useState<AiProvider | 'auto'>('auto');
+
     useEffect(() => {
         if (config) {
             setPrompt(config.initialPrompt);
             setSelectedAspectRatio(config.aspectRatio);
             // Default to using the source image if one is provided, UNLESS it's a video task.
             setUseSourceImage(config.taskType === 'video' ? false : !!config.image);
+            setSelectedProvider('auto');
         }
     }, [config]);
+
+    const availableModels = useMemo(() => {
+        if (!settings || !config) return [];
+        const models: { id: AiProvider; name: string; model?: string | null }[] = [];
+
+        const { providers } = settings;
+
+        if (config.taskType === 'image') {
+            if (providers.gemini.apiKey) models.push({ id: 'gemini', name: 'Google Gemini', model: providers.gemini.generationModel });
+            if (providers.openai.apiKey) models.push({ id: 'openai', name: 'OpenAI DALL-E', model: providers.openai.generationModel });
+            if (providers.grok.apiKey) models.push({ id: 'grok', name: 'xAI Grok', model: providers.grok.generationModel });
+            if (providers.comfyui.endpoint) models.push({ id: 'comfyui', name: 'ComfyUI (Local)', model: 'Workflow' });
+        } else if (config.taskType === 'video') {
+            if (providers.gemini.apiKey) models.push({ id: 'gemini', name: 'Google Veo', model: providers.gemini.veoModel });
+        } else if (config.taskType === 'enhance') {
+            // Enhance capabilities
+            if (providers.gemini.apiKey) models.push({ id: 'gemini', name: 'Google Gemini', model: 'Imagen' });
+            if (providers.comfyui.endpoint) models.push({ id: 'comfyui', name: 'ComfyUI', model: 'Upscale' });
+        }
+
+        return models;
+    }, [settings, config]);
 
     if (!isOpen || !config) return null;
 
     const handleSubmit = () => {
-        onSubmit(prompt, { 
+        onSubmit(prompt, {
             aspectRatio: selectedAspectRatio,
-            useSourceImage: useSourceImage 
+            useSourceImage: useSourceImage,
+            providerId: selectedProvider === 'auto' ? undefined : selectedProvider
         });
     };
 
     const handleHistoryClick = (p: string) => {
         setPrompt(p);
     }
-    
+
     const { taskType, image } = config;
     const TitleIcon = titles[taskType].icon;
     const canShowSourceImageToggle = taskType === 'video' && !!image;
 
 
     return (
-        <div 
+        <div
             className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-sm"
             onClick={onClose}
         >
-            <div 
+            <div
                 className="bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl m-4 border border-gray-700 relative animate-fade-in flex flex-col max-h-[90vh]"
                 onClick={(e) => e.stopPropagation()}
             >
@@ -76,30 +102,49 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, o
                         <CloseIcon className="w-6 h-6" />
                     </button>
                 </header>
-                
+
                 <main className={`flex-grow p-6 grid grid-cols-1 ${image ? 'md:grid-cols-3' : 'md:grid-cols-1'} gap-6 overflow-y-auto`}>
                     {/* Left Side: Prompt & Options */}
                     <div className={`${image ? 'md:col-span-2' : ''} flex flex-col gap-4`}>
-                       <div className="flex-shrink-0">
-                         <label htmlFor="prompt-textarea" className="block text-sm font-medium text-gray-300 mb-2">
-                            {taskType === 'video' ? 'Motion Prompt' : 'Generation Prompt'}
-                        </label>
-                        <textarea
-                            id="prompt-textarea"
-                            value={prompt}
-                            onChange={(e) => setPrompt(e.target.value)}
-                            rows={taskType === 'image' ? 6 : 4}
-                            className="w-full bg-gray-900/50 border border-gray-600 rounded-lg p-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                            placeholder={taskType === 'video' ? 'Describe the motion you want to see...' : 'Describe the image you want to create...'}
-                        />
-                       </div>
 
-                        { (taskType === 'image' || taskType === 'video') && (
+                        {availableModels.length > 0 && (
+                            <div className="flex-shrink-0">
+                                <label className="block text-sm font-medium text-gray-300 mb-2">AI Model</label>
+                                <select
+                                    value={selectedProvider}
+                                    onChange={(e) => setSelectedProvider(e.target.value as AiProvider | 'auto')}
+                                    className="w-full bg-gray-900/50 border border-gray-600 rounded-lg p-2.5 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                >
+                                    <option value="auto">Auto (Use Default Routing)</option>
+                                    {availableModels.map(m => (
+                                        <option key={m.id} value={m.id}>
+                                            {m.name} {m.model ? `(${m.model})` : ''}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+
+                        <div className="flex-shrink-0">
+                            <label htmlFor="prompt-textarea" className="block text-sm font-medium text-gray-300 mb-2">
+                                {taskType === 'video' ? 'Motion Prompt' : 'Generation Prompt'}
+                            </label>
+                            <textarea
+                                id="prompt-textarea"
+                                value={prompt}
+                                onChange={(e) => setPrompt(e.target.value)}
+                                rows={taskType === 'image' ? 6 : 4}
+                                className="w-full bg-gray-900/50 border border-gray-600 rounded-lg p-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                placeholder={taskType === 'video' ? 'Describe the motion you want to see...' : 'Describe the image you want to create...'}
+                            />
+                        </div>
+
+                        {(taskType === 'image' || taskType === 'video') && (
                             <div className="flex-shrink-0">
                                 <label className="block text-sm font-medium text-gray-300 mb-2">Aspect Ratio</label>
                                 <div className="flex flex-wrap gap-2">
                                     {(['16:9', '9:16', '1:1', '4:3', '3:4'] as AspectRatio[]).map(ar => (
-                                        <button 
+                                        <button
                                             key={ar}
                                             onClick={() => setSelectedAspectRatio(ar)}
                                             className={`px-3 py-1.5 text-sm rounded-md transition-colors ${selectedAspectRatio === ar ? 'bg-indigo-600 text-white font-semibold' : 'bg-gray-700 hover:bg-gray-600'}`}
@@ -126,7 +171,7 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, o
                                 <p className="text-xs text-gray-500 ml-7 mt-1">Uncheck to generate video from only the text prompt.</p>
                             </div>
                         )}
-                        
+
                         <div className="flex-grow flex flex-col min-h-0">
                             <h3 className="text-sm font-medium text-gray-300 mb-2 flex-shrink-0">Prompt History</h3>
                             <div className="bg-gray-900/50 p-2 rounded-lg border border-gray-700/50 overflow-y-auto flex-grow">
@@ -134,7 +179,7 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, o
                                     <ul className="space-y-1">
                                         {promptHistory.map((p, i) => (
                                             <li key={i}>
-                                                <button 
+                                                <button
                                                     onClick={() => handleHistoryClick(p)}
                                                     className="w-full text-left p-2 text-sm text-gray-300 rounded hover:bg-gray-600/50 transition-colors truncate"
                                                     title={p}
@@ -151,20 +196,20 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, o
                         </div>
 
                     </div>
-                    
+
                     {/* Right Side: Image Preview */}
                     {image && (
                         <div className="md:col-span-1 flex flex-col items-center justify-center bg-gray-900/50 p-3 rounded-lg border border-gray-700/50">
                             <p className="text-sm font-medium text-gray-400 mb-2">Source Image</p>
-                            <img 
-                                src={image.dataUrl} 
+                            <img
+                                src={image.dataUrl}
                                 alt="Source for generation"
                                 className={`max-w-full max-h-full object-contain rounded-md transition-opacity duration-300 ${!useSourceImage && canShowSourceImageToggle ? 'opacity-30' : 'opacity-100'}`}
                             />
                         </div>
                     )}
                 </main>
-                
+
                 <footer className="p-4 border-t border-gray-700 flex justify-end flex-shrink-0">
                     <button
                         onClick={handleSubmit}
@@ -177,7 +222,7 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, o
                     </button>
                 </footer>
             </div>
-             <style>{`
+            <style>{`
                   @keyframes fade-in {
                     from { opacity: 0; transform: scale(0.95); }
                     to { opacity: 1; transform: scale(1); }
@@ -189,5 +234,6 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, o
         </div>
     );
 };
+
 
 export default PromptSubmissionModal;

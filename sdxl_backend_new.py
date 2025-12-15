@@ -43,7 +43,8 @@ class SDXLBackend:
             self.pipeline = AutoPipelineForText2Image.from_pretrained(
                 self.model_id,
                 torch_dtype=torch.float16,
-                cache_dir=os.path.join(self._models_dir, "models")
+                cache_dir=os.path.join(self._models_dir, "models"),
+                low_cpu_mem_usage=False  # Disable meta tensors to avoid conflicts with sequential CPU offload
             )
 
             # Optimizations for SDXL Lightning

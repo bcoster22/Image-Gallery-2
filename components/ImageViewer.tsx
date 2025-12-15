@@ -399,14 +399,24 @@ const MetadataPanel: React.FC<MetadataPanelProps> = ({
               </div>
             )}
 
-            {/* Slideshow controls preserved */}
             {hasMultipleImages && (
               <div>
                 <h3 className="text-[10px] font-bold uppercase tracking-widest text-white/40 mb-2">Slideshow</h3>
                 <div className="flex items-center gap-3">
-                  <button onClick={onToggleSlideshow} className={`p-2 rounded-full transition-all ${isSlideshowActive ? 'bg-indigo-500 text-white' : 'bg-white/10 text-white/70'}`}>
-                    {isSlideshowActive ? <StopIcon className="w-4 h-4" /> : <PlayIcon className="w-4 h-4 ml-0.5" />}
-                  </button>
+                  {/* On/Off Slider Toggle */}
+                  <label htmlFor="slideshow-toggle" className="flex items-center cursor-pointer group w-fit">
+                    <div className="relative">
+                      <input
+                        type="checkbox"
+                        id="slideshow-toggle"
+                        className="sr-only peer"
+                        checked={isSlideshowActive}
+                        onChange={onToggleSlideshow}
+                      />
+                      <div className="w-11 h-6 bg-white/10 rounded-full peer peer-focus:ring-2 peer-focus:ring-indigo-500 peer-checked:bg-indigo-500 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full transition-colors"></div>
+                    </div>
+                    <span className="ml-2 text-xs text-white/70 group-hover:text-white transition-colors">{isSlideshowActive ? 'On' : 'Off'}</span>
+                  </label>
                   {isSlideshowActive && (
                     <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-2 pl-3 py-1 rounded-full">
                       <input type="range" min="2000" max="20000" step="1000" value={slideshowDelay} onChange={(e) => onSlideshowDelayChange(Number(e.target.value))} className="w-16 h-1 bg-white/20 rounded-lg accent-indigo-500" />
@@ -621,6 +631,8 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
 
   const [isSlideshowActive, setIsSlideshowActive] = useState(true);
   const [slideshowDelay, setSlideshowDelay] = useState(5000);
+  const isFirstSlideshowActivationRef = useRef(true); // Track first activation for initial delay
+
 
   // State for the new multi-step animation flow
   type AnimationState = 'idle' | 'generatingKeywords' | 'selectingKeywords' | 'enhancingPrompt';
@@ -780,8 +792,16 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
 
   const resetInactivityTimer = useCallback(() => {
     if (slideshowTimerRef.current) clearTimeout(slideshowTimerRef.current);
-    if (isLoading || isVideo || !isSlideshowActive) return;
-    slideshowTimerRef.current = window.setTimeout(startSlideshowLoop, slideshowDelay);
+    if (isLoading || isVideo || !isSlideshowActive) {
+      // Reset first activation flag when slideshow is turned off
+      isFirstSlideshowActivationRef.current = true;
+      return;
+    }
+    // Add 2 second initial delay ONLY on first activation
+    const initialDelay = isFirstSlideshowActivationRef.current ? 2000 : 0;
+    slideshowTimerRef.current = window.setTimeout(startSlideshowLoop, slideshowDelay + initialDelay);
+    // Mark that we've had the first activation
+    isFirstSlideshowActivationRef.current = false;
   }, [startSlideshowLoop, isLoading, isVideo, isSlideshowActive, slideshowDelay]);
 
   useEffect(() => {
