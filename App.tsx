@@ -1215,7 +1215,7 @@ const App: React.FC = () => {
       try {
         let generatedResult: GenerationResult;
         if (taskType === 'image') {
-          generatedResult = await generateImageFromPrompt(prompt, runSettings, aspectRatio);
+          generatedResult = await generateImageFromPrompt(prompt, runSettings, aspectRatio, sourceImage);
           await handleSaveGeneratedImage(generatedResult.image, false, prompt);
         } else { // enhance
           generatedResult = await editImage(sourceImage, prompt, runSettings);

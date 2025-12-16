@@ -68,7 +68,7 @@ export const testProviderConnection = async (
     }
 };
 
-type FunctionName = 'analyzeImage' | 'detectSubject' | 'generateImageFromPrompt' | 'animateImage' | 'editImage' | 'generateKeywordsForPrompt' | 'enhancePromptWithKeywords' | 'adaptPromptToTheme';
+type FunctionName = 'analyzeImage' | 'detectSubject' | 'generateImageFromPrompt' | 'animateImage' | 'editImage' | 'generateKeywordsForPrompt' | 'enhancePromptWithKeywords' | 'adaptPromptToTheme' | 'captionImage' | 'tagImage';
 
 function getCapabilityForFunction(funcName: FunctionName): Capability {
     switch (funcName) {
@@ -80,6 +80,8 @@ function getCapabilityForFunction(funcName: FunctionName): Capability {
         case 'generateKeywordsForPrompt': return 'textGeneration';
         case 'enhancePromptWithKeywords': return 'textGeneration';
         case 'adaptPromptToTheme': return 'textGeneration';
+        case 'captionImage': return 'captioning';
+        case 'tagImage': return 'tagging';
     }
 }
 
@@ -120,18 +122,6 @@ async function executeWithFallback<T>(
             if (prompt.length > 900) {
                 try {
                     console.log("Grok prompt is too long, shortening...");
-                    // Try to find a text generation provider to shorten it
-                    // For now, specifically look for Gemini as it was hardcoded before
-                    // The previous code imported gemini.shortenPrompt directly.
-                    // Since shortenPrompt is not part of IAiProvider, we might need to cast or use a different approach.
-                    // For now, let's assume we can access the exported function from the module if we import it, 
-                    // OR we can use generateKeywords or similar? No.
-                    // Let's rely on the fact that we imported './providers/gemini' and it might export shortenPrompt.
-                    // But we can't access it easily here without importing * as gemini.
-
-                    // Alternative: Use a generic "adaptPrompt" or similar if available?
-                    // Or just skip shortening for now and let it fail/truncate?
-                    // Let's truncate for safety if we can't shorten.
                     finalCoreArgs[0] = prompt.substring(0, 900);
                 } catch (shortenError) {
                     console.error("Failed to shorten prompt; using truncated version.", shortenError);
@@ -144,7 +134,6 @@ async function executeWithFallback<T>(
             console.log(`Attempting ${funcName} with ${providerId}...`);
             onProgress?.({ provider: providerId, status: 'attempting' });
             // Call the function on the provider instance
-            // Note: We need to bind context if it uses 'this', but class methods should be fine.
             return await providerFunc.call(provider, ...finalCoreArgs, settings, onStatus);
         } catch (e: any) {
             lastError = e;
@@ -222,14 +211,10 @@ export const classifyImageSafety = async (
 };
 
 /**
- * Analyzes an image using the configured AI provider.
- * Automatically handles provider fallback and content safety checks.
- * 
- * @param image The image to analyze.
- * @param settings The admin settings.
- * @param onProgress Optional callback for progress updates (provider attempts).
- * @param onStatus Optional callback for status messages.
- * @returns The analysis result containing keywords and prompt.
+ * Analyzes an image using configured providers.
+ * Intelligently routes captioning and tagging requests based on routing settings.
+ * If routing is unified (same provider for all), it uses a single 'analyzeImage' call.
+ * If routing is split, it executes parallel requests to the respective specialists.
  */
 export const analyzeImage = async (
     image: ImageInfo,
@@ -237,7 +222,37 @@ export const analyzeImage = async (
     onProgress?: (update: { provider: AiProvider, status: 'attempting' | 'failed_attempt', message?: string }) => void,
     onStatus?: (message: string) => void
 ): Promise<ImageAnalysisResult> => {
-    const result = await executeWithFallback<ImageAnalysisResult>(settings, 'analyzeImage', [image], onProgress, onStatus);
+    // Check routing configuration
+    const captionRoute = settings.routing.captioning || [];
+    const taggingRoute = settings.routing.tagging || [];
+
+    // Default to vision if these are empty (migration safety)
+    const visionRoute = settings.routing.vision || [];
+    const effectiveCaptionProvider = captionRoute.length > 0 ? captionRoute[0] : visionRoute[0];
+    const effectiveTaggingProvider = taggingRoute.length > 0 ? taggingRoute[0] : visionRoute[0];
+
+    let result: ImageAnalysisResult;
+
+    // Optimization: If both capabilities are routed to the SAME provider, use the unified 'analyzeImage' call
+    // to save time and API costs (most providers do both in one pass).
+    // Ensure that provider is also the primary vision provider to use valid routing logic.
+    if (effectiveCaptionProvider === effectiveTaggingProvider && effectiveCaptionProvider === visionRoute[0]) {
+        result = await executeWithFallback<ImageAnalysisResult>(settings, 'analyzeImage', [image], onProgress, onStatus);
+    } else {
+        // Split execution
+        if (onStatus) onStatus('Running distributed analysis (Captions + Tags)...');
+
+        const captionPromise = executeWithFallback<string>(settings, 'captionImage', [image], onProgress);
+        const taggingPromise = executeWithFallback<string[]>(settings, 'tagImage', [image], onProgress);
+
+        const [recreationPrompt, keywords] = await Promise.all([captionPromise, taggingPromise]);
+
+        result = {
+            recreationPrompt,
+            keywords,
+            // Stats omitted for combined calls
+        };
+    }
 
     if (settings.contentSafety?.enabled &&
         settings.contentSafety?.autoClassify &&
@@ -264,6 +279,20 @@ export const analyzeImage = async (
     return result;
 };
 
+export const captionImage = async (
+    image: ImageInfo,
+    settings: AdminSettings
+): Promise<string> => {
+    return executeWithFallback(settings, 'captionImage', [image]);
+};
+
+export const tagImage = async (
+    image: ImageInfo,
+    settings: AdminSettings
+): Promise<string[]> => {
+    return executeWithFallback(settings, 'tagImage', [image]);
+};
+
 export const detectSubject = async (
     image: ImageInfo,
     settings: AdminSettings
@@ -275,7 +304,7 @@ export const generateImageFromPrompt = async (
     prompt: string,
     settings: AdminSettings,
     aspectRatio: AspectRatio,
-    sourceImage?: ImageInfo // Add optional source image
+    sourceImage?: ImageInfo
 ): Promise<GenerationResult> => {
     return executeWithFallback(settings, 'generateImageFromPrompt', [prompt, aspectRatio, sourceImage]);
 };
@@ -325,4 +354,3 @@ export const adaptPromptToTheme = async (
         return `${theme}, ${originalPrompt}`;
     }
 };
-

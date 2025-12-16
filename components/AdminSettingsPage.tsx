@@ -20,11 +20,20 @@ type AdminTab = 'providers' | 'routing' | 'performance' | 'appearance' | 'conten
 const MOONDREAM_MODELS = [
     { id: 'moondream-2', name: 'Moondream 2 (Vision)' },
     { id: 'moondream-3-preview', name: 'Moondream 3 Preview (Vision)' },
+    { id: 'joycaption-alpha-2', name: 'JoyCaption (Detailed Description)' },
+    { id: 'florence-2-large', name: 'Florence-2 (Analysis & OCR)' },
+    { id: 'wd14-vit-v2', name: 'WD14 Tagger (Tags & Organization)' },
     { id: 'sdxl-realism', name: 'SDXL Realism (Generation)' },
     { id: 'sdxl-anime', name: 'SDXL Anime (Generation)' },
     { id: 'sdxl-surreal', name: 'SDXL Surreal (Generation)' },
     { id: 'nsfw-detector', name: 'NSFW Detector' }
 ];
+
+const getMoondreamModelName = (id: string | null) => {
+    if (!id) return 'Default';
+    const model = MOONDREAM_MODELS.find(m => m.id === id);
+    return model ? model.name : id;
+};
 
 const DEFAULTS: AdminSettings = {
     providers: {
@@ -44,11 +53,13 @@ const DEFAULTS: AdminSettings = {
             generationModel: 'grok-2-image-1212',
         },
         moondream_cloud: {
-            apiKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJrZXlfaWQiOiJiZWI0OGYwZS02YmFhLTQ5ZTctYmJjMS04Njg1MDQxZThkY2QiLCJvcmdfaWQiOiJKcjY5UVBuRjFhMWEzS1Q2bUR6dTRWWk1iM3dvOUVHd0ZvIiwiaWF0IjoxNzYyNzc4NjQ0LCJ2ZXIiOjF9.sqnDOllPIfJHnnbteIlRYO1ArqTg3dAkQ5ZBG1AzMiE',
+            apiKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJrZXlfaWQiOiJiZWI0OGYwZS02YmFhLTQ5ZTctYmJjMS04Njg1MDQxMThkY2QiLCJvcmdfaWQiOiJKcjY5UVBuRjFhMWEzS1Q2bUR6dTRWWk1iM3dvOUVHd0ZvIiwiaWF0IjoxNzYyNzc4NjQ0LCJ2ZXIiOjF9.sqnDOllPIfJHnnbteIlRYO1ArqTg3dAkQ5ZBG1AzMiE',
         },
         moondream_local: {
-            endpoint: 'http://localhost:2021/v1',
+            endpoint: 'http://127.0.0.1:2020',
             model: 'moondream-2',
+            captionModel: null,
+            taggingModel: null
         },
         openai: {
             apiKey: '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',
@@ -69,6 +80,8 @@ const DEFAULTS: AdminSettings = {
         animation: ['gemini', 'comfyui'],
         editing: ['moondream_local', 'gemini', 'comfyui'],
         textGeneration: ['openai', 'gemini', 'grok'],
+        captioning: ['gemini', 'moondream_local', 'grok'],
+        tagging: ['moondream_local', 'gemini'],
     },
     performance: {
         downscaleImages: true,
@@ -299,7 +312,10 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel,
             providers: mergedProviders,
             routing: {
                 ...DEFAULTS.routing,
-                ...currentSettings.routing
+                ...currentSettings.routing,
+                // Ensure new capabilities are present even if not in currentSettings
+                captioning: currentSettings.routing?.captioning || DEFAULTS.routing.captioning,
+                tagging: currentSettings.routing?.tagging || DEFAULTS.routing.tagging,
             },
             performance: {
                 ...DEFAULTS.performance,
@@ -325,6 +341,52 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel,
         moondream_local: 'idle',
         comfyui: 'idle',
     });
+
+    // Dynamic Moondream Models
+    // Assuming MOONDREAM_MODELS is defined elsewhere or using a sensible default if not.
+    // For this example, we'll use a placeholder if MOONDREAM_MODELS is not globally available.
+    const [availableMoondreamModels, setAvailableMoondreamModels] = useState<Array<{ id: string, name: string }>>(
+        (typeof MOONDREAM_MODELS !== 'undefined' ? MOONDREAM_MODELS : [{ id: 'moondream2', name: 'Moondream 2 (Default)' }])
+    );
+
+    useEffect(() => {
+        const fetchModels = async () => {
+            const endpoint = settings.providers.moondream_local.endpoint;
+            if (!endpoint) return;
+
+            try {
+                // Remove trailing slash and /v1 if present for base URL construction if needed, 
+                // but usually the endpoint IS the base or include /v1.
+                // Default is http://127.0.0.1:2020 which is base.
+
+                // Construct URL: Ensure no double slashes
+                const baseUrl = endpoint.replace(/\/v1\/?$/, '').replace(/\/$/, '');
+                const url = `${baseUrl}/v1/models`;
+
+                const res = await fetch(url);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.models && Array.isArray(data.models)) {
+                        setAvailableMoondreamModels(data.models);
+                    }
+                } else {
+                    console.warn(`Failed to fetch dynamic Moondream models from ${url}: ${res.statusText}`);
+                }
+            } catch (e) {
+                console.warn("Failed to fetch dynamic Moondream models, using defaults.", e);
+            }
+        };
+
+        // Debounce slightly or just run
+        const timer = setTimeout(fetchModels, 500);
+        return () => clearTimeout(timer);
+    }, [settings.providers.moondream_local.endpoint]);
+
+    const getDynamicModelName = (id: string | null) => {
+        if (!id) return 'Default';
+        const model = availableMoondreamModels.find(m => m.id === id);
+        return model ? model.name : id;
+    };
 
     // Debounce timer for settings changes
     const debounceTimer = useRef<number | null>(null);
@@ -640,10 +702,53 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel,
                             onChange={(e) => handleProviderChange(provider as any, 'model', e.target.value)}
                             className="w-full mt-1 bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
                         >
-                            {MOONDREAM_MODELS.map(model => (
+                            {availableMoondreamModels.map(model => (
                                 <option key={model.id} value={model.id}>{model.name}</option>
                             ))}
                         </select>
+                    </div>
+
+                    <div className="space-y-4 border-t border-gray-700/50 pt-3 mt-3">
+                        <p className="text-xs text-indigo-300 font-semibold uppercase tracking-wider">Advanced Routing Overrides</p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div>
+                                <label className="block text-xs font-medium text-gray-400 mb-1">
+                                    Captioning Model
+                                </label>
+                                <select
+                                    value={providerSetting.captionModel || ''}
+                                    onChange={(e) => handleProviderChange(provider as any, 'captionModel', e.target.value || null)}
+                                    className="w-full bg-gray-800 border border-gray-700 rounded-md px-2 py-1.5 text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-xs"
+                                >
+                                    <option value="">Use Default ({getDynamicModelName(providerSetting.model)})</option>
+                                    {availableMoondreamModels.map(model => (
+                                        <option key={`cap-${model.id}`} value={model.id}>
+                                            {model.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-medium text-gray-400 mb-1">
+                                    Tagging Model
+                                </label>
+                                <select
+                                    value={providerSetting.taggingModel || ''}
+                                    onChange={(e) => handleProviderChange(provider as any, 'taggingModel', e.target.value || null)}
+                                    className="w-full bg-gray-800 border border-gray-700 rounded-md px-2 py-1.5 text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-xs"
+                                >
+                                    <option value="">Use Default ({getDynamicModelName(providerSetting.model)})</option>
+                                    {availableMoondreamModels.map(model => (
+                                        <option key={`tag-${model.id}`} value={model.id}>
+                                            {model.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                        <p className="text-[10px] text-gray-500 italic">
+                            These models are used when "Moondream Local" is selected for the specific capability in the Routing tab.
+                        </p>
                     </div>
                     <div className="mt-4 pt-2 border-t border-gray-700/50">
                         <RestartServerButton endpoint={providerSetting.endpoint} />
@@ -728,81 +833,121 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, onCancel,
                     </div>
                 );
             case 'routing':
+                const ROUTING_GROUPS = [
+                    {
+                        name: "Image Analysis & Search",
+                        description: "Configure specific models for understanding your library. You can assign different specialist models for general analysis, captioning, and tagging.",
+                        capabilities: ['vision', 'captioning', 'tagging'] as Capability[]
+                    },
+                    {
+                        name: "Creative Studio",
+                        description: "Configure models for creating and modifying content.",
+                        capabilities: ['generation', 'animation', 'editing', 'textGeneration'] as Capability[]
+                    }
+                ];
+
                 return (
-                    <div className="space-y-4 animate-fade-in">
-                        <h2 className="text-2xl font-bold text-white mb-4">Capabilities Routing</h2>
-                        <p className="text-sm text-gray-400 mb-6">For each capability, add providers to create a fallback chain. The app will try them in order from top to bottom.</p>
-                        <div className="space-y-4">
-                            {Object.entries(capabilityDetails).filter(([key]) => key in settings.routing).map(([cap, details]) => {
-                                const capability = cap as Capability;
-                                const route = settings.routing[capability] || [];
-                                return (
-                                    <div key={capability} className="p-4 bg-gray-800/50 rounded-lg border border-gray-700">
-                                        <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                                            <details.icon className="w-5 h-5 text-indigo-400" />
-                                            {details.name}
-                                        </h3>
-                                        <p className="text-xs text-gray-400 mt-1 mb-3">{details.description}</p>
-                                        <div className="space-y-2">
-                                            {route.map((providerId, index) => (
-                                                <div key={providerId} className="flex items-center gap-2 bg-gray-700/50 p-2 rounded-md transition-all hover:bg-gray-700">
-                                                    <div className="relative">
-                                                        <select
-                                                            value={index}
-                                                            onChange={(e) => handleRoutingReorder(capability, index, parseInt(e.target.value))}
-                                                            className="appearance-none text-xs font-bold text-indigo-300 bg-indigo-900/50 pl-2 pr-6 py-1 rounded-full cursor-pointer hover:bg-indigo-900/80 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                                            title="Change order"
-                                                        >
-                                                            {route.map((_, i) => (
-                                                                <option key={i} value={i} className="bg-gray-800 text-gray-200">
-                                                                    {i + 1}
-                                                                </option>
-                                                            ))}
-                                                        </select>
-                                                        {/* Custom Arrow because appearance-none hides it */}
-                                                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-1.5 text-indigo-300">
-                                                            <svg className="fill-current h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
-                                                        </div>
-                                                    </div>
-                                                    <span className="text-sm text-gray-200 flex-grow font-medium">{capabilityDetails[providerId as AiProvider]?.name || providerId}</span>
-                                                    <button onClick={() => handleRoutingChange(capability, providerId as AiProvider)} className="p-1 text-gray-500 hover:text-red-400 transition-colors rounded hover:bg-gray-600/50" title="Remove provider">
-                                                        <XCircleIcon className="w-5 h-5" />
-                                                    </button>
-                                                </div>
-                                            ))}
-                                            {route.length === 0 && (
-                                                <div className="text-center p-3 border-2 border-dashed border-gray-600 rounded-md">
-                                                    <p className="text-sm text-gray-500">No providers assigned. Add one from below.</p>
-                                                </div>
-                                            )}
-                                        </div>
-                                        <div className="mt-3">
-                                            <h4 className="text-xs font-semibold text-gray-400 mb-2">Available Providers (Click to Add)</h4>
-                                            <div className="flex flex-wrap gap-2">
-                                                {(Object.keys(providerCapabilities) as AiProvider[]).map(providerId => {
-                                                    const isCapable = providerCapabilities[providerId][capability];
-                                                    const isRouted = route.includes(providerId);
-                                                    const isConfigured = isCapabilityConfigured(providerId, capability);
-                                                    if (!isCapable || isRouted) return null;
-                                                    return (
-                                                        <button
-                                                            key={providerId}
-                                                            onClick={() => handleRoutingChange(capability, providerId)}
-                                                            disabled={!isConfigured}
-                                                            title={!isConfigured ? `${capabilityDetails[providerId]?.name} is not fully configured for this capability.` : `Add ${capabilityDetails[providerId]?.name} to fallback chain.`}
-                                                            className="flex items-center gap-1.5 text-xs py-1 px-2.5 rounded-md transition-colors bg-gray-600 hover:bg-gray-500 text-gray-200 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed"
-                                                        >
-                                                            {isConfigured ? <CheckCircleIcon className="w-3.5 h-3.5 text-green-500" /> : <XCircleIcon className="w-3.5 h-3.5 text-red-500" />}
-                                                            {capabilityDetails[providerId]?.name || providerId}
-                                                        </button>
-                                                    );
-                                                })}
-                                            </div>
-                                        </div>
-                                    </div>
-                                );
-                            })}
+                    <div className="space-y-8 animate-fade-in">
+                        <div className="mb-6">
+                            <h2 className="text-2xl font-bold text-white mb-2">Capabilities Routing</h2>
+                            <p className="text-sm text-gray-400">
+                                Define which AI models handle which tasks. You can chain multiple providers for reliability; if the first fails, the next will be attempted.
+                            </p>
                         </div>
+
+                        {ROUTING_GROUPS.map(group => (
+                            <div key={group.name} className="space-y-4">
+                                <div className="border-b border-gray-700 pb-2 mb-4">
+                                    <h3 className="text-xl font-bold text-indigo-400 flex items-center gap-2">
+                                        {group.name}
+                                    </h3>
+                                    <p className="text-xs text-gray-500 mt-1">{group.description}</p>
+                                </div>
+
+                                <div className="space-y-4">
+                                    {group.capabilities.map(cap => {
+                                        const details = capabilityDetails[cap];
+                                        const route = settings.routing[cap] || [];
+
+                                        // Skip if capability definition is missing (safety)
+                                        if (!details) return null;
+
+                                        return (
+                                            <div key={cap} className="p-4 bg-gray-800/50 rounded-lg border border-gray-700 hover:border-gray-600 transition-colors">
+                                                <div className="flex items-center gap-3 mb-3">
+                                                    <div className="p-2 bg-gray-700/50 rounded-lg text-indigo-400">
+                                                        <details.icon className="w-5 h-5" />
+                                                    </div>
+                                                    <div>
+                                                        <h4 className="text-lg font-bold text-white">{details.name}</h4>
+                                                        <p className="text-xs text-gray-400">{details.description}</p>
+                                                    </div>
+                                                </div>
+
+                                                <div className="space-y-2 mb-4">
+                                                    {route.map((providerId, index) => (
+                                                        <div key={providerId} className="flex items-center gap-2 bg-gray-700/50 p-2 rounded-md transition-all hover:bg-gray-700">
+                                                            <div className="relative">
+                                                                <select
+                                                                    value={index}
+                                                                    onChange={(e) => handleRoutingReorder(cap, index, parseInt(e.target.value))}
+                                                                    className="appearance-none text-xs font-bold text-indigo-300 bg-indigo-900/50 pl-2 pr-6 py-1 rounded-full cursor-pointer hover:bg-indigo-900/80 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                                                    title="Change order"
+                                                                >
+                                                                    {route.map((_, i) => (
+                                                                        <option key={i} value={i} className="bg-gray-800 text-gray-200">
+                                                                            {i + 1}
+                                                                        </option>
+                                                                    ))}
+                                                                </select>
+                                                                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-1.5 text-indigo-300">
+                                                                    <svg className="fill-current h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
+                                                                </div>
+                                                            </div>
+                                                            <span className="text-sm text-gray-200 flex-grow font-medium">{capabilityDetails[providerId as AiProvider]?.name || providerId}</span>
+                                                            <button onClick={() => handleRoutingChange(cap, providerId as AiProvider)} className="p-1 text-gray-500 hover:text-red-400 transition-colors rounded hover:bg-gray-600/50" title="Remove provider">
+                                                                <XCircleIcon className="w-5 h-5" />
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                    {route.length === 0 && (
+                                                        <div className="text-center p-3 border-2 border-dashed border-gray-600 rounded-md bg-gray-800/30">
+                                                            <p className="text-sm text-gray-500">No providers assigned. Select one below.</p>
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                <div>
+                                                    <h5 className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Available Providers</h5>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {(Object.keys(providerCapabilities) as AiProvider[]).map(providerId => {
+                                                            const isCapable = providerCapabilities[providerId][cap];
+                                                            const isRouted = route.includes(providerId);
+                                                            const isConfigured = isCapabilityConfigured(providerId, cap);
+
+                                                            if (!isCapable || isRouted) return null;
+
+                                                            return (
+                                                                <button
+                                                                    key={providerId}
+                                                                    onClick={() => handleRoutingChange(cap, providerId)}
+                                                                    disabled={!isConfigured}
+                                                                    title={!isConfigured ? `${capabilityDetails[providerId]?.name} is not fully configured for this capability.` : `Add ${capabilityDetails[providerId]?.name} to fallback chain.`}
+                                                                    className="flex items-center gap-1.5 text-xs py-1.5 px-3 rounded-full transition-colors bg-gray-700 hover:bg-gray-600 text-gray-300 border border-gray-600 hover:border-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                >
+                                                                    {isConfigured ? <CheckCircleIcon className="w-3.5 h-3.5 text-green-500" /> : <XCircleIcon className="w-3.5 h-3.5 text-red-500" />}
+                                                                    {capabilityDetails[providerId]?.name || providerId}
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 );
             case 'appearance':

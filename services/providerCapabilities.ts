@@ -10,6 +10,8 @@ export const providerCapabilities: Record<AiProvider, ProviderCapabilities> = {
     animation: true,
     editing: true,
     textGeneration: true,
+    captioning: true,
+    tagging: true,
   },
   openai: {
     vision: false,
@@ -17,6 +19,8 @@ export const providerCapabilities: Record<AiProvider, ProviderCapabilities> = {
     animation: false,
     editing: false,
     textGeneration: true,
+    captioning: true,
+    tagging: false,
   },
   grok: {
     vision: true,
@@ -24,6 +28,8 @@ export const providerCapabilities: Record<AiProvider, ProviderCapabilities> = {
     animation: false,
     editing: false,
     textGeneration: true,
+    captioning: true,
+    tagging: false,
   },
   moondream_cloud: {
     vision: true,
@@ -31,6 +37,8 @@ export const providerCapabilities: Record<AiProvider, ProviderCapabilities> = {
     animation: false,
     editing: false,
     textGeneration: false,
+    captioning: true,
+    tagging: true,
   },
   moondream_local: {
     vision: true,
@@ -38,6 +46,8 @@ export const providerCapabilities: Record<AiProvider, ProviderCapabilities> = {
     animation: false,
     editing: true,
     textGeneration: false,
+    captioning: true,
+    tagging: true,
   },
   comfyui: {
     vision: false,
@@ -45,6 +55,8 @@ export const providerCapabilities: Record<AiProvider, ProviderCapabilities> = {
     animation: true,
     editing: true,
     textGeneration: false,
+    captioning: false,
+    tagging: false,
   },
 };
 
@@ -53,6 +65,16 @@ export const capabilityDetails: Record<Capability | AiProvider, { name: string; 
   vision: {
     name: 'Image Analysis & Search',
     description: 'Analyzes images to generate keywords and descriptions for searching.',
+    icon: SearchIcon
+  },
+  captioning: {
+    name: 'Image Captioning',
+    description: 'Generates detailed natural language descriptions of images (e.g. for Alt text or detailed analysis).',
+    icon: SearchIcon
+  },
+  tagging: {
+    name: 'Image Tagging',
+    description: 'Extracts specific keywords and tags from images (e.g. for organizing and searching).',
     icon: SearchIcon
   },
   generation: {

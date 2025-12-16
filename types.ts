@@ -10,6 +10,8 @@ export interface ProviderCapabilities {
   animation: boolean;
   editing: boolean;
   textGeneration: boolean;
+  captioning: boolean; // For robust natural language descriptions (e.g., JoyCaption, Gemini)
+  tagging: boolean; // For keyword extraction (e.g., WD14, Moondream)
 }
 
 export type Capability = keyof ProviderCapabilities;
@@ -49,6 +51,24 @@ export interface IAiProvider {
    * Detects the main subject in an image and returns its center coordinates.
    * Required for 'vision' capability.
    */
+  /**
+   * Generates a natural language caption for an image.
+   * Required for 'captioning' capability.
+   */
+  captionImage?(
+    image: ImageInfo,
+    settings: AdminSettings
+  ): Promise<string>;
+
+  /**
+   * Generates a list of tags/keywords for an image.
+   * Required for 'tagging' capability.
+   */
+  tagImage?(
+    image: ImageInfo,
+    settings: AdminSettings
+  ): Promise<string[]>;
+
   detectSubject?(image: ImageInfo, settings: AdminSettings): Promise<{ x: number, y: number }>; // Returns center coordinates (0-100)
 
   /**
@@ -193,6 +213,8 @@ export interface AdminSettings {
     moondream_local: {
       endpoint: string | null;
       model: string | null;
+      captionModel: string | null;
+      taggingModel: string | null;
     };
     openai: {
       apiKey: string | null;
@@ -356,6 +378,58 @@ export interface GenerationResult {
   image: string; // base64 data URL or remote URL
   stats?: ProviderStats;
   metadata?: any;
+}
+
+// Advanced Generation Settings (for text/image to image)
+export interface GenerationSettings {
+  provider: AiProvider;
+  model: string; // e.g., 'sdxl-realism', 'flux-dev'
+  steps: number; // 1-150, optimal 28-35
+  denoise: number; // 0-100%, for img2img how much to change
+  cfg_scale: number; // 0-20, guidance scale, optimal 6-8
+  seed: number; // -1 for random
+  width?: number; // Output width (if not using aspect ratio)
+  height?: number; // Output height (if not using aspect ratio)
+}
+
+// AI Model Settings for Restoration (2025 Best Practices)
+export interface AIModelSettings {
+  model: 'sdxl' | 'sdxl-lightning' | 'flux' | 'flux-schnell'; // Model type
+  steps: number; // 8-50, recommended 28-35
+  cfg_scale: number; // 0.0-16.0, recommended 6.0-8.0 for img2img
+  denoise_strength: number; // 0-100%, recommended 25-35% for restoration
+  enhancement_prompt?: string; // Complementary prompt (not descriptive)
+  negative_prompt?: string; // What to avoid
+  seed?: number; // -1 for random, or specific seed for reproducibility
+  // Upscale specific
+  target_megapixels?: number; // 2 to 42
+  tiled?: boolean; // For low VRAM
+  provider?: AiProvider;
+}
+
+// Upscale Settings (for image enhancement)
+export interface UpscaleSettings {
+  provider: AiProvider;
+  model: string; // e.g., 'real-esrgan-x4plus', 'sd-upscale'
+  method: 'esrgan' | 'real-esrgan' | 'latent' | 'sd-upscale';
+  targetMegapixels: 2 | 4 | 6 | 8 | 16 | 24 | 32 | 42; // Target output resolution in megapixels
+  tiled: boolean; // Enable tiling for low VRAM GPUs
+  tile_size: 512 | 1024; // Tile size in pixels
+  tile_overlap: 8 | 16 | 32; // Overlap to avoid seams
+  denoise: number; // 0-100%, for SD upscale method
+  steps?: number; // For SD upscale method
+}
+
+// Preset for saving/loading settings
+export interface GenerationPreset {
+  id: string;
+  name: string;
+  taskType: 'img2img' | 'txt2img' | 'upscale';
+  generation?: GenerationSettings;
+  upscale?: UpscaleSettings;
+  isDefault: boolean;
+  createdAt: number;
+  updatedAt: number;
 }
 
 // Queue Types

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { ImageInfo, AdminSettings, User, AspectRatio } from '../types';
-import { CloseIcon, ChevronLeftIcon, ChevronRightIcon, CopyIcon, SparklesIcon, VideoCameraIcon, DownloadIcon, WandIcon, WarningIcon, RefreshIcon, CropIcon, PlayIcon, StopIcon } from './icons';
+import { CloseIcon, ChevronLeftIcon, ChevronRightIcon, CopyIcon, SparklesIcon, VideoCameraIcon, DownloadIcon, WandIcon, WarningIcon, RefreshIcon, CropIcon, PlayIcon, StopIcon, ArrowLeftRightIcon, UpscaleIcon } from './icons';
 import Spinner from './Spinner';
 import { isAnyProviderConfiguredFor, generateKeywordsForPrompt, enhancePromptWithKeywords } from '../services/aiService';
 import { logger } from '../services/loggingService';
@@ -34,7 +34,6 @@ interface ImageViewerProps {
 
 interface ActionButtonsProps {
   image: ImageInfo;
-  activePrompt?: string; // Prompt to use for actions
   onRecreate: (aspectRatio: AspectRatio, promptOverride?: string) => void;
   onAnimate: (aspectRatio: AspectRatio) => void; // Animation usually needs dedicated prompt or uses active
   onEnhance: () => void;
@@ -48,7 +47,7 @@ interface ActionButtonsProps {
   isFloating: boolean;
 }
 
-const ActionButtons: React.FC<ActionButtonsProps> = ({ image, activePrompt, onRecreate, onAnimate, onEnhance, onRegenerateCaption, onSmartCrop, isSmartCropping, isSmartFilled, isPreparingAnimation, settings, currentUser, isFloating }) => {
+const ActionButtons: React.FC<ActionButtonsProps> = ({ image, onRecreate, onAnimate, onEnhance, onRegenerateCaption, onSmartCrop, isSmartCropping, isSmartFilled, isPreparingAnimation, settings, currentUser, isFloating }) => {
   const supportedAR = image.aspectRatio ? getClosestSupportedAspectRatio(image.aspectRatio) : '1:1';
   const reversedAR = reverseAspectRatio(supportedAR) as AspectRatio;
 
@@ -66,7 +65,7 @@ const ActionButtons: React.FC<ActionButtonsProps> = ({ image, activePrompt, onRe
   const getGenerationTooltip = (ar: string) => {
     if (!currentUser) return "Sign in to generate images with AI.";
     if (!canGenerate) return `No provider is configured for image generation. Please check settings.`;
-    return `Recreate with AI (${ar})`;
+    return `Image to Image (${ar})`;
   }
 
   const getAnimationTooltip = () => {
@@ -78,10 +77,10 @@ const ActionButtons: React.FC<ActionButtonsProps> = ({ image, activePrompt, onRe
   }
 
   const getEnhanceTooltip = () => {
-    if (!currentUser) return "Sign in to enhance images with AI.";
+    if (!currentUser) return "Sign in to upscale images with AI.";
     if (!canEnhance) return `No provider is configured for image editing. Please check settings.`;
-    if (image.isVideo && !image.videoUrl) return "Cannot enhance an offline video.";
-    return `Enhance & Upscale`;
+    if (image.isVideo && !image.videoUrl) return "Cannot upscale an offline video.";
+    return `Upscale`;
   }
 
   const getRegenerateTooltip = () => {
@@ -121,13 +120,13 @@ const ActionButtons: React.FC<ActionButtonsProps> = ({ image, activePrompt, onRe
       <div title={getEnhanceTooltip()}>
         <button
           onClick={() => {
-            logger.track('User Action: Enhance', { imageId: image.id });
+            logger.track('User Action: Upscale', { imageId: image.id });
             onEnhance();
           }}
           className={`${buttonClass} bg-purple-600/80 hover:bg-purple-600`}
           disabled={!canEnhance || isPreparingAnimation || !currentUser || isOfflineVideo}
         >
-          <WandIcon className={iconClass} />
+          <UpscaleIcon className={iconClass} />
         </button>
       </div>
       {onRegenerateCaption && (
@@ -155,21 +154,21 @@ const ActionButtons: React.FC<ActionButtonsProps> = ({ image, activePrompt, onRe
       </div>
       <div title={getGenerationTooltip(supportedAR)}>
         <button
-          onClick={() => onRecreate(supportedAR, activePrompt)}
+          onClick={() => onRecreate(supportedAR, image.recreationPrompt)}
           className={`${buttonClass} bg-indigo-600/80 hover:bg-indigo-600`}
-          disabled={!canGenerate || isPreparingAnimation || !currentUser}
+          disabled={!canGenerate || isPreparingAnimation || !currentUser || !image.recreationPrompt}
         >
-          <SparklesIcon className={iconClass} />
+          <ArrowLeftRightIcon className={iconClass} />
         </button>
       </div>
       {!isFloating && supportedAR !== '1:1' && (
         <div title={getGenerationTooltip(reversedAR)}>
           <button
-            onClick={() => onRecreate(reversedAR, activePrompt)}
+            onClick={() => onRecreate(reversedAR, image.recreationPrompt)}
             className={`${buttonClass} bg-indigo-600/80 hover:bg-indigo-600`}
-            disabled={!canGenerate || isPreparingAnimation || !currentUser}
+            disabled={!canGenerate || isPreparingAnimation || !currentUser || !image.recreationPrompt}
           >
-            <SparklesIcon className={`${iconClass} transform rotate-90`} />
+            <ArrowLeftRightIcon className={`${iconClass} transform rotate-90`} />
           </button>
         </div>
       )}
@@ -509,7 +508,6 @@ const MetadataPanel: React.FC<MetadataPanelProps> = ({
               <div className="flex flex-col gap-2 justify-end w-full">
                 <ActionButtons
                   image={image}
-                  activePrompt={activeText} // Pass the visible text
                   onRecreate={onRecreate}
                   onAnimate={onAnimate}
                   onEnhance={onEnhance}
@@ -537,7 +535,6 @@ const MetadataPanel: React.FC<MetadataPanelProps> = ({
       <div className={`lg:hidden p-3 border-t border-white/10 bg-black/40 backdrop-blur-xl flex items-center justify-between gap-3 shrink-0 ${isVisible ? 'block' : 'hidden'}`}>
         <ActionButtons
           image={image}
-          activePrompt={activeText}
           onRecreate={onRecreate}
           onAnimate={onAnimate}
           onEnhance={onEnhance}

@@ -42,8 +42,21 @@ export class GeminiProvider extends BaseProvider {
     generation: true,
     animation: true,
     editing: true,
-    textGeneration: true
+    textGeneration: true,
+    captioning: true,
+    tagging: true
   };
+
+  async captionImage(image: ImageInfo, settings: AdminSettings): Promise<string> {
+    const result = await this.analyzeImage(image, settings);
+    return result.recreationPrompt;
+  }
+
+  async tagImage(image: ImageInfo, settings: AdminSettings): Promise<string[]> {
+    const result = await this.analyzeImage(image, settings);
+    return result.keywords;
+  }
+
 
   validateConfig(settings: AdminSettings): boolean {
     return !!settings.providers.gemini.apiKey;

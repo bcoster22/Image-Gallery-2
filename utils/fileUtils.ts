@@ -18,7 +18,43 @@ export const dataUrlToBase64 = (dataUrl: string): string => {
 };
 
 export const dataUrlToBlob = (dataUrl: string): Promise<Blob> => {
-  return fetch(dataUrl).then(res => res.blob());
+  return new Promise((resolve, reject) => {
+    try {
+      // Trim any whitespace
+      const trimmedDataUrl = dataUrl.trim();
+
+      const parts = trimmedDataUrl.split(',');
+      if (parts.length < 2) {
+        throw new Error('Invalid Data URL format');
+      }
+
+      const matches = parts[0].match(/^data:(.+);base64$/);
+      if (!matches || matches.length < 2) {
+        throw new Error('Data URL must be base64 encoded');
+      }
+
+      const mimeType = matches[1];
+      // Remove any whitespace from base64 string (common issue)
+      const base64 = parts[1].replace(/\s/g, '');
+
+      // Validate base64 characters
+      if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) {
+        throw new Error('Invalid base64 characters in data URL');
+      }
+
+      // Convert base64 to binary
+      const binaryString = atob(base64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      const blob = new Blob([bytes], { type: mimeType });
+      resolve(blob);
+    } catch (error) {
+      reject(error);
+    }
+  });
 };
 
 export const getMimeTypeFromDataUrl = (dataUrl: string): string => {

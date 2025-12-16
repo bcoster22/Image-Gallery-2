@@ -173,8 +173,20 @@ export class MoondreamCloudProvider extends BaseProvider {
     generation: false,
     animation: false,
     editing: false,
-    textGeneration: false
+    textGeneration: false,
+    captioning: true,
+    tagging: true
   };
+
+  async captionImage(image: ImageInfo, settings: AdminSettings): Promise<string> {
+    const result = await this.analyzeImage(image, settings);
+    return result.recreationPrompt;
+  }
+
+  async tagImage(image: ImageInfo, settings: AdminSettings): Promise<string[]> {
+    const result = await this.analyzeImage(image, settings);
+    return result.keywords;
+  }
 
   validateConfig(settings: AdminSettings): boolean {
     return !!settings.providers.moondream_cloud.apiKey;
@@ -267,12 +279,63 @@ export class MoondreamLocalProvider extends BaseProvider {
     generation: true,
     animation: false,
     editing: true,
-    textGeneration: false
+    textGeneration: false,
+    captioning: true,
+    tagging: true
   };
 
   validateConfig(settings: AdminSettings): boolean {
     return !!settings.providers.moondream_local.endpoint;
   }
+
+  // ... (testConnection remains same)
+
+  async captionImage(image: ImageInfo, settings: AdminSettings): Promise<string> {
+    const config = settings.providers.moondream_local;
+    const modelOverride = config.captionModel;
+
+    let effectiveSettings = settings;
+    if (modelOverride) {
+      effectiveSettings = {
+        ...settings,
+        providers: {
+          ...settings.providers,
+          moondream_local: {
+            ...config,
+            model: modelOverride
+          }
+        }
+      };
+    }
+
+    // If the selected model is specific (e.g. JoyCaption), the backend needs to handle it.
+    // Our AnalyzeImage implementation sends 'model' in the body.
+    const result = await this.analyzeImage(image, effectiveSettings);
+    return result.recreationPrompt;
+  }
+
+  async tagImage(image: ImageInfo, settings: AdminSettings): Promise<string[]> {
+    const config = settings.providers.moondream_local;
+    const modelOverride = config.taggingModel;
+
+    let effectiveSettings = settings;
+    if (modelOverride) {
+      effectiveSettings = {
+        ...settings,
+        providers: {
+          ...settings.providers,
+          moondream_local: {
+            ...config,
+            model: modelOverride
+          }
+        }
+      };
+    }
+
+    const result = await this.analyzeImage(image, effectiveSettings);
+    return result.keywords;
+  }
+
 
   async testConnection(settings: AdminSettings): Promise<void> {
     const endpoint = settings.providers.moondream_local.endpoint;
@@ -602,15 +665,17 @@ export class MoondreamLocalProvider extends BaseProvider {
       }
     }
 
+    const args = (providerConfig as any).args || {};
     const body: any = {
       prompt,
       model: selectedModel,
       width,
       height,
-      steps: 8, // Increased for higher quality
-      guidance_scale: 2.0, // Better detail retention
-      image: image.dataUrl, // Pass source image for img2img
-      strength: strength || 0.75 // Default to 0.75 if not provided
+      steps: args.steps || 8,
+      guidance_scale: args.guidance_scale || 2.0,
+      image: image.dataUrl,
+      strength: strength || 0.75,
+      negative_prompt: "blurry, low quality, low res, distorted, ugly, pixelated, text, watermark, bad anatomy, deformed"
     };
 
     try {
@@ -639,6 +704,11 @@ export class MoondreamLocalProvider extends BaseProvider {
         imageUrl = data.images[0];
       } else {
         imageUrl = data.image || data.url;
+      }
+
+      // Ensure Data URI prefix if raw base64
+      if (imageUrl && !imageUrl.startsWith('data:') && !imageUrl.startsWith('http')) {
+        imageUrl = `data:image/png;base64,${imageUrl}`;
       }
 
       const duration = (Date.now() - startTime) / 1000;

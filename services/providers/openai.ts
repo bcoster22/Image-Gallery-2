@@ -81,7 +81,9 @@ export class OpenAIProvider extends BaseProvider {
     generation: true,
     animation: false,
     editing: false,
-    textGeneration: true
+    textGeneration: true,
+    captioning: false,
+    tagging: false
   };
 
   validateConfig(settings: AdminSettings): boolean {

@@ -147,6 +147,8 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
 
   const [currentlyLoadedModels, setCurrentlyLoadedModels] = useState<Set<string>>(new Set());
   const [autoFixTriggered, setAutoFixTriggered] = useState<{ timestamp: number; active: boolean }>({ timestamp: 0, active: false });
+  const [autoFixEnabled, setAutoFixEnabled] = useState(false);
+  const [autoFixIntervalSeconds, setAutoFixIntervalSeconds] = useState(60);
 
   // CSS for hiding scrollbar
   const scrollbarHideStyle = `
@@ -375,10 +377,10 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
 
   // Auto-Fix Zombie Memory
   useEffect(() => {
-    if (otelMetrics?.ghost_memory?.detected) {
+    if (otelMetrics?.ghost_memory?.detected && autoFixEnabled) {
       const now = Date.now();
-      // Cooldown: 60 seconds between auto-fixes
-      if (now - autoFixTriggered.timestamp > 60000 && !autoFixTriggered.active) {
+      // Cooldown based on slider setting
+      if (now - autoFixTriggered.timestamp > (autoFixIntervalSeconds * 1000) && !autoFixTriggered.active) {
         console.log("[StatusPage] Zombie Memory Detected! Auto-fixing...");
         setAutoFixTriggered({ timestamp: now, active: true });
 
@@ -394,7 +396,7 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
         });
       }
     }
-  }, [otelMetrics, autoFixTriggered]); // Dependencies
+  }, [otelMetrics, autoFixTriggered, autoFixEnabled, autoFixIntervalSeconds]); // Dependencies
 
   const filteredStats = useMemo(() => {
     const now = Date.now();
@@ -657,6 +659,52 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
                         >
                           Normal Mode
                         </button>
+                      </div>
+
+                      {/* Maintenance Settings (New) */}
+                      <div className="bg-neutral-800/50 rounded-lg p-3 mb-2">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2 text-xs font-medium text-neutral-300">
+                            <Zap className="w-3.5 h-3.5 text-yellow-400" />
+                            Auto-Free Zombie VRAM
+                          </div>
+                          <button
+                            onClick={() => setAutoFixEnabled(!autoFixEnabled)}
+                            className={cn(
+                              "relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-neutral-900",
+                              autoFixEnabled ? "bg-indigo-600" : "bg-neutral-700"
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                "inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform",
+                                autoFixEnabled ? "translate-x-4.5" : "translate-x-1"
+                              )}
+                            />
+                          </button>
+                        </div>
+
+                        {autoFixEnabled && (
+                          <div className="space-y-1 animate-in fade-in slide-in-from-top-2 duration-200">
+                            <div className="flex justify-between text-[10px] text-neutral-400">
+                              <span>Cooldown Interval</span>
+                              <span className="text-white font-mono">{autoFixIntervalSeconds}s</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="30"
+                              max="300"
+                              step="30"
+                              value={autoFixIntervalSeconds}
+                              onChange={(e) => setAutoFixIntervalSeconds(parseInt(e.target.value))}
+                              className="w-full h-1.5 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-indigo-500 hover:accent-indigo-400"
+                            />
+                            <div className="flex justify-between text-[10px] text-neutral-500">
+                              <span>30s</span>
+                              <span>5m</span>
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-2 w-full">

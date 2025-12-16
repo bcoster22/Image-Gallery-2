@@ -12,7 +12,9 @@ export class GrokProvider extends BaseProvider {
     generation: true,
     animation: false,
     editing: false,
-    textGeneration: true
+    textGeneration: true,
+    captioning: true,
+    tagging: false
   };
 
   validateConfig(settings: AdminSettings): boolean {
