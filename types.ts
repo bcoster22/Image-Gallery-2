@@ -156,6 +156,7 @@ export interface User {
   thumbnailSize?: number;
   thumbnailHoverScale?: number;
   disableSmartCropNotifications?: boolean;
+  autoSaveToGallery?: boolean; // Control if creations appear in My Gallery automatically
 }
 
 export interface GeminiSafetySettings {
@@ -277,6 +278,7 @@ export interface ImageInfo {
   videoUrl?: string; // Blob URL
   isGenerating?: boolean;
   source?: 'upload' | 'generated' | 'enhanced' | 'video' | 'prompt';
+  savedToGallery?: boolean; // If true, explicitly shown in My Gallery. If undefined, legacy behavior (uploads=true)
   // New fields for Civitai-style cards
   authorName?: string;
   authorAvatarUrl?: string;

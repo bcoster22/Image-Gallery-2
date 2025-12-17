@@ -600,6 +600,11 @@ export class MoondreamLocalProvider extends BaseProvider {
         imageUrl = data.image || data.url;
       }
 
+      // Ensure Data URI prefix if raw base64 (Consistency with editImage)
+      if (imageUrl && !imageUrl.startsWith('data:') && !imageUrl.startsWith('http')) {
+        imageUrl = `data:image/png;base64,${imageUrl}`;
+      }
+
       const duration = (Date.now() - startTime) / 1000;
       return {
         image: imageUrl,

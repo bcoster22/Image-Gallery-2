@@ -45,14 +45,20 @@ const MOCK_USERS = {
     name: 'Alex',
     email: 'alex@google.com',
     avatarUrl: `https://api.dicebear.com/8.x/adventurer/svg?seed=Alex`,
-    slideshowAdaptivePan: true
+    slideshowAdaptivePan: true,
+    slideshowSmartCrop: true,
+    disableSmartCropNotifications: true,
+    slideshowBounce: true
   },
   github: {
     id: 'user_github_456',
     name: 'Sam',
     email: 'sam@github.com',
     avatarUrl: `https://api.dicebear.com/8.x/adventurer/svg?seed=Sam`,
-    slideshowAdaptivePan: true
+    slideshowAdaptivePan: true,
+    slideshowSmartCrop: true,
+    disableSmartCropNotifications: true,
+    slideshowBounce: true
   },
 };
 
@@ -584,7 +590,9 @@ const App: React.FC = () => {
               },
               moondream_local: {
                 endpoint: oldSettings.moondreamEndpoint,
-                model: null,
+                model: 'moondream-2',
+                captionModel: 'moondream-2',
+                taggingModel: 'moondream-2',
               },
               openai: {
                 apiKey: oldSettings.openaiApiKey,
@@ -605,6 +613,8 @@ const App: React.FC = () => {
               animation: [migratedProvider],
               editing: [migratedProvider],
               textGeneration: [migratedProvider],
+              captioning: [migratedProvider],
+              tagging: [migratedProvider],
             },
             performance: {
               downscaleImages: true,
@@ -937,7 +947,7 @@ const App: React.FC = () => {
     handleCloseViewer();
   };
 
-  const saveImageToGallery = useCallback(async (dataUrl: string, isPublic: boolean, prompt?: string, source?: ImageInfo['source']) => {
+  const saveImageToGallery = useCallback(async (dataUrl: string, isPublic: boolean, prompt?: string, source?: ImageInfo['source'], savedToGallery?: boolean) => {
     if (!currentUser) {
       addNotification({ status: 'error', message: 'You must be signed in to save an image.' });
       return;
@@ -958,6 +968,7 @@ const App: React.FC = () => {
         isPublic,
         recreationPrompt: prompt,
         source,
+        savedToGallery,
         // New fields for card UI
         authorName: currentUser.name,
         authorAvatarUrl: currentUser.avatarUrl,
@@ -985,8 +996,9 @@ const App: React.FC = () => {
 
   const handleSaveGeneratedImage = useCallback(async (base64Image: string, isPublic: boolean, prompt: string) => {
     addPromptToHistory(prompt);
-    saveImageToGallery(`data:image/png;base64,${base64Image}`, isPublic, prompt, 'generated');
-  }, [addPromptToHistory, saveImageToGallery]);
+    const dataUrl = base64Image.startsWith('data:') ? base64Image : `data:image/png;base64,${base64Image}`;
+    saveImageToGallery(dataUrl, isPublic, prompt, 'generated', currentUser?.autoSaveToGallery);
+  }, [addPromptToHistory, saveImageToGallery, currentUser]);
 
   const handleRegenerateCaption = useCallback(async (imageId: string) => {
     const imageToRegenerate = images.find(img => img.id === imageId);
@@ -1029,8 +1041,9 @@ const App: React.FC = () => {
 
   const handleSaveEnhancedImage = useCallback(async (base64Image: string, isPublic: boolean, prompt: string) => {
     addPromptToHistory(prompt);
-    saveImageToGallery(`data:image/png;base64,${base64Image}`, isPublic, prompt, 'enhanced');
-  }, [addPromptToHistory, saveImageToGallery]);
+    const dataUrl = base64Image.startsWith('data:') ? base64Image : `data:image/png;base64,${base64Image}`;
+    saveImageToGallery(dataUrl, isPublic, prompt, 'enhanced', currentUser?.autoSaveToGallery);
+  }, [addPromptToHistory, saveImageToGallery, currentUser]);
 
   const handleStartAnimation = useCallback(async (
     sourceImage: ImageInfo | null,
@@ -1562,10 +1575,15 @@ const App: React.FC = () => {
     if (galleryView === 'public') {
       displayedImages = images.filter(img => img.isPublic);
     } else if (galleryView === 'my-gallery' && currentUser) {
-      displayedImages = images.filter(img => img.ownerId === currentUser.id);
+      // Show images owned by user AND (uploaded OR explicitly saved to gallery)
+      // savedToGallery === undefined is treated as TRUE for backwards compatibility (old uploads)
+      displayedImages = images.filter(img =>
+        img.ownerId === currentUser.id &&
+        (img.source === 'upload' || !img.source || img.savedToGallery !== false)
+      );
     } else if (galleryView === 'creations') {
-      // Include completed creations (generated/enhanced images)
-      displayedImages = images.filter(img => img.source && img.source !== 'upload' && !img.isGenerating);
+      // Include completed creations (generated/enhanced images), filtered by user
+      displayedImages = images.filter(img => img.source && img.source !== 'upload' && !img.isGenerating && (!currentUser || img.ownerId === currentUser.id));
     } else {
       displayedImages = [];
     }
@@ -1984,7 +2002,7 @@ const App: React.FC = () => {
                 </div>
               </div>
 
-              {(galleryView === 'public' || galleryView === 'my-gallery') && (
+              {(galleryView === 'public' || galleryView === 'my-gallery' || galleryView === 'creations') && (
                 <TagFilterBar
                   allTags={allTags}
                   activeTags={activeTags}
@@ -2010,12 +2028,15 @@ const App: React.FC = () => {
               ) : galleryView === 'creations' && currentUser ? (
                 <CreationsPage
                   tasks={generationTasks}
-                  completedCreations={completedCreations.filter(c => c.ownerId === currentUser.id)}
-                  onImageSelect={handleImageSelect}
+                  completedCreations={filteredImages} // Use filtered images for search/tags support
+                  onImageClick={handleGridItemClick}
                   analyzingIds={analyzingIds}
                   generatingIds={generatingSourceIds}
                   disabled={isSearchingSimilar}
                   onClearFailedTasks={handleClearFailedTasks}
+                  isSelectionMode={isSelectionMode}
+                  selectedIds={selectedIds}
+                  onSelectionChange={handleSelectionChange}
                 />
               ) : galleryView === 'prompt-history' && currentUser ? (
                 <PromptHistoryPage

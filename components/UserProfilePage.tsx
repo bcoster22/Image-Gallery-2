@@ -355,6 +355,32 @@ const UserProfilePage: React.FC<UserProfilePageProps> = ({
                         <div className="space-y-6 animate-fade-in">
                             <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-6">
                                 <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+                                    <ViewfinderIcon className="w-5 h-5 text-indigo-400" />
+                                    Workflow
+                                </h3>
+                                <div className="bg-gray-800 p-4 rounded-xl border border-gray-700 hover:border-gray-600 transition-colors mb-6">
+                                    <div className="flex justify-between items-center">
+                                        <div>
+                                            <div className="font-medium text-white">Auto-save to My Gallery</div>
+                                            <div className="text-xs text-gray-400 mt-1">
+                                                Automatically show new creations in your main gallery view.
+                                            </div>
+                                        </div>
+                                        <label className="relative inline-flex items-center cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                className="sr-only peer"
+                                                checked={!!user.autoSaveToGallery}
+                                                onChange={(e) => onUpdateUser({ ...user, autoSaveToGallery: e.target.checked })}
+                                            />
+                                            <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-focus:ring-2 peer-focus:ring-indigo-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div className="h-px bg-gray-700/50 my-6"></div>
+
+                                <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
                                     <Layout className="w-5 h-5 text-indigo-400" />
                                     Gallery Layout
                                 </h3>
