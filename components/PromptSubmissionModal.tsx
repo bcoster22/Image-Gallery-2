@@ -4,6 +4,7 @@ import { CloseIcon, SparklesIcon, VideoCameraIcon, WandIcon } from './icons';
 import EnhancePlayer from './EnhancePlayer';
 import AIModelSettingsPanel from './AIModelSettingsPanel';
 import AdvancedSettingsPanel from './AdvancedSettingsPanel';
+import GenerationPlayer from './GenerationPlayer';
 import * as aiService from '../services/aiService';
 
 export interface PromptModalConfig {
@@ -24,7 +25,12 @@ interface PromptSubmissionModalProps {
     }) => void;
     config: PromptModalConfig | null;
     promptHistory: string[];
+    negativePromptHistory?: string[];
+    onSaveNegativePrompt?: (prompt: string) => void;
     settings: AdminSettings | null;
+    onSaveGeneratedImage?: (dataUrl: string, prompt: string, metadata?: any) => void;
+    onAddToGenerationQueue?: (items: import('../types').QueueItem[]) => void;
+    queuedGenerationCount?: number;
 }
 
 const titles = {
@@ -33,11 +39,28 @@ const titles = {
     enhance: { icon: WandIcon, text: "Enhance & Upscale Image" },
 }
 
-const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, onClose, onSubmit, config, promptHistory, settings }) => {
+const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, onClose, onSubmit, config, promptHistory, negativePromptHistory = [], onSaveNegativePrompt, settings, onSaveGeneratedImage, onAddToGenerationQueue, queuedGenerationCount = 0 }) => {
     const [prompt, setPrompt] = useState('');
-    const [selectedAspectRatio, setSelectedAspectRatio] = useState<AspectRatio | undefined>(undefined);
+    const [negativePrompt, setNegativePrompt] = useState('');
+    const [selectedAspectRatio, setSelectedAspectRatio] = useState<AspectRatio | undefined>('9:16');
     const [useSourceImage, setUseSourceImage] = useState(true);
-    const [selectedProvider, setSelectedProvider] = useState<AiProvider | 'auto'>('auto');
+    const [selectedProvider, setSelectedProvider] = useState<string>('auto');
+
+    // Player State (Txt2Img)
+    const [generatedImage, setGeneratedImage] = useState<{ id: string; url: string } | null>(null);
+    const [sessionImages, setSessionImages] = useState<{ id: string; url: string }[]>([]);
+    const [currentImageIndex, setCurrentImageIndex] = useState<number>(-1);
+
+    const [isGenerating, setIsGenerating] = useState(false);
+    const [progress, setProgress] = useState(0);
+    const [batchCount, setBatchCount] = useState(1);
+    const [completedInBatch, setCompletedInBatch] = useState(0);
+    const [autoSave, setAutoSave] = useState(true);
+    const [autoSeedAdvance, setAutoSeedAdvance] = useState(false);
+    const [autoPlay, setAutoPlay] = useState(true);
+    const [randomAspectRatio, setRandomAspectRatio] = useState(false);
+    // Random Ratio Pool
+    const [enabledRandomRatios, setEnabledRandomRatios] = useState<AspectRatio[]>(['1:1', '16:9', '9:16', '4:3', '3:4']);
 
     // State for Advanced Settings
     const [advancedSettings, setAdvancedSettings] = useState<GenerationSettings | UpscaleSettings | null>(null);
@@ -50,10 +73,19 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, o
         negative_prompt: 'blur, noise, artifacts, distortion',
         seed: -1
     });
-
     useEffect(() => {
         if (config) {
-            setPrompt(config.initialPrompt);
+            // Parse Negative Prompt if present
+            const fullPrompt = config.initialPrompt;
+            if (fullPrompt.includes('| negative:')) {
+                const parts = fullPrompt.split('| negative:');
+                setPrompt(parts[0].trim());
+                setNegativePrompt(parts[1].trim());
+            } else {
+                setPrompt(fullPrompt);
+                setNegativePrompt('');
+            }
+
             setSelectedAspectRatio(config.aspectRatio);
             // Default to using the source image if one is provided, UNLESS it's a video task where explicitly set otherwise.
             // Actually, logic is: video usually behaves better with just prompt unless specified.
@@ -79,11 +111,135 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, o
                     steps: 30,
                     denoise: 75,
                     cfg_scale: 7,
-                    seed: -1
+                    seed: -1,
+                    ratio: config.aspectRatio || '1:1'
                 } as GenerationSettings);
             }
         }
     }, [config]);
+
+    // Derived Logic for Mode
+    const isPlayerMode = config?.taskType === 'image' && !config.image;
+
+    // Sync current image view
+    useEffect(() => {
+        if (currentImageIndex >= 0 && currentImageIndex < sessionImages.length) {
+            setGeneratedImage(sessionImages[currentImageIndex]);
+        }
+    }, [currentImageIndex, sessionImages]);
+
+    // Slideshow / Auto-Play Logic
+    useEffect(() => {
+        let interval: NodeJS.Timeout;
+
+        // Mode 1: During Generation -> handled by the generation loop (always jumps to latest if autoPlay is on)
+
+        // Mode 2: After Generation (Review) -> Cycle through images
+        if (autoPlay && !isGenerating && sessionImages.length > 1) {
+            interval = setInterval(() => {
+                setCurrentImageIndex(prev => {
+                    // Loop back to start
+                    if (prev >= sessionImages.length - 1) return 0;
+                    return prev + 1;
+                });
+            }, 3000); // 3s per slide
+        }
+
+        return () => clearInterval(interval);
+    }, [autoPlay, isGenerating, sessionImages.length]);
+
+    // Handlers for Player
+    const handlePlayerGenerate = async () => {
+        if (!prompt || isGenerating || !settings) return;
+
+        console.log('[PromptSubmissionModal] handlePlayerGenerate called');
+        console.log('[PromptSubmissionModal] onAddToGenerationQueue:', onAddToGenerationQueue);
+
+        // Queue mode is REQUIRED for memory safety
+        if (!onAddToGenerationQueue) {
+            console.error('[PromptSubmissionModal] ERROR: onAddToGenerationQueue callback is missing!');
+            alert('Generation queue is not available. Please refresh the page.');
+            return;
+        }
+
+        // Create queue items
+        const queueItems: import('../types').QueueItem[] = [];
+        let currentSeed = (advancedSettings as GenerationSettings)?.seed ?? -1;
+
+        for (let i = 0; i < batchCount; i++) {
+            // Determine aspect ratio for this generation
+            let currentAspectRatio = selectedAspectRatio || '1:1';
+            if (randomAspectRatio) {
+                const ratios = enabledRandomRatios.length > 0 ? enabledRandomRatios : ['1:1', '16:9', '9:16', '4:3', '3:4'];
+                currentAspectRatio = ratios[Math.floor(Math.random() * ratios.length)];
+            }
+
+            // Construct final prompt with negative
+            const finalPrompt = negativePrompt.trim() ? `${prompt} | negative: ${negativePrompt}` : prompt;
+
+            // Snapshot of generation settings for this item
+            const genSettings: GenerationSettings = {
+                provider: (selectedProvider === 'auto' ? 'moondream_local' : selectedProvider) as AiProvider,
+                model: (advancedSettings as GenerationSettings)?.model || 'flux-dev',
+                steps: (advancedSettings as GenerationSettings)?.steps || 28,
+                denoise: (advancedSettings as GenerationSettings)?.denoise || 100,
+                cfg_scale: (advancedSettings as GenerationSettings)?.cfg_scale || 7,
+                seed: currentSeed
+            };
+
+            queueItems.push({
+                id: crypto.randomUUID(),
+                taskType: 'generate',
+                fileName: `${prompt.slice(0, 30)}... [${i + 1}/${batchCount}]`,
+                addedAt: Date.now(),
+                data: {
+                    prompt: finalPrompt,
+                    aspectRatio: currentAspectRatio,
+                    sourceImage: config?.image,
+                    generationSettings: genSettings
+                }
+            });
+
+            // Auto-advance seed if enabled
+            if (autoSeedAdvance && currentSeed !== -1) {
+                currentSeed += 1;
+            }
+        }
+
+        // Save negative prompt to history
+        if (negativePrompt.trim() && onSaveNegativePrompt) {
+            onSaveNegativePrompt(negativePrompt.trim());
+        }
+
+        console.log('[PromptSubmissionModal] Adding', queueItems.length, 'items to queue');
+
+        // Add to queue and close modal
+        onAddToGenerationQueue(queueItems);
+        onClose();
+        return;
+    };
+
+    const handlePlayerSave = () => {
+        if (generatedImage && onSaveGeneratedImage) {
+            const metadata = {
+                provider: selectedProvider,
+                model: (advancedSettings as GenerationSettings)?.model || 'unknown',
+                steps: (advancedSettings as GenerationSettings)?.steps,
+                cfg: (advancedSettings as GenerationSettings)?.cfg_scale,
+                seed: (advancedSettings as GenerationSettings)?.seed,
+                aspectRatio: selectedAspectRatio || '1:1'
+            };
+            onSaveGeneratedImage(generatedImage.url, prompt, metadata);
+        }
+    };
+
+    const handlePrev = () => {
+        if (currentImageIndex > 0) setCurrentImageIndex(currentImageIndex - 1);
+    };
+
+    const handleNext = () => {
+        if (currentImageIndex < sessionImages.length - 1) setCurrentImageIndex(currentImageIndex + 1);
+    };
 
     const availableModels = useMemo(() => {
         if (!settings || !config) return [];
@@ -97,10 +253,7 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, o
             if (providers.grok.apiKey) models.push({ id: 'grok', name: 'xAI Grok', model: providers.grok.generationModel });
             if (providers.comfyui.endpoint) models.push({ id: 'comfyui', name: 'ComfyUI (Local)', model: 'Workflow' });
             if (providers.moondream_local.endpoint) {
-                // Add Local SDXL Models
-                models.push({ id: 'moondream_local', name: 'Local SDXL', model: 'sdxl-realism' });
-                models.push({ id: 'moondream_local', name: 'Local SDXL', model: 'sdxl-anime' });
-                models.push({ id: 'moondream_local', name: 'Local SDXL', model: 'sdxl-surreal' });
+                models.push({ id: 'moondream_local', name: 'Moondream Local', model: providers.moondream_local.model });
             }
         } else if (config.taskType === 'video') {
             if (providers.gemini.apiKey) models.push({ id: 'gemini', name: 'Google Veo', model: providers.gemini.veoModel });
@@ -113,6 +266,51 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, o
 
         return models;
     }, [settings, config]);
+
+    // Dynamic Model Options Logic
+    const currentModelOptions = useMemo(() => {
+        if (!selectedProvider || selectedProvider === 'auto' || !settings) return [];
+
+        // Moondream Local specific options
+        if (selectedProvider === 'moondream_local') {
+            return [
+                { value: 'sdxl-realism', label: 'SDXL Realism (Lightning)' },
+                { value: 'sdxl-anime', label: 'SDXL Anime (Pony)' },
+                { value: 'sdxl-surreal', label: 'SDXL Surreal (DreamShaper)' }
+            ];
+        }
+
+        // Gemini
+        if (selectedProvider === 'gemini') {
+            return [
+                { value: 'imagen-3.0-generate-001', label: 'Imagen 3' },
+                { value: 'imagen-3.0-fast-generate-001', label: 'Imagen 3 Fast' }
+            ];
+        }
+
+        // OpenAI
+        if (selectedProvider === 'openai') {
+            return [
+                { value: 'dall-e-3', label: 'DALL-E 3' },
+                { value: 'dall-e-2', label: 'DALL-E 2' }
+            ];
+        }
+
+        // Grok
+        if (selectedProvider === 'grok') {
+            return [
+                { value: 'grok-2-vision-1212', label: 'Grok 2 Vision' }
+            ];
+        }
+
+        // Fallback or use configured model
+        const configuredModel = availableModels.find(m => m.id === selectedProvider)?.model;
+        if (configuredModel) {
+            return [{ value: configuredModel, label: configuredModel }];
+        }
+
+        return [];
+    }, [selectedProvider, settings, availableModels]);
 
     if (!isOpen || !config) return null;
 
@@ -179,7 +377,63 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, o
                     }}
                     hasNext={false}
                     hasPrev={false}
+
                     availableProviders={availableModels.map(m => ({ id: m.id, name: m.name }))}
+                />
+            </div>
+        );
+    };
+
+    const renderPlayerMode = () => {
+        if (!advancedSettings) return <div className="flex-grow flex items-center justify-center text-gray-500">Initializing...</div>;
+        return (
+            <div className="flex-grow flex flex-col h-full overflow-hidden bg-black">
+                <GenerationPlayer
+                    prompt={prompt}
+                    onPromptChange={setPrompt}
+                    negativePrompt={negativePrompt}
+                    onNegativePromptChange={setNegativePrompt}
+
+                    settings={advancedSettings as GenerationSettings}
+                    onSettingsChange={(s) => setAdvancedSettings(s)}
+
+                    availableProviders={availableModels.map(m => ({ id: m.id, name: m.name }))}
+                    selectedProvider={selectedProvider}
+                    onProviderChange={setSelectedProvider}
+
+                    aspectRatio={selectedAspectRatio || '1:1'}
+                    onAspectRatioChange={setSelectedAspectRatio}
+
+                    generatedImage={generatedImage}
+                    isGenerating={isGenerating}
+                    progress={progress}
+
+                    onGenerate={handlePlayerGenerate}
+                    onSave={handlePlayerSave}
+                    onClose={onClose}
+
+                    modelOptions={currentModelOptions}
+
+                    batchCount={batchCount}
+                    onBatchCountChange={setBatchCount}
+                    autoSave={autoSave}
+                    onAutoSaveChange={setAutoSave}
+                    autoSeedAdvance={autoSeedAdvance}
+                    onAutoSeedAdvanceChange={setAutoSeedAdvance}
+
+                    sessionImages={sessionImages}
+                    currentImageIndex={currentImageIndex}
+                    onPrev={handlePrev}
+                    onNext={handleNext}
+                    batchProgress={{ current: completedInBatch, total: batchCount }}
+                    autoPlay={autoPlay}
+                    onAutoPlayChange={setAutoPlay}
+                    randomAspectRatio={randomAspectRatio}
+                    onRandomAspectRatioChange={setRandomAspectRatio}
+                    enabledRandomRatios={enabledRandomRatios}
+                    onEnabledRandomRatiosChange={setEnabledRandomRatios}
+
+                    negativePromptHistory={negativePromptHistory}
                 />
             </div>
         );
@@ -347,36 +601,46 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, o
             onClick={onClose}
         >
             <div
-                className={`bg-gray-800 rounded-lg shadow-xl w-full ${isEnhanceMode ? 'w-[95vw] h-[95vh] max-w-none' : 'max-w-4xl max-h-[90vh]'} m-4 border border-gray-700 relative animate-fade-in flex flex-col transition-all duration-300`}
+                className={`bg-gray-800 rounded-lg shadow-xl w-full ${isEnhanceMode || isPlayerMode ? 'w-[95vw] h-[95vh] max-w-none' : 'max-w-4xl max-h-[90vh]'} m-4 border border-gray-700 relative animate-fade-in flex flex-col transition-all duration-300`}
                 onClick={(e) => e.stopPropagation()}
             >
-                <header className="flex items-center justify-between p-4 border-b border-gray-700 flex-shrink-0">
-                    <div className="flex items-center">
-                        <TitleIcon className="w-6 h-6 mr-3 text-indigo-400" />
-                        <h2 className="text-xl font-bold text-white">{titles[taskType].text}</h2>
-                    </div>
-                    <button
-                        onClick={onClose}
-                        className="text-gray-400 hover:text-white transition-colors"
-                    >
-                        <CloseIcon className="w-6 h-6" />
-                    </button>
-                </header>
+                {!(isEnhanceMode || isPlayerMode) && (
+                    <header className="flex items-center justify-between p-4 border-b border-gray-700 flex-shrink-0">
+                        <div className="flex items-center gap-3">
+                            <TitleIcon className="w-6 h-6 text-indigo-400" />
+                            <h2 className="text-xl font-bold text-white">{titles[taskType].text}</h2>
+                            {queuedGenerationCount > 0 && (
+                                <div className="px-2.5 py-1 bg-indigo-500/20 text-indigo-300 rounded-full border border-indigo-500/30 text-xs font-semibold flex items-center gap-1.5 animate-pulse">
+                                    <div className="w-2 h-2 bg-indigo-400 rounded-full animate-pulse"></div>
+                                    {queuedGenerationCount} in queue
+                                </div>
+                            )}
+                        </div>
+                        <button
+                            onClick={onClose}
+                            className="text-gray-400 hover:text-white transition-colors"
+                        >
+                            <CloseIcon className="w-6 h-6" />
+                        </button>
+                    </header>
+                )}
 
                 {/* Conditional Main Content */}
-                {isEnhanceMode ? renderEnhanceMode() : renderStandardMode()}
+                {isEnhanceMode ? renderEnhanceMode() : isPlayerMode ? renderPlayerMode() : renderStandardMode()}
 
-                <footer className="p-4 border-t border-gray-700 flex justify-end flex-shrink-0">
-                    <button
-                        onClick={handleSubmit}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-6 rounded-lg transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                        disabled={!prompt && !isEnhanceMode} // Enhance mode doesn't strictly need a prompt typed in textarea
-                    >
-                        {taskType === 'image' && 'Generate Image'}
-                        {taskType === 'video' && 'Generate Video'}
-                        {taskType === 'enhance' && 'Enhance'}
-                    </button>
-                </footer>
+                {!(isEnhanceMode || isPlayerMode) && (
+                    <footer className="p-4 border-t border-gray-700 flex justify-end flex-shrink-0">
+                        <button
+                            onClick={handleSubmit}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-6 rounded-lg transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                            disabled={!prompt && !isEnhanceMode} // Enhance mode doesn't strictly need a prompt typed in textarea
+                        >
+                            {taskType === 'image' && 'Generate Image'}
+                            {taskType === 'video' && 'Generate Video'}
+                            {taskType === 'enhance' && 'Enhance'}
+                        </button>
+                    </footer>
+                )}
             </div>
             <style>{`
                   @keyframes fade-in {

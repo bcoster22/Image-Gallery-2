@@ -293,6 +293,16 @@ export interface ImageInfo {
     predictions?: Array<{ label: string; score: number }>;
     lastChecked?: number; // timestamp
   };
+  generationMetadata?: {
+    provider?: string;
+    model?: string;
+    steps?: number;
+    cfg?: number;
+    seed?: number;
+    sampler?: string;
+    scheduler?: string;
+    loras?: string[];
+  };
 }
 
 export interface GenerationTask {
@@ -443,6 +453,24 @@ export interface ActiveJob {
   size: number; // in bytes
   startTime: number;
   taskType?: JobTaskType;
+}
+
+
+export interface QueueItem {
+  id: string;
+  taskType: JobTaskType;
+  fileName: string; // For display
+  addedAt: number;
+  // Specific data for the task
+  data: {
+    // For analysis
+    image?: ImageInfo;
+    // For generation
+    prompt?: string;
+    aspectRatio?: AspectRatio;
+    sourceImage?: ImageInfo;
+    generationSettings?: GenerationSettings; // Snapshot of settings
+  };
 }
 
 export interface QueueStatus {

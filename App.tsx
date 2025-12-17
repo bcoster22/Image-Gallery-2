@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 // FIX: Added AppSettings to import for settings migration.
-import { ImageInfo, AdminSettings, User, GenerationTask, Notification, AspectRatio, GalleryView, AiProvider, UploadProgress, AppSettings, AnalysisProgress, QueueStatus, ActiveJob, GenerationResult, GenerationSettings, UpscaleSettings } from './types';
+import { ImageInfo, AdminSettings, User, GenerationTask, Notification, AspectRatio, GalleryView, AiProvider, UploadProgress, AppSettings, AnalysisProgress, QueueStatus, ActiveJob, GenerationResult, GenerationSettings, UpscaleSettings, QueueItem } from './types';
 import { analyzeImage, animateImage, editImage, generateImageFromPrompt, adaptPromptToTheme, FallbackChainError, detectSubject } from './services/aiService';
 import { fileToDataUrl, getImageMetadata, dataUrlToBlob, generateVideoThumbnail, createGenericPlaceholder, extractAIGenerationMetadata, resizeImage, getClosestSupportedAspectRatio } from './utils/fileUtils';
 import { RateLimitedApiQueue } from './utils/rateLimiter';
@@ -37,7 +37,17 @@ const SETTINGS_STORAGE_KEY = 'ai_gallery_settings_v2'; // Updated key for new st
 const OLD_SETTINGS_STORAGE_KEY = 'ai_gallery_settings'; // Old key for migration
 const USER_STORAGE_KEY = 'ai_gallery_user';
 const PROMPTS_STORAGE_KEY = 'ai_gallery_prompts';
+const NEGATIVE_PROMPTS_STORAGE_KEY = 'ai_gallery_negative_prompts';
 const MAX_PROMPT_HISTORY = 100;
+
+const DEFAULT_NEGATIVE_PROMPTS = [
+  "blur, noise, grain, low resolution, deformed, distorted, disfigured, bad anatomy, bad hands, missing limbs, floating limbs, disconnected limbs, mutation, mutated, ugly, disgusting, watermark, text",
+  "nsfw, nude, naked, uncensored, shirtless, cleavage, sexual, gore, violence, blood",
+  "cartoon, anime, sketch, 3d, vector, monochrome, b&w, painting, drawing, illustration",
+  "low quality, jpeg artifacts, compression artifacts, terrible quality, lowres",
+  "oversaturated, high contrast, bad lighting, wash out",
+  "duplicate, copy, multi, two faces, multiple subjects"
+];
 
 const MOCK_USERS = {
   google: {
@@ -266,6 +276,7 @@ const App: React.FC = () => {
   const [triggerBulkDownload, setTriggerBulkDownload] = useState(false);
   const idleTimerRef = useRef<number | null>(null);
   const [promptHistory, setPromptHistory] = useState<string[]>([]);
+  const [negativePromptHistory, setNegativePromptHistory] = useState<string[]>([]);
 
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [showHealthDashboard, setShowHealthDashboard] = useState(false);
@@ -306,7 +317,7 @@ const App: React.FC = () => {
   }, []);
 
   // Adaptive Concurrency State
-  const queueRef = useRef<ImageInfo[]>([]);
+  const queueRef = useRef<QueueItem[]>([]);
   const activeRequestsRef = useRef<number>(0);
   const isPausedRef = useRef<boolean>(false);
   const activeJobsRef = useRef<ActiveJob[]>([]); // Track active job details
@@ -314,6 +325,7 @@ const App: React.FC = () => {
   const [concurrencyLimit, setConcurrencyLimit] = useState(1);
   const consecutiveSuccesses = useRef(0);
   const MAX_CONCURRENCY = 5;
+  const queuedGenerationIds = useRef<Set<string>>(new Set());
 
   const [queueStatus, setQueueStatus] = useState<QueueStatus>({
     activeCount: 0,
@@ -331,12 +343,12 @@ const App: React.FC = () => {
       pendingCount: queueRef.current.length,
       isPaused: isPausedRef.current,
       activeJobs: [...activeJobsRef.current],
-      queuedJobs: queueRef.current.map(img => ({
-        id: img.id,
-        fileName: img.fileName,
-        size: img.dataUrl.length,
-        startTime: Date.now(), // Placeholder, strictly it's not started
-        taskType: 'analysis'
+      queuedJobs: queueRef.current.map(item => ({
+        id: item.id,
+        fileName: item.fileName,
+        size: item.data.image ? item.data.image.dataUrl.length : 0,
+        startTime: item.addedAt,
+        taskType: item.taskType
       })),
       concurrencyLimit: concurrencyLimit
     });
@@ -357,153 +369,186 @@ const App: React.FC = () => {
     if (activeRequestsRef.current >= concurrencyLimit) return;
 
     while (activeRequestsRef.current < concurrencyLimit && queueRef.current.length > 0) {
-      const imageToAnalyze = queueRef.current.shift();
-      if (!imageToAnalyze) {
+      const task = queueRef.current.shift();
+      if (!task) {
         syncQueueStatus();
         break;
       }
 
-      // Double-check if we should still proceed
-      if (!queuedAnalysisIds.current.has(imageToAnalyze.id)) {
-        syncQueueStatus();
-        continue;
+      // For analysis, check if we should still proceed
+      if (task.taskType === 'analysis' && task.data.image) {
+        if (!queuedAnalysisIds.current.has(task.data.image.id)) {
+          syncQueueStatus();
+          continue;
+        }
       }
 
       activeRequestsRef.current++;
 
       // Add to active jobs list
       const job: ActiveJob = {
-        id: imageToAnalyze.id,
-        fileName: imageToAnalyze.fileName,
-        size: imageToAnalyze.dataUrl.length, // Approximate size in chars
+        id: task.id,
+        fileName: task.fileName,
+        size: task.data.image ? task.data.image.dataUrl.length : 0,
         startTime: Date.now(),
-        taskType: 'analysis'
+        taskType: task.taskType
       };
       activeJobsRef.current.push(job);
       syncQueueStatus();
 
-      // Start analysis task
+      // EXECUTE TASK
       (async () => {
-        setAnalysisProgress(prev => ({
-          ...prev!,
-          fileName: imageToAnalyze.fileName,
-        }));
-
-        // Note: Notification is handled per image start
-        addNotification({ id: imageToAnalyze.id, status: 'processing', message: `Analyzing ${imageToAnalyze.fileName}...` });
-
         try {
-          let imageForAnalysis = { ...imageToAnalyze };
-          if (settings?.performance?.downscaleImages) {
-            const resizedUrl = await resizeImage(imageToAnalyze.dataUrl, { maxDimension: settings.performance.maxAnalysisDimension });
-            imageForAnalysis.dataUrl = resizedUrl;
+          if (task.taskType === 'analysis' && task.data.image) {
+            // --- EXISTING ANALYSIS LOGIC ---
+            const imageToAnalyze = task.data.image;
+            setAnalysisProgress(prev => ({ ...prev!, fileName: imageToAnalyze.fileName }));
+            addNotification({ id: imageToAnalyze.id, status: 'processing', message: `Analyzing ${imageToAnalyze.fileName}...` });
+
+            let imageForAnalysis = { ...imageToAnalyze };
+            if (settings?.performance?.downscaleImages) {
+              const resizedUrl = await resizeImage(imageToAnalyze.dataUrl, { maxDimension: settings.performance.maxAnalysisDimension });
+              imageForAnalysis.dataUrl = resizedUrl;
+            }
+
+            const analysisMetadata = await analyzeImage(
+              imageForAnalysis,
+              settings!,
+              undefined,
+              (msg) => updateNotification(imageToAnalyze.id, { message: msg })
+            );
+
+            if (analysisMetadata.stats) {
+              setStatsHistory(prev => [...prev, {
+                timestamp: Date.now(),
+                tokensPerSec: analysisMetadata.stats!.tokensPerSec,
+                device: analysisMetadata.stats!.device
+              }]);
+            }
+
+            const updatedImage = { ...imageToAnalyze, ...analysisMetadata, analysisFailed: false };
+            setImages(prev => prev.map(img => img.id === imageToAnalyze.id ? updatedImage : img));
+            setSelectedImage(prev => (prev && prev.id === imageToAnalyze.id ? updatedImage : prev));
+            setSimilarImages(prev => prev.map(img => img.id === imageToAnalyze.id ? updatedImage : img));
+
+            saveImage(updatedImage);
+            updateNotification(imageToAnalyze.id, { status: 'success', message: `Successfully analyzed ${imageToAnalyze.fileName}.` });
+
+            // Update progress after each image (success or fail)
+            setAnalysisProgress(prev => {
+              if (!prev) return null;
+              const newCurrent = prev.current + 1;
+              // If we are done with this batch (current == total), clear progress
+              if (newCurrent >= prev.total) {
+                setTimeout(() => setAnalysisProgress(null), 1000);
+              }
+              return {
+                ...prev,
+                current: newCurrent,
+              };
+            });
+
+            // Remove from analyzing set
+            setAnalyzingIds(prev => {
+              const newSet = new Set(prev);
+              newSet.delete(imageToAnalyze.id);
+              return newSet;
+            });
+            queuedAnalysisIds.current.delete(imageToAnalyze.id);
+
+          } else if (task.taskType === 'generate' && task.data.prompt && task.data.aspectRatio) {
+            // --- NEW GENERATION LOGIC ---
+            addNotification({ id: task.id, status: 'processing', message: `Generating: ${task.fileName}...` });
+
+            const result = await generateImageFromPrompt(
+              task.data.prompt,
+              settings!,
+              task.data.aspectRatio,
+              task.data.sourceImage
+            );
+
+            if (result.image) {
+              // Metadata for saving
+              const meta = {
+                ...task.data.generationSettings,
+                aspectRatio: task.data.aspectRatio,
+                provider: settings!.providers[settings!.routing.generation[0]]?.apiKey ? settings!.routing.generation[0] : 'unknown'
+              };
+
+              await handleSaveGeneratedImage(result.image, false, task.data.prompt, meta);
+              addNotification({ id: task.id, status: 'success', message: `Generated: ${task.fileName}` });
+            } else {
+              throw new Error("No image data returned.");
+            }
           }
 
-          const analysisMetadata = await analyzeImage(
-            imageForAnalysis,
-            settings!,
-            undefined,
-            (msg) => updateNotification(imageToAnalyze.id, { message: msg })
-          );
-
-          if (analysisMetadata.stats) {
-            const newStat = {
-              timestamp: Date.now(),
-              tokensPerSec: analysisMetadata.stats.tokensPerSec,
-              device: analysisMetadata.stats.device
-            };
-            setStatsHistory(prev => [...prev, newStat]);
-          }
-
-          const updatedImage = { ...imageToAnalyze, ...analysisMetadata, analysisFailed: false };
-          setImages(prev => prev.map(img => img.id === imageToAnalyze.id ? updatedImage : img));
-
-          // Update selectedImage if it matches
-          setSelectedImage(prev => (prev && prev.id === imageToAnalyze.id ? updatedImage : prev));
-
-          // Update similarImages if it contains the image
-          setSimilarImages(prev => prev.map(img => img.id === imageToAnalyze.id ? updatedImage : img));
-
-          saveImage(updatedImage);
-          updateNotification(imageToAnalyze.id, { status: 'success', message: `Successfully analyzed ${imageToAnalyze.fileName}.` });
-
-          // Adaptive Concurrency: Increase on stable success
+          // Adaptive Concurrency Success
           consecutiveSuccesses.current++;
           if (consecutiveSuccesses.current >= 3 && concurrencyLimit < MAX_CONCURRENCY) {
-            setConcurrencyLimit(prev => {
-              const newLimit = prev + 1;
-              console.log(`Increasing concurrency limit to ${newLimit}`);
-              return newLimit;
-            });
+            setConcurrencyLimit(prev => prev + 1);
             consecutiveSuccesses.current = 0;
           }
+
+
         } catch (err: any) {
           const errorMessage = err.message || '';
+          console.error(`Task ${task.fileName} failed:`, errorMessage);
 
           // Check for "Queue is full" or similar backpressure errors
           if (errorMessage.includes("Queue is full") || errorMessage.includes("rejected")) {
-            console.warn(`Backpressure detected for ${imageToAnalyze.fileName}. Pausing queue.`);
-            updateNotification(imageToAnalyze.id, { status: 'warning', message: `Server busy. Re-queueing ${imageToAnalyze.fileName}...` });
-
-            // Pause and Re-queue
+            console.warn(`Backpressure. Pausing queue and re-queueing ${task.fileName}.`);
+            updateNotification(task.id, { status: 'warning', message: `Server busy. Re-queueing ${task.fileName}...` });
             isPausedRef.current = true;
-            queueRef.current.unshift(imageToAnalyze); // Put back at front
-            activeRequestsRef.current--;
-
-            // Adaptive Concurrency: Back off on pressure
-            setConcurrencyLimit(prev => {
-              const newLimit = Math.max(1, Math.floor(prev / 2));
-              console.log(`Backpressure detected. Reducing concurrency limit to ${newLimit}`);
-              return newLimit;
-            });
+            queueRef.current.unshift(task); // Re-queue
+            // Reduce concurrency
+            setConcurrencyLimit(prev => Math.max(1, Math.floor(prev / 2)));
             consecutiveSuccesses.current = 0;
+          } else {
+            updateNotification(task.id, { status: 'error', message: `Failed: ${task.fileName}` });
+            if (task.taskType === 'analysis' && task.data.image) {
+              // Mark analysis as failed
+              const failedImg = { ...task.data.image, analysisFailed: true, analysisError: errorMessage };
+              setImages(prev => prev.map(img => img.id === failedImg.id ? failedImg : img));
+              saveImage(failedImg);
+              // Remove from analyzing set
+              setAnalyzingIds(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(task.data.image!.id);
+                return newSet;
+              });
+              queuedAnalysisIds.current.delete(task.data.image.id);
+            }
+            // Reset concurrency on failure
+            setConcurrencyLimit(1);
+            consecutiveSuccesses.current = 0;
+          }
+        } finally {
+          activeRequestsRef.current = Math.max(0, activeRequestsRef.current - 1);
+          activeJobsRef.current = activeJobsRef.current.filter(j => j.id !== task.id);
 
-            // Remove from active jobs
-            activeJobsRef.current = activeJobsRef.current.filter(j => j.id !== imageToAnalyze.id);
-            syncQueueStatus();
-
-            return; // Exit task, do not cleanup progress yet as we are re-trying
+          // Update progress for analysis tasks
+          if (task.taskType === 'analysis') {
+            setAnalysisProgress(prev => {
+              if (!prev) return null;
+              const newCurrent = prev.current + 1;
+              if (newCurrent >= prev.total) {
+                setTimeout(() => setAnalysisProgress(null), 1000);
+              }
+              return { ...prev, current: newCurrent };
+            });
           }
 
-          const friendlyMessage = getFriendlyErrorMessage(err);
-          updateNotification(imageToAnalyze.id, { status: 'error', message: `Analysis of ${imageToAnalyze.fileName} failed: ${friendlyMessage}` });
-          const updatedImage = { ...imageToAnalyze, analysisFailed: true };
-          setImages(prev => prev.map(img => img.id === imageToAnalyze.id ? updatedImage : img));
-        } finally {
-          activeRequestsRef.current--;
-
-          // Remove from active jobs
-          activeJobsRef.current = activeJobsRef.current.filter(j => j.id !== imageToAnalyze.id);
-
-          // Update progress after each image (success or fail)
-          setAnalysisProgress(prev => {
-            if (!prev) return null;
-            const newCurrent = prev.current + 1;
-            // If we are done with this batch (current == total), clear progress
-            if (newCurrent >= prev.total) {
-              setTimeout(() => setAnalysisProgress(null), 1000);
-            }
-            return {
-              ...prev,
-              current: newCurrent,
-            };
-          });
-
-          // Remove from analyzing set
-          setAnalyzingIds(prev => {
-            const newSet = new Set(prev);
-            newSet.delete(imageToAnalyze.id);
-            return newSet;
-          });
-          queuedAnalysisIds.current.delete(imageToAnalyze.id);
+          // Remove from queued generation IDs
+          if (task.taskType === 'generate') {
+            queuedGenerationIds.current.delete(task.id);
+          }
 
           syncQueueStatus();
-
-          // Trigger next item
-          processQueue();
+          processQueue(); // Loop to next
         }
       })();
     }
+
   }, [settings, addNotification, updateNotification, setStatsHistory, syncQueueStatus]);
 
   const runImageAnalysis = useCallback((imagesToAnalyze: ImageInfo[], isRetry: boolean = false) => {
@@ -547,9 +592,32 @@ const App: React.FC = () => {
     });
 
     // Add to queue and start processing
-    queueRef.current.push(...uniqueImagesToAnalyze);
+    const queueItems: QueueItem[] = uniqueImagesToAnalyze.map(img => ({
+      id: img.id,
+      taskType: 'analysis' as const,
+      fileName: img.fileName,
+      addedAt: Date.now(),
+      data: { image: img }
+    }));
+    queueRef.current.push(...queueItems);
     processQueue();
   }, [settings, processQueue]);
+
+  // Add generation tasks to queue
+  const handleAddToGenerationQueue = useCallback((items: QueueItem[]) => {
+    items.forEach(item => {
+      queuedGenerationIds.current.add(item.id);
+      queueRef.current.push(item);
+    });
+
+    addNotification({
+      status: 'processing',
+      message: `Added ${items.length} image${items.length > 1 ? 's' : ''} to generation queue`
+    });
+
+    syncQueueStatus();
+    processQueue();
+  }, [addNotification, syncQueueStatus, processQueue]);
 
 
   useEffect(() => {
@@ -661,18 +729,21 @@ const App: React.FC = () => {
       }
     }
 
-    // Load prompt history
-    const storedPrompts = localStorage.getItem(PROMPTS_STORAGE_KEY);
-    if (storedPrompts) {
+    // Load negative prompt history
+    const storedNegativePrompts = localStorage.getItem(NEGATIVE_PROMPTS_STORAGE_KEY);
+    if (storedNegativePrompts) {
       try {
-        const parsedPrompts = JSON.parse(storedPrompts);
-        if (Array.isArray(parsedPrompts)) {
-          // FIX: Ensure that only strings are set in the prompt history, avoiding potential type issues with JSON.parse.
-          setPromptHistory(parsedPrompts.filter((p): p is string => typeof p === 'string'));
+        const parsed = JSON.parse(storedNegativePrompts);
+        if (Array.isArray(parsed)) {
+          setNegativePromptHistory(parsed.filter((p): p is string => typeof p === 'string'));
         }
       } catch (e) {
-        console.error("Failed to parse prompts from localStorage", e);
+        console.error("Failed to parse negative prompts from localStorage", e);
       }
+    } else {
+      // Initialize with defaults if empty
+      setNegativePromptHistory(DEFAULT_NEGATIVE_PROMPTS);
+      localStorage.setItem(NEGATIVE_PROMPTS_STORAGE_KEY, JSON.stringify(DEFAULT_NEGATIVE_PROMPTS));
     }
 
     const loadDbData = async () => {
@@ -725,6 +796,23 @@ const App: React.FC = () => {
     setIsLoginModalOpen(false);
     setGalleryView('my-gallery'); // Switch to user's gallery after login
   };
+
+  const addNegativePromptToHistory = useCallback((prompt: string) => {
+    if (!prompt || !prompt.trim()) return;
+    const trimmed = prompt.trim();
+    setNegativePromptHistory(prev => {
+      // Don't add if already exists? Or move to top? Move to top.
+      const filtered = prev.filter(p => p !== trimmed);
+      const newHistory = [trimmed, ...filtered].slice(0, MAX_PROMPT_HISTORY);
+      localStorage.setItem(NEGATIVE_PROMPTS_STORAGE_KEY, JSON.stringify(newHistory));
+      return newHistory;
+    });
+  }, []);
+
+  const clearPromptHistory = useCallback(() => {
+    setPromptHistory([]);
+    localStorage.removeItem(PROMPTS_STORAGE_KEY);
+  }, []);
 
   const handleLogout = () => {
     setCurrentUser(null);
@@ -947,7 +1035,10 @@ const App: React.FC = () => {
     handleCloseViewer();
   };
 
-  const saveImageToGallery = useCallback(async (dataUrl: string, isPublic: boolean, prompt?: string, source?: ImageInfo['source'], savedToGallery?: boolean) => {
+  /* 
+   * Save a blob/dataURL to the gallery. 
+   */
+  const saveImageToGallery = useCallback(async (dataUrl: string, isPublic: boolean, prompt?: string, source?: ImageInfo['source'], savedToGallery?: boolean, generationMetadata?: any) => {
     if (!currentUser) {
       addNotification({ status: 'error', message: 'You must be signed in to save an image.' });
       return;
@@ -969,6 +1060,7 @@ const App: React.FC = () => {
         recreationPrompt: prompt,
         source,
         savedToGallery,
+        generationMetadata,
         // New fields for card UI
         authorName: currentUser.name,
         authorAvatarUrl: currentUser.avatarUrl,
@@ -994,10 +1086,10 @@ const App: React.FC = () => {
     }
   }, [settings, currentUser, addNotification, runImageAnalysis]);
 
-  const handleSaveGeneratedImage = useCallback(async (base64Image: string, isPublic: boolean, prompt: string) => {
+  const handleSaveGeneratedImage = useCallback(async (base64Image: string, prompt: string, metadata?: any) => {
     addPromptToHistory(prompt);
     const dataUrl = base64Image.startsWith('data:') ? base64Image : `data:image/png;base64,${base64Image}`;
-    saveImageToGallery(dataUrl, isPublic, prompt, 'generated', currentUser?.autoSaveToGallery);
+    saveImageToGallery(dataUrl, false, prompt, 'generated', currentUser?.autoSaveToGallery, metadata);
   }, [addPromptToHistory, saveImageToGallery, currentUser]);
 
   const handleRegenerateCaption = useCallback(async (imageId: string) => {
@@ -1021,7 +1113,14 @@ const App: React.FC = () => {
     });
 
     // Add to queue
-    queueRef.current.push(imageToRegenerate);
+    const queueItem: QueueItem = {
+      id: imageToRegenerate.id,
+      taskType: 'analysis',
+      fileName: imageToRegenerate.fileName,
+      addedAt: Date.now(),
+      data: { image: imageToRegenerate }
+    };
+    queueRef.current.push(queueItem);
     queuedAnalysisIds.current.add(imageId);
 
     // Update visual state (spinner)
@@ -2184,7 +2283,14 @@ const App: React.FC = () => {
             onClose={() => setPromptModalConfig(null)}
             config={promptModalConfig}
             promptHistory={promptHistory}
+            negativePromptHistory={negativePromptHistory} // Pass updated prop
             settings={settings}
+            onSaveGeneratedImage={(dataUrl, prompt, metadata) => {
+              handleSaveGeneratedImage(dataUrl, prompt, metadata);
+            }}
+            onSaveNegativePrompt={addNegativePromptToHistory}
+            onAddToGenerationQueue={handleAddToGenerationQueue}
+            queuedGenerationCount={queuedGenerationIds.current.size}
             onSubmit={(prompt, options) => {
               if (!promptModalConfig) return;
 
