@@ -45,9 +45,10 @@ interface ActionButtonsProps {
   settings: AdminSettings | null;
   currentUser: User | null;
   isFloating: boolean;
+  onGenerate: (aspectRatio: AspectRatio) => void;
 }
 
-const ActionButtons: React.FC<ActionButtonsProps> = ({ image, onRecreate, onAnimate, onEnhance, onRegenerateCaption, onSmartCrop, isSmartCropping, isSmartFilled, isPreparingAnimation, settings, currentUser, isFloating }) => {
+const ActionButtons: React.FC<ActionButtonsProps> = ({ image, onRecreate, onGenerate, onAnimate, onEnhance, onRegenerateCaption, onSmartCrop, isSmartCropping, isSmartFilled, isPreparingAnimation, settings, currentUser, isFloating }) => {
   const supportedAR = image.aspectRatio ? getClosestSupportedAspectRatio(image.aspectRatio) : '1:1';
   const reversedAR = reverseAspectRatio(supportedAR) as AspectRatio;
 
@@ -65,7 +66,13 @@ const ActionButtons: React.FC<ActionButtonsProps> = ({ image, onRecreate, onAnim
   const getGenerationTooltip = (ar: string) => {
     if (!currentUser) return "Sign in to generate images with AI.";
     if (!canGenerate) return `No provider is configured for image generation. Please check settings.`;
-    return `Image to Image (${ar})`;
+    return `Remix (Image to Image) ${ar}`;
+  }
+
+  const getTxt2ImgTooltip = () => {
+    if (!currentUser) return "Sign in to generate images with AI.";
+    if (!canGenerate) return "No provider configured for generation.";
+    return "Generate (Text to Image)";
   }
 
   const getAnimationTooltip = () => {
@@ -152,26 +159,24 @@ const ActionButtons: React.FC<ActionButtonsProps> = ({ image, onRecreate, onAnim
           {isPreparingAnimation ? <Spinner className={iconClass} /> : <VideoCameraIcon className={iconClass} />}
         </button>
       </div>
+      <div title={getTxt2ImgTooltip()}>
+        <button
+          onClick={() => onGenerate(supportedAR)}
+          className={`${buttonClass} bg-pink-600/80 hover:bg-pink-600`}
+          disabled={!canGenerate || isPreparingAnimation || !currentUser}
+        >
+          <SparklesIcon className={iconClass} />
+        </button>
+      </div>
       <div title={getGenerationTooltip(supportedAR)}>
         <button
-          onClick={() => onRecreate(supportedAR, image.recreationPrompt)}
+          onClick={() => onRecreate(supportedAR)}
           className={`${buttonClass} bg-indigo-600/80 hover:bg-indigo-600`}
-          disabled={!canGenerate || isPreparingAnimation || !currentUser || !image.recreationPrompt}
+          disabled={!canGenerate || isPreparingAnimation || !currentUser}
         >
           <ArrowLeftRightIcon className={iconClass} />
         </button>
       </div>
-      {!isFloating && supportedAR !== '1:1' && (
-        <div title={getGenerationTooltip(reversedAR)}>
-          <button
-            onClick={() => onRecreate(reversedAR, image.recreationPrompt)}
-            className={`${buttonClass} bg-indigo-600/80 hover:bg-indigo-600`}
-            disabled={!canGenerate || isPreparingAnimation || !currentUser || !image.recreationPrompt}
-          >
-            <ArrowLeftRightIcon className={`${iconClass} transform rotate-90`} />
-          </button>
-        </div>
-      )}
     </div>
   )
 }
@@ -180,6 +185,7 @@ const ActionButtons: React.FC<ActionButtonsProps> = ({ image, onRecreate, onAnim
 interface MetadataPanelProps {
   image: ImageInfo;
   onRecreate: (aspectRatio: AspectRatio) => void;
+  onGenerate: (aspectRatio: AspectRatio) => void;
   isPreparingAnimation: boolean;
   onAnimate: (aspectRatio: AspectRatio) => void;
   onEnhance: () => void;
@@ -202,13 +208,16 @@ interface MetadataPanelProps {
   slideshowDelay: number;
   onSlideshowDelayChange: (delay: number) => void;
   hasMultipleImages: boolean;
+  activeContext: 'caption' | 'metadata';
+  setActiveContext: (context: 'caption' | 'metadata') => void;
 }
 
 const MetadataPanel: React.FC<MetadataPanelProps> = ({
-  image, onRecreate, isPreparingAnimation, onAnimate, onEnhance, onKeywordClick,
+  image, onRecreate, onGenerate, isPreparingAnimation, onAnimate, onEnhance, onKeywordClick,
   settings, currentUser, onTogglePublicStatus, onCopyPrompt, isCopied, isVisible,
   onRetryAnalysis, onRegenerateCaption, onSmartCrop, isSmartCropping, isSmartFilled,
-  isSlideshowActive, onToggleSlideshow, slideshowDelay, onSlideshowDelayChange, hasMultipleImages
+  isSlideshowActive, onToggleSlideshow, slideshowDelay, onSlideshowDelayChange, hasMultipleImages,
+  activeContext, setActiveContext
 }) => {
 
   const promptScrollRef = useRef<HTMLDivElement>(null);
@@ -216,21 +225,9 @@ const MetadataPanel: React.FC<MetadataPanelProps> = ({
   const [isHoveringPrompt, setIsHoveringPrompt] = useState(false);
   const [isHoveringKeywords, setIsHoveringKeywords] = useState(false);
 
-  // Context Toggle State
-  const [activeContext, setActiveContext] = useState<'caption' | 'metadata'>('caption');
-
   // Derived active text
   const hasMetadata = !!image.originalMetadataPrompt;
   const activeText = activeContext === 'caption' ? image.recreationPrompt : image.originalMetadataPrompt;
-
-  // Auto-switch to metadata if caption missing (on load)
-  useEffect(() => {
-    if (!image.recreationPrompt && image.originalMetadataPrompt) {
-      setActiveContext('metadata');
-    } else {
-      setActiveContext('caption'); // Default back to caption when image changes
-    }
-  }, [image.id, image.recreationPrompt, image.originalMetadataPrompt]);
 
   // Refactored Auto-scroll Logic
   // "Scroll once at 50% human readable speed and then scroll back to the top and stop."
@@ -509,6 +506,7 @@ const MetadataPanel: React.FC<MetadataPanelProps> = ({
                 <ActionButtons
                   image={image}
                   onRecreate={onRecreate}
+                  onGenerate={onGenerate}
                   onAnimate={onAnimate}
                   onEnhance={onEnhance}
                   onRegenerateCaption={onRegenerateCaption ? () => onRegenerateCaption(image.id) : undefined}
@@ -536,6 +534,7 @@ const MetadataPanel: React.FC<MetadataPanelProps> = ({
         <ActionButtons
           image={image}
           onRecreate={onRecreate}
+          onGenerate={onGenerate}
           onAnimate={onAnimate}
           onEnhance={onEnhance}
           onRegenerateCaption={onRegenerateCaption ? () => onRegenerateCaption(image.id) : undefined}
@@ -663,19 +662,7 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
     }
   }, [currentIndex, isSmartFilled, currentImage?.smartCrop, currentImage?.id]);
 
-  const handleRecreate = (aspectRatio: AspectRatio, promptOverride?: string) => {
-    const promptToUse = promptOverride || currentImage.recreationPrompt;
-    if (!promptToUse || !currentUser) return;
 
-    logger.track('User Action: Recreate', { imageId: currentImage.id, aspectRatio });
-
-    setPromptModalConfig({
-      taskType: 'image',
-      initialPrompt: promptToUse,
-      aspectRatio,
-      image: currentImage
-    });
-  };
 
   const handleSmartCropClick = () => {
     // Just toggle. If turning ON and crop is missing, the useEffect above will trigger calculation.
@@ -771,6 +758,78 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
       setCurrentIndex(0);
     }
   }, [navigationImages]);
+
+  // Context Toggle State (Lifted from MetadataPanel)
+  const [activeContext, setActiveContext] = useState<'caption' | 'metadata'>('caption');
+
+  // Auto-switch to metadata if caption missing (on load)
+  useEffect(() => {
+    if (!currentImage.recreationPrompt && currentImage.originalMetadataPrompt) {
+      setActiveContext('metadata');
+    } else if (currentImage.recreationPrompt) {
+      setActiveContext('caption'); // Default back to caption when image changes
+    }
+  }, [currentImage.id, currentImage.recreationPrompt, currentImage.originalMetadataPrompt]);
+
+
+  // Helper to extract prompt based on context
+  const getPromptFromContext = (override?: string) => {
+    let promptToUse = override;
+    if (!override) {
+      promptToUse = activeContext === 'caption' ? currentImage.recreationPrompt : currentImage.originalMetadataPrompt;
+    }
+    if (!promptToUse) return null;
+
+    let finalPrompt = promptToUse;
+    let negativePromptStr = "";
+
+    // Pattern 1: Internal pipe syntax
+    if (promptToUse.includes('| negative:')) {
+      const parts = promptToUse.split('| negative:');
+      finalPrompt = parts[0].trim();
+      negativePromptStr = parts[1].trim();
+    }
+    // Pattern 2/3: Newline + Negative label
+    else {
+      const negMatch = promptToUse.match(/\n(Negative prompt|Negative):/i);
+      if (negMatch && negMatch.index !== undefined) {
+        finalPrompt = promptToUse.substring(0, negMatch.index).trim();
+        negativePromptStr = promptToUse.substring(negMatch.index + negMatch[0].length).trim();
+      }
+    }
+
+    return negativePromptStr ? `${finalPrompt} | negative: ${negativePromptStr}` : finalPrompt;
+  };
+
+  const handleRecreate = (aspectRatio: AspectRatio, promptOverride?: string) => {
+    if (!currentUser) return;
+    const combinedPrompt = getPromptFromContext(promptOverride);
+    if (!combinedPrompt) return;
+
+    logger.track('User Action: Recreate', { imageId: currentImage.id, aspectRatio });
+
+    setPromptModalConfig({
+      taskType: 'image',
+      initialPrompt: combinedPrompt,
+      aspectRatio,
+      image: currentImage
+    });
+  };
+
+  const handleGenerate = (aspectRatio: AspectRatio) => {
+    if (!currentUser) return;
+    const combinedPrompt = getPromptFromContext();
+    if (!combinedPrompt) return;
+
+    logger.track('User Action: Generate', { imageId: currentImage.id, aspectRatio });
+
+    setPromptModalConfig({
+      taskType: 'image',
+      initialPrompt: combinedPrompt,
+      aspectRatio,
+      // image is UNDEFINED to trigger Txt2Img mode
+    });
+  };
 
   const nextImage = useCallback(() => {
     setCurrentIndex((prev) => (prev + 1) % navigationImages.length);
@@ -991,6 +1050,7 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
               <MetadataPanel
                 image={currentImage}
                 onRecreate={handleRecreate}
+                onGenerate={handleGenerate}
                 isPreparingAnimation={isPreparingAnimation}
                 onAnimate={handleAnimateClick}
                 onEnhance={handleEnhance}
@@ -1011,6 +1071,8 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
                 slideshowDelay={slideshowDelay}
                 onSlideshowDelayChange={setSlideshowDelay}
                 hasMultipleImages={navigationImages.length > 1}
+                activeContext={activeContext}
+                setActiveContext={setActiveContext}
               />
             )}
 

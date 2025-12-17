@@ -49,7 +49,9 @@ A modern, AI-powered image gallery application with **local GPU acceleration** f
 - **Health Checks**: Automatic retry and error recovery
 
 ### 🎨 Creative Tools
-- **Image-to-Image**: Transform existing images with AI guidance
+- **Image-to-Image**: Transform existing images with AI guidance (Remix mode)
+- **Text-to-Image**: Generate new images from scratch using existing image metadata/captions
+- **Smart Remix**: Automatically extracts positive and negative prompts from AI captions or metadata
 - **Style Presets**: Quick Fix, Standard, Portrait, 4K Remaster modes
 - **Fine Control**: Adjust steps, CFG scale, denoising, and resolution
 - **Multi-model Support**: Switch between photorealistic, anime, and artistic models
