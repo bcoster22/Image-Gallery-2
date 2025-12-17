@@ -1,14 +1,29 @@
 import asyncio
 import sys
 import os
-# Add gallery project path to find SDXL backend
-if "/home/bcoster/Documents/Github_Projects/Gallery/Image-Gallery-2" not in sys.path:
-    sys.path.append("/home/bcoster/Documents/Github_Projects/Gallery/Image-Gallery-2")
+# Dynamic Path Setup
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+if BASE_DIR not in sys.path:
+    sys.path.append(BASE_DIR)
+
+# Add Moondream Station path (ENV or Default)
+MOONDREAM_PATH = os.environ.get("MOONDREAM_PATH", os.path.expanduser("~/.moondream-station/moondream-station"))
+if MOONDREAM_PATH not in sys.path:
+    if os.path.exists(MOONDREAM_PATH):
+        sys.path.append(MOONDREAM_PATH)
+    else:
+        print(f"Warning: Moondream path not found at {MOONDREAM_PATH}")
+
+# Add scripts path for backend
+SCRIPTS_PATH = os.path.join(BASE_DIR, "scripts")
+if SCRIPTS_PATH not in sys.path:
+    sys.path.append(SCRIPTS_PATH)
 
 try:
-    import sdxl_backend_new
-except ImportError:
-    print("Warning: Could not import sdxl_backend_new. Gen AI will not work.")
+    import backend_fixed as sdxl_backend_new
+    print("Successfully imported backend_fixed as sdxl_backend_new")
+except ImportError as e:
+    print(f"Warning: Could not import backend_fixed ({e}). Gen AI will not work.")
     sdxl_backend_new = None
 
 import json
@@ -259,8 +274,15 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from .inference_service import InferenceService
+from moondream_station.core.inference_service import InferenceService
 
+MODEL_MAP = {
+    "sdxl-realism": "RunDiffusion/Juggernaut-XL-Lightning",
+    "sdxl-anime": "cagliostrolab/animagine-xl-3.1",
+    "sdxl-surreal": "Lykon/dreamshaper-xl-lightning",
+    "sdxl": "RunDiffusion/Juggernaut-XL-Lightning", # Fallback
+    "sdxl-base": "RunDiffusion/Juggernaut-XL-Lightning"
+}
 
 class RestServer:
     def __init__(self, config, manifest_manager, session_state=None, analytics=None):
@@ -492,8 +514,13 @@ class RestServer:
                         self.inference_service.unload_model()
 
                 # Init Backend
+                requested_model = data.get("model", "sdxl-realism")
+                full_model_id = MODEL_MAP.get(requested_model, requested_model)
+                
+                print(f"Initializing Backend: {requested_model} -> {full_model_id}")
+
                 success = sdxl_backend_new.init_backend(
-                    model_id=data.get("model", "sdxl-realism"),
+                    model_id=full_model_id,
                     use_4bit=True
                 )
                 if not success:
@@ -595,6 +622,13 @@ class RestServer:
                     sdxl_backend_new.unload_backend()
                     print("[ZombiePrevention] Unloaded SDXL before manual switch")
                 except: pass
+            
+            # Check SDXL map first
+            if model_id in MODEL_MAP:
+                 # It's an SDXL model switch - handling strictly via generate call usually, but we can set context here if needed
+                 # For now, just success as we init lazily on generate
+                 self.config.set("current_model", model_id)
+                 return {"status": "success", "model": model_id, "vram_mb": 0, "ram_mb": 0}
 
             success = self.inference_service.start(model_id)
             if success:
@@ -691,7 +725,6 @@ class RestServer:
 
             # Auto-switch model if requested and different
             if requested_model and requested_model != current_model:
-                import sys
                 available_models = list(self.manifest_manager.get_models().keys())
                 sys.stderr.write(f'DEBUG: Switch requested. From: {current_model} To: {requested_model}\n')
                 sys.stderr.write(f'DEBUG: requested_model repr: {repr(requested_model)}\n')
@@ -703,10 +736,10 @@ class RestServer:
 
                 if is_in:
                     sys.stderr.write(f'Auto-switching to requested model: {requested_model}\n')
-                        try:
-                            sdxl_backend_new.unload_backend()
-                            print('[ZombiePrevention] Unloaded SDXL before switch')
-                        except: pass
+                    try:
+                        sdxl_backend_new.unload_backend()
+                        print('[ZombiePrevention] Unloaded SDXL before switch')
+                    except: pass
 
                     if self.inference_service.restart(requested_model):
                          self.config.set('current_model', requested_model)
@@ -911,7 +944,10 @@ class RestServer:
         current_model = self.config.get("current_model")
 
         if requested_model and requested_model != current_model:
-            if requested_model in self.manifest_manager.get_models():
+            # Check if it's in Manifest OR Model Map
+            is_valid_model = (requested_model in self.manifest_manager.get_models()) or (requested_model in MODEL_MAP)
+            
+            if is_valid_model:
                 print(f"Auto-switching to requested model: {requested_model}")
                     
                 # Unload SDXL if present (Zombie Prevention)

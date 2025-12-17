@@ -7,7 +7,8 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "dev": "concurrently \"vite\" \"python3 log_server.py\"",
+    "dev": "concurrently \"vite\" \"./.venv/bin/python3 log_server.py\" \"./.venv/bin/python3 dev_run_backend.py\"",
+    "backend": "./.venv/bin/python3 dev_run_backend.py",
     "build": "vite build",
     "preview": "vite preview"
   },

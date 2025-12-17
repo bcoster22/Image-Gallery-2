@@ -1,148 +1,56 @@
-# SDXL Backend Fix - Missing Import Module
-**Fixed:** 2025-12-16T02:04:10+10:00
+# SDXL Backend Patch Guide
 
-## Problem Identified
-The moondream-station rest_server was returning error:
+This document outlines the steps to manually apply the SDXL Image-to-Image fix to the Moondream Station backend, correcting the "Eye Hallucination" (Text-to-Image fallback) issue.
+
+## The Problem
+The current server instance is loading a cached or shadowed version of the SDXL backend that ignores the `image` parameter, causing it to generate new images (often generic eyes) instead of enhancing the input image.
+
+## The Fix
+You must overwrite the **active** backend file used by the server's model loader.
+
+### Step 1: Locate the File
+The active file is located at:
+```bash
+/home/bcoster/.moondream-station/models/backends/sdxl_backend/backend.py
 ```
-{"error":"SDXL Backend not available"}
-POST http://127.0.0.1:2020/v1/generate 500 (Internal Server Error)
-```
+*(Note: It is NOT in `moondream-station/backends`)*
 
-### Root Cause
-The `/home/bcoster/.moondream-station/moondream-station/moondream_station/core/rest_server.py` file contains:
-
-```python
-# Add gallery project path to find SDXL backend
-if "/home/bcoster/Documents/Github_Projects/Gallery/Image-Gallery-2" not in sys.path:
-    sys.path.append("/home/bcoster/Documents/Github_Projects/Gallery/Image-Gallery-2")
-
-try:
-    import sdxl_backend_new
-except ImportError:
-    print("Warning: Could not import sdxl_backend_new. Gen AI will not work.")
-    sdxl_backend_new = None
-```
-
-**BUT** the file `sdxl_backend_new.py` did NOT exist in the Gallery project directory!
-
-This caused `sdxl_backend_new = None`, which triggered the error on line 476:
-```python
-if not sdxl_backend_new:
-     return JSONResponse(content={"error": "SDXL Backend not available"}, status_code=500)
-```
-
-## Investigation Results
-
-1. **SDXL Backend EXISTS** in moondream-station:
-   - Location: `/home/bcoster/.moondream-station/moondream-station/backends/sdxl_backend/backend.py`
-   - Contains: `SDXLBackend` class with proper implementation
-   
-2. **Import Path Mismatch**:
-   - rest_server expects: `sdxl_backend_new` from Gallery project
-   - Actual location: `backends.sdxl_backend.backend` in moondream-station
-
-## Solution Implemented
-
-Created `/home/bcoster/Documents/Github_Projects/Gallery/Image-Gallery-2/sdxl_backend_new.py` as a **wrapper module** that:
-
-1. **Adds moondream-station to Python path**
-2. **Imports the actual SDXL backend** from `backends.sdxl_backend.backend`
-3. **Provides the expected interface**:
-   - `init_backend(model_id, use_4bit)`
-   - `generate(prompt, width, height, steps, image, strength)`
-   - `unload_backend()`
-4. **Maps model IDs** to HuggingFace paths:
-   - `sdxl-realism` → `RunDiffusion/Juggernaut-XL-Lightning`
-   - `sdxl-anime` → `cagliostrolab/animagine-xl-3.1`
-   - `sdxl-surreal` → `Lykon/dreamshaper-xl-lightning`
-
-## Next Steps Required
-
-**⚠️ IMPORTANT: You must restart the moondream-station server**
+### Step 2: Apply the Patch
+Copy the fixed backend script (with Img2Img support) to this location.
 
 ```bash
-# Find the process ID
-ps aux | grep start_server.py
-
-# Kill it
-kill [PID]
-
-# Or use the stop script if available
-cd /home/bcoster/.moondream-station/moondream-station
-./stop_server.sh  # if exists
-
-# Restart
-./start_server.sh
-# OR
-python3 start_server.py
+cp /home/bcoster/Documents/Github_Projects/Gallery/Image-Gallery-2/scripts/backend_fixed_debug_V2.py /home/bcoster/.moondream-station/models/backends/sdxl_backend/backend.py
 ```
 
-## How to Verify
+### Step 3: Clear Caches
+Remove compiled python files to force a reload.
 
-After restarting:
-
-1. **Test SDXL endpoint**:
 ```bash
-curl -X POST http://127.0.0.1:2020/v1/generate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "a beautiful landscape",
-    "model": "sdxl-realism",
-    "width": 1024,
-    "height": 1024,
-    "steps": 4
-  }'
+rm -rf /home/bcoster/.moondream-station/models/backends/sdxl_backend/__pycache__
+rm -rf /home/bcoster/.moondream-station/moondream-station/backends/sdxl_backend/__pycache__
 ```
 
-2. **Check server logs** for:
-```
-[SDXL] Backend wrapper loaded successfully
-```
+### Step 4: Hard Restart (Critical)
+Ensure the old process is dead.
 
-3. **Try generating in the UI**:
-   - Select an image
-   - Click "Recreate from AI"
-   - Select "Moondream SDXL"
-   - Generate!
+```bash
+# Find the PID
+fuser 2020/tcp
 
-## Technical Details
-
-### Wrapper Functions
-
-```python
-def init_backend(model_id="sdxl-realism", use_4bit=True):
-    """Initializes SDXLBackend with proper config"""
-    # Creates backend instance
-    # Loads model with 4-bit quantization
-    # Returns True on success
-
-def generate(prompt, width, height, steps, image, strength):
-    """Generates images using loaded SDXL model"""
-    # Calls backend.generate()
-    # Returns list of base64-encoded images
-
-def unload_backend():
-    """Frees VRAM by unloading the pipeline"""
-    # Sets pipeline = None
-    # Calls torch.cuda.empty_cache()
+# Kill it (replace PID)
+kill -9 <PID>
 ```
 
-### Model Mapping
+### Step 5: Start Server
+```bash
+cd /home/bcoster/.moondream-station
+source venv/bin/activate
+./moondream-station/start_server.sh
+```
 
-The wrapper translates friendly model IDs to actual HuggingFace model paths:
+## Verification
+When running a generation, the server should now create:
+- `/home/bcoster/moondream_debug_init.png` (Copy of input image)
+- `/home/bcoster/moondream_params.txt` (Parameters log)
 
-| Model ID | HuggingFace Path | Style |
-|----------|-----------------|-------|  
-| sdxl-realism | RunDiffusion/Juggernaut-XL-Lightning | Photorealistic |
-| sdxl-anime | cagliostrolab/animagine-xl-3.1 | Anime/Manga |
-| sdxl-surreal | Lykon/dreamshaper-xl-lightning | Artistic/Surreal |
-
-## Files Modified
-
-- ✅ Created: `/home/bcoster/Documents/Github_Projects/Gallery/Image-Gallery-2/sdxl_backend_new.py`
-
-## Files That Need Restarting
-
-- ⚠️ Restart Required: `moondream-station` server process (PID: 83632)
-
-Once restarted, SDXL generation should work! 🎨
+If these files appear, the fix is Active.

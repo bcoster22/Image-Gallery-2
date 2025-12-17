@@ -78,7 +78,6 @@ class SDXLBackend:
             return self.img2img_pipeline
         
         self.logger.info("Creating Img2Img pipeline from Text2Image...")
-        # AutoPipeline 'from_pipe' shares components (model offload should persist)
         try:
             self.img2img_pipeline = AutoPipelineForImage2Image.from_pipe(self.pipeline)
         except Exception as e:
@@ -91,42 +90,37 @@ class SDXLBackend:
             raise RuntimeError("Pipeline not initialized")
             
         try:
+            # DEBUG FORCE CHECK
+            if not image:
+                self.logger.error(f"DEBUG: Image is Missing! received: {image}")
+                raise ValueError("DEBUG: Source Image Missing. Cannot Enhance.")
+            
             with torch.inference_mode():
-                if image:
-                    # Img2Img
-                    self.logger.info(f"Generating Img2Img: '{prompt}' (Steps: {steps}, Strength: {strength})")
-                    pipe = self.get_img2img()
-                    
-                    # Clean input
-                    if isinstance(image, str) and "," in image:
-                        image = image.split(",")[1]
-                    
-                    init_image = Image.open(io.BytesIO(base64.b64decode(image))).convert("RGB")
-                    init_image = init_image.resize((int(width), int(height)))
-                    
-                    self.logger.info(f"Input Image Size: {init_image.size}")
+                # Img2Img
+                self.logger.info(f"Generating Img2Img: '{prompt}' (Steps: {steps}, Strength: {strength})")
+                pipe = self.get_img2img()
+                
+                # Check Strength logic for SDXL Lightning
+                # If Steps < 10, Strength 0.3 might yield 0 steps.
+                # Force bump steps?
+                # No, just log it.
+                
+                # Clean input
+                if isinstance(image, str) and "," in image:
+                    image = image.split(",")[1]
+                
+                init_image = Image.open(io.BytesIO(base64.b64decode(image))).convert("RGB")
+                init_image = init_image.resize((int(width), int(height)))
 
-                    images = pipe(
-                        prompt=prompt,
-                        negative_prompt=negative_prompt,
-                        image=init_image,
-                        strength=float(strength),
-                        num_inference_steps=int(steps),
-                        guidance_scale=float(guidance_scale),
-                        num_images_per_prompt=int(num_images)
-                    ).images
-                else:
-                    # Text2Image
-                    self.logger.info(f"Generating Text2Image: '{prompt}'")
-                    images = self.pipeline(
-                        prompt=prompt,
-                        negative_prompt=negative_prompt,
-                        num_inference_steps=int(steps),
-                        guidance_scale=float(guidance_scale),
-                        width=int(width),
-                        height=int(height),
-                        num_images_per_prompt=int(num_images)
-                    ).images
+                images = pipe(
+                    prompt=prompt,
+                    negative_prompt=negative_prompt,
+                    image=init_image,
+                    strength=float(strength),
+                    num_inference_steps=int(steps),
+                    guidance_scale=float(guidance_scale),
+                    num_images_per_prompt=int(num_images)
+                ).images
 
             results = []
             for img in images:

@@ -96,7 +96,26 @@ const EnhancePlayer: React.FC<EnhancePlayerProps> = ({
         if (onPreviewGenerate && aiSettings) {
             // Real Processing
             try {
+                // Start Fake Progress
+                currentStages.forEach(s => { s.status = 'processing'; s.progress = 0; });
+                setProcessingStages([...currentStages]);
+
+                const progressInterval = setInterval(() => {
+                    setProcessingStages(prev => {
+                        const newStages = [...prev];
+                        newStages.forEach(s => {
+                            if (s.status === 'processing' && s.progress < 90) {
+                                s.progress += (90 - s.progress) * 0.1; // Asymptotic approach to 90
+                            }
+                        });
+                        return newStages;
+                    });
+                }, 500);
+
                 const resultUrl = await onPreviewGenerate(aiSettings);
+
+                clearInterval(progressInterval);
+
                 if (resultUrl) {
                     setPreviewImage(resultUrl);
                     // Complete stages
@@ -301,6 +320,29 @@ const EnhancePlayer: React.FC<EnhancePlayerProps> = ({
             <div className="h-px w-6 bg-gray-700 mx-auto my-1"></div>
 
             {/* Four Arrows (Fit/Reset) */}
+            {/* Zoom Controls */}
+            <div className="flex items-center gap-1">
+                <button
+                    onClick={() => setZoom(z => typeof z === 'number' ? Math.max(0.1, z * 0.8) : 0.8)}
+                    className="w-10 h-10 flex items-center justify-center rounded-xl text-gray-400 hover:bg-white/10 hover:text-white transition-colors"
+                    title="Zoom Out"
+                >
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+                    </svg>
+                </button>
+                <div className="w-px h-4 bg-gray-700"></div>
+                <button
+                    onClick={() => setZoom(z => typeof z === 'number' ? Math.min(5, z * 1.25) : 1.25)}
+                    className="w-10 h-10 flex items-center justify-center rounded-xl text-gray-400 hover:bg-white/10 hover:text-white transition-colors"
+                    title="Zoom In"
+                >
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                </button>
+            </div>
+
             <button
                 onClick={() => { setZoom('fit'); setPan({ x: 0, y: 0 }); }}
                 className={`w-10 h-10 flex items-center justify-center rounded-xl transition-colors ${zoom === 'fit' ? 'text-indigo-400' : 'text-gray-400 hover:bg-white/10 hover:text-white'}`}

@@ -37,7 +37,7 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, o
     // State for Advanced Settings
     const [advancedSettings, setAdvancedSettings] = useState<GenerationSettings | UpscaleSettings | null>(null);
     const [aiModelSettings, setAIModelSettings] = useState<AIModelSettings>({
-        model: 'sdxl',
+        model: 'sdxl-realism',
         steps: 30,
         cfg_scale: 6.5,
         denoise_strength: 30,

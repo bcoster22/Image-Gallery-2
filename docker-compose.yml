@@ -1,0 +1,103 @@
+version: '3.8'
+
+services:
+  # ============================================
+  # Backend API Server
+  # ============================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: gallery-backend
+    restart: unless-stopped
+
+    ports:
+      - "${PORT:-2020}:2020"
+
+    environment:
+      - PORT=${PORT:-2020}
+      - HOST=${HOST:-0.0.0.0}
+      - VRAM_MODE=${VRAM_MODE:-balanced}
+      - MOONDREAM_PATH=${MOONDREAM_PATH:-/root/.moondream-station/moondream-station}
+      - MOONDREAM_MODELS_DIR=${MOONDREAM_MODELS_DIR:-/root/.moondream-station/models}
+      - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
+      - PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-max_split_size_mb:512}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+
+    volumes:
+      # Model storage (persistent)
+      - models-data:/root/.moondream-station/models
+      # Optional: Mount local models for development
+      # - ~/.moondream-station/models:/root/.moondream-station/models
+
+      # Logs
+      - ./logs:/app/logs
+
+      # Test outputs
+      - ./scripts/test_outputs:/app/scripts/test_outputs
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
+
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:2020/v1/chat/completions" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    networks:
+      - gallery-network
+
+  # ============================================
+  # Frontend Web Server
+  # ============================================
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: gallery-frontend
+    restart: unless-stopped
+
+    ports:
+      - "80:80"
+      - "443:443"
+
+    environment:
+      - VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://backend:2020}
+
+    depends_on:
+      backend:
+        condition: service_healthy
+
+    networks:
+      - gallery-network
+
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:80" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+# ============================================
+# Volumes
+# ============================================
+volumes:
+  models-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${MODELS_PATH:-./models}
+
+# ============================================
+# Networks
+# ============================================
+networks:
+  gallery-network:
+    driver: bridge
