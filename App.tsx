@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 // FIX: Added AppSettings to import for settings migration.
-import { ImageInfo, AdminSettings, User, GenerationTask, Notification, AspectRatio, GalleryView, AiProvider, UploadProgress, AppSettings, AnalysisProgress, QueueStatus, ActiveJob, GenerationResult } from './types';
+import { ImageInfo, AdminSettings, User, GenerationTask, Notification, AspectRatio, GalleryView, AiProvider, UploadProgress, AppSettings, AnalysisProgress, QueueStatus, ActiveJob, GenerationResult, GenerationSettings, UpscaleSettings } from './types';
 import { analyzeImage, animateImage, editImage, generateImageFromPrompt, adaptPromptToTheme, FallbackChainError, detectSubject } from './services/aiService';
 import { fileToDataUrl, getImageMetadata, dataUrlToBlob, generateVideoThumbnail, createGenericPlaceholder, extractAIGenerationMetadata, resizeImage, getClosestSupportedAspectRatio } from './utils/fileUtils';
 import { RateLimitedApiQueue } from './utils/rateLimiter';
@@ -1190,7 +1190,8 @@ const App: React.FC = () => {
     prompt: string,
     taskType: 'image' | 'enhance',
     aspectRatio: AspectRatio,
-    providerOverride?: AiProvider // Add override support
+    providerOverride?: AiProvider,
+    generationSettings?: GenerationSettings | UpscaleSettings
   ) => {
     if (!currentUser) {
       addNotification({ status: 'error', message: 'Please sign in to generate images.' });
@@ -1215,14 +1216,50 @@ const App: React.FC = () => {
     addNotification({ status: 'success', message: `Starting AI image ${taskType}...` });
 
 
-    // Create ephemeral settings if a provider override is active
-    const runSettings = providerOverride ? {
-      ...settings,
-      routing: {
-        ...settings.routing,
-        [taskType === 'image' ? 'generation' : 'editing']: [providerOverride]
+    // Create ephemeral settings if a provider override is active or advanced settings used
+    let runSettings = settings;
+
+    // 1. Handle Routing Overrides
+    if (providerOverride) {
+      runSettings = {
+        ...runSettings,
+        routing: {
+          ...runSettings.routing,
+          [taskType === 'image' ? 'generation' : 'editing']: [providerOverride]
+        }
+      };
+    }
+
+    // 2. Handle Model/Param Overrides
+    if (generationSettings && providerOverride) {
+      // We only apply model overrides if a specific provider is also selected (or auto picked? currently only explicit supported)
+      // Actually, if providerOverride is set, we apply model to THAT provider.
+      // If Auto, we don't easily know which provider wins, so Advanced Settings usually implies an explicit provider.
+      // For now, logic assumes providerOverride is set if generationSettings is provided (handled in Modal UI)
+
+      // Deep clone to modify provider config safely
+      runSettings = JSON.parse(JSON.stringify(runSettings));
+
+      const providerConfig = runSettings.providers[providerOverride];
+      if (providerConfig) {
+        // Override Model
+        if ('model' in generationSettings && generationSettings.model) {
+          if (taskType === 'image') providerConfig.generationModel = generationSettings.model;
+          // For 'enhance', it might be different, but typically it's model-less or uses 'model' arg
+        }
+
+        // Override Args (Steps, CFG)
+        // Ensure args object exists
+        if (!providerConfig.args) providerConfig.args = {};
+
+        if ('steps' in generationSettings) providerConfig.args.steps = generationSettings.steps;
+        if ('cfg_scale' in generationSettings) providerConfig.args.guidance_scale = generationSettings.cfg_scale;
+
+        // For upscale, it's method/megapixels
+        // Moondream Local provider might handle 'method' in its specific args if needed, 
+        // but current logic mainly supports generation params.
       }
-    } : settings;
+    }
 
     (async () => {
       try {
@@ -2161,9 +2198,9 @@ const App: React.FC = () => {
                   id: '', file: new File([], ''), fileName: 'prompt-history.png',
                   dataUrl: '', ownerId: currentUser!.id, isPublic: false
                 };
-                handleGenerationSubmit(dummyImage, prompt, 'image', aspectRatio, providerId);
+                handleGenerationSubmit(dummyImage, prompt, 'image', aspectRatio, providerId, options.generationSettings);
               } else if (promptModalConfig.taskType === 'enhance' && image) {
-                handleGenerationSubmit(image, prompt, 'enhance', aspectRatio, providerId);
+                handleGenerationSubmit(image, prompt, 'enhance', aspectRatio, providerId, options.generationSettings);
               } else if (promptModalConfig.taskType === 'video') {
                 const sourceImage = useSourceImage ? image : null;
                 // TODO: Support Video Provider Override

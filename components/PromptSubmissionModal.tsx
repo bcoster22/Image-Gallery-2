@@ -16,7 +16,12 @@ export interface PromptModalConfig {
 interface PromptSubmissionModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onSubmit: (prompt: string, options: { aspectRatio?: AspectRatio; useSourceImage?: boolean; providerId?: AiProvider }) => void;
+    onSubmit: (prompt: string, options: {
+        aspectRatio?: AspectRatio;
+        useSourceImage?: boolean;
+        providerId?: AiProvider;
+        generationSettings?: GenerationSettings | UpscaleSettings;
+    }) => void;
     config: PromptModalConfig | null;
     promptHistory: string[];
     settings: AdminSettings | null;
@@ -91,6 +96,12 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, o
             if (providers.openai.apiKey) models.push({ id: 'openai', name: 'OpenAI DALL-E', model: providers.openai.generationModel });
             if (providers.grok.apiKey) models.push({ id: 'grok', name: 'xAI Grok', model: providers.grok.generationModel });
             if (providers.comfyui.endpoint) models.push({ id: 'comfyui', name: 'ComfyUI (Local)', model: 'Workflow' });
+            if (providers.moondream_local.endpoint) {
+                // Add Local SDXL Models
+                models.push({ id: 'moondream_local', name: 'Local SDXL', model: 'sdxl-realism' });
+                models.push({ id: 'moondream_local', name: 'Local SDXL', model: 'sdxl-anime' });
+                models.push({ id: 'moondream_local', name: 'Local SDXL', model: 'sdxl-surreal' });
+            }
         } else if (config.taskType === 'video') {
             if (providers.gemini.apiKey) models.push({ id: 'gemini', name: 'Google Veo', model: providers.gemini.veoModel });
         } else if (config.taskType === 'enhance') {
@@ -110,7 +121,8 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, o
         onSubmit(prompt, {
             aspectRatio: selectedAspectRatio,
             useSourceImage: useSourceImage,
-            providerId: selectedProvider === 'auto' ? undefined : selectedProvider
+            providerId: selectedProvider === 'auto' ? undefined : selectedProvider,
+            generationSettings: advancedSettings || undefined
         });
     };
 
@@ -180,16 +192,43 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, o
 
                 {availableModels.length > 0 && (
                     <div className="flex-shrink-0">
-                        <label className="block text-sm font-medium text-gray-300 mb-2">AI Model</label>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">AI Provider / Model</label>
                         <select
-                            value={selectedProvider}
-                            onChange={(e) => setSelectedProvider(e.target.value as AiProvider | 'auto')}
+                            value={selectedProvider === 'auto' ? 'auto' : selectedProvider + (advancedSettings?.model ? `:${advancedSettings.model}` : '')}
+                            onChange={(e) => {
+                                const val = e.target.value;
+                                if (val === 'auto') {
+                                    setSelectedProvider('auto');
+                                } else {
+                                    // Split logic if we combined them, but for now just taking provider is enough if we rely on Advanced Settings to refine model.
+                                    // Actually, let's just keep it simple: Select Provider, then refine Model in Advanced Settings.
+                                    // But to support picking "SDXL Anime" from top, we need to handle it.
+                                    // Simplified: Just selecting provider here for now.
+                                    // FIX: The value in options below uses `m.id` (providerId). 
+                                    // If we have multiple entries with same `m.id`, the select box will act weirdly (select first match).
+                                    // We should make values unique? 
+                                    // Correction: Let's stick to Provider selection here to avoid complexity?
+                                    // But the user wants to see models. 
+                                    // Let's pass `m.id` as provider. If user invokes 'sdxl-anime', they need to select it in Advanced Settings OR we handle it here.
+                                    // For this edit, I will revert to just updating provider, but I will ensure the list covers the providers.
+                                    // For moondream_local, all 3 entries have id 'moondream_local'.
+                                    // So selecting any of them selects 'moondream_local'.
+                                    // To fix this UI properly, we'd need unique values.
+                                    // Let's rely on Advanced Settings for Model selection, but show the Providers here.
+                                    // Wait, if I simply add distinct options, I can parse them.
+                                    // Let's assume standard behavior: update provider.
+                                    setSelectedProvider(val as AiProvider | 'auto');
+                                }
+                            }}
                             className="w-full bg-gray-900/50 border border-gray-600 rounded-lg p-2.5 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         >
                             <option value="auto">Auto (Use Default Routing)</option>
-                            {availableModels.map(m => (
+                            {/* Filter duplicates so we only show one entry per Provider in this dropdown */}
+                            {availableModels.filter((m, index, self) =>
+                                index === self.findIndex((t) => t.id === m.id)
+                            ).map(m => (
                                 <option key={m.id} value={m.id}>
-                                    {m.name} {m.model ? `(${m.model})` : ''}
+                                    {m.name}
                                 </option>
                             ))}
                         </select>
