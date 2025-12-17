@@ -741,7 +741,7 @@ class RestServer:
                         print('[ZombiePrevention] Unloaded SDXL before switch')
                     except: pass
 
-                    if self.inference_service.restart(requested_model):
+                    if self.inference_service.start(requested_model):
                          self.config.set('current_model', requested_model)
                          
                          # TRACKER UPDATE
