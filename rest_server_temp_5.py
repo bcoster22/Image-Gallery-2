@@ -292,6 +292,23 @@ class RestServer:
         self.session_state = session_state
         self.analytics = analytics
         self.inference_service = InferenceService(config, manifest_manager)
+        
+        # Monkey-patch InferenceService.start() to track all model loads
+        _original_start = self.inference_service.start
+        def _tracked_start(model_id: str):
+            result = _original_start(model_id)
+            if result:
+                # Track the model load
+                try:
+                    model_info = self.manifest_manager.get_models().get(model_id)
+                    if model_info:
+                        model_memory_tracker.track_model_load(model_id, model_info.name)
+                        print(f"[ModelTracker] Tracked model load: {model_id} ({model_info.name})")
+                except Exception as e:
+                    print(f"[ModelTracker] Warning: Failed to track model load: {e}")
+            return result
+        self.inference_service.start = _tracked_start
+        
         self.app = FastAPI(title="Moondream Station Inference Server", version="1.0.0")
         self.app.add_middleware(
             CORSMiddleware,
