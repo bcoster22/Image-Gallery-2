@@ -434,19 +434,7 @@ const App: React.FC = () => {
             saveImage(updatedImage);
             updateNotification(imageToAnalyze.id, { status: 'success', message: `Successfully analyzed ${imageToAnalyze.fileName}.` });
 
-            // Update progress after each image (success or fail)
-            setAnalysisProgress(prev => {
-              if (!prev) return null;
-              const newCurrent = prev.current + 1;
-              // If we are done with this batch (current == total), clear progress
-              if (newCurrent >= prev.total) {
-                setTimeout(() => setAnalysisProgress(null), 1000);
-              }
-              return {
-                ...prev,
-                current: newCurrent,
-              };
-            });
+            // Progress is updated in the finally block below
 
             // Remove from analyzing set
             setAnalyzingIds(prev => {
