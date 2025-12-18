@@ -456,11 +456,20 @@ export interface ActiveJob {
 }
 
 
+// Queue Priority Levels (higher number = more urgent)
+export enum QueuePriority {
+  BACKGROUND = 0,      // Background batch processing (user closed modal)
+  PRELOAD = 1,         // Slideshow preload, "Smart fit to screen" - UX optimization
+  INTERACTIVE = 2,     // Generation Studio open - user actively watching
+  IMMEDIATE = 3        // User explicitly waiting (regenerate caption, view-specific tasks)
+}
+
 export interface QueueItem {
   id: string;
   taskType: JobTaskType;
   fileName: string; // For display
   addedAt: number;
+  priority?: QueuePriority; // Semantic priority level
   // Specific data for the task
   data: {
     // For analysis

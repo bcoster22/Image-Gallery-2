@@ -326,6 +326,7 @@ const App: React.FC = () => {
   const consecutiveSuccesses = useRef(0);
   const MAX_CONCURRENCY = 5;
   const queuedGenerationIds = useRef<Set<string>>(new Set());
+  const [generationResults, setGenerationResults] = useState<{ id: string; url: string }[]>([]);
 
   const [queueStatus, setQueueStatus] = useState<QueueStatus>({
     activeCount: 0,
@@ -463,7 +464,10 @@ const App: React.FC = () => {
                 provider: settings!.providers[settings!.routing.generation[0]]?.apiKey ? settings!.routing.generation[0] : 'unknown'
               };
 
-              await handleSaveGeneratedImage(result.image, false, task.data.prompt, meta);
+              await handleSaveGeneratedImage(result.image, task.data.prompt, meta);
+
+              // Add to generation results for modal display
+              setGenerationResults(prev => [...prev, { id: task.id, url: result.image }]);
               addNotification({ id: task.id, status: 'success', message: `Generated: ${task.fileName}` });
             } else {
               throw new Error("No image data returned.");
@@ -599,7 +603,28 @@ const App: React.FC = () => {
   const handleAddToGenerationQueue = useCallback((items: QueueItem[]) => {
     items.forEach(item => {
       queuedGenerationIds.current.add(item.id);
-      queueRef.current.push(item);
+
+      // Multi-tier priority queue logic:
+      // Priority 3 (IMMEDIATE): Regenerate caption, user explicitly waiting
+      // Priority 2 (INTERACTIVE): Generation Studio, user actively watching  
+      // Priority 1 (PRELOAD): Slideshow preload, "Smart fit to screen"
+      // Priority 0 (BACKGROUND): Batch processing, closed modal
+
+      const itemPriority = item.priority || 0; // Default to BACKGROUND
+
+      // Find insertion point: insert after same/higher priority, before lower priority
+      let insertIndex = queueRef.current.length; // Default: end of queue
+
+      for (let i = 0; i < queueRef.current.length; i++) {
+        const queueItemPriority = queueRef.current[i].priority || 0;
+        if (itemPriority > queueItemPriority) {
+          // Found item with lower priority - insert here
+          insertIndex = i;
+          break;
+        }
+      }
+
+      queueRef.current.splice(insertIndex, 0, item);
     });
 
     addNotification({
@@ -1104,15 +1129,29 @@ const App: React.FC = () => {
       };
     });
 
-    // Add to queue
+    // Add to queue with IMMEDIATE priority (user explicitly waiting)
     const queueItem: QueueItem = {
       id: imageToRegenerate.id,
       taskType: 'analysis',
       fileName: imageToRegenerate.fileName,
       addedAt: Date.now(),
+      priority: 3, // QueuePriority.IMMEDIATE - user is staring at screen waiting
       data: { image: imageToRegenerate }
     };
-    queueRef.current.push(queueItem);
+
+    // Priority insertion (same logic as generation queue)
+    const itemPriority = queueItem.priority || 0;
+    let insertIndex = queueRef.current.length;
+
+    for (let i = 0; i < queueRef.current.length; i++) {
+      const queueItemPriority = queueRef.current[i].priority || 0;
+      if (itemPriority > queueItemPriority) {
+        insertIndex = i;
+        break;
+      }
+    }
+
+    queueRef.current.splice(insertIndex, 0, queueItem);
     queuedAnalysisIds.current.add(imageId);
 
     // Update visual state (spinner)
@@ -2272,7 +2311,10 @@ const App: React.FC = () => {
         {promptModalConfig && (
           <PromptSubmissionModal
             isOpen={!!promptModalConfig}
-            onClose={() => setPromptModalConfig(null)}
+            onClose={() => {
+              setPromptModalConfig(null);
+              setGenerationResults([]); // Clear results when modal closes
+            }}
             config={promptModalConfig}
             promptHistory={promptHistory}
             negativePromptHistory={negativePromptHistory} // Pass updated prop
@@ -2283,6 +2325,7 @@ const App: React.FC = () => {
             onSaveNegativePrompt={addNegativePromptToHistory}
             onAddToGenerationQueue={handleAddToGenerationQueue}
             queuedGenerationCount={queuedGenerationIds.current.size}
+            generationResults={generationResults}
             onSubmit={(prompt, options) => {
               if (!promptModalConfig) return;
 

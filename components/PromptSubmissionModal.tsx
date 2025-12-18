@@ -31,6 +31,7 @@ interface PromptSubmissionModalProps {
     onSaveGeneratedImage?: (dataUrl: string, prompt: string, metadata?: any) => void;
     onAddToGenerationQueue?: (items: import('../types').QueueItem[]) => void;
     queuedGenerationCount?: number;
+    generationResults?: { id: string; url: string }[]; // Completed images from queue
 }
 
 const titles = {
@@ -39,7 +40,7 @@ const titles = {
     enhance: { icon: WandIcon, text: "Enhance & Upscale Image" },
 }
 
-const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, onClose, onSubmit, config, promptHistory, negativePromptHistory = [], onSaveNegativePrompt, settings, onSaveGeneratedImage, onAddToGenerationQueue, queuedGenerationCount = 0 }) => {
+const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, onClose, onSubmit, config, promptHistory, negativePromptHistory = [], onSaveNegativePrompt, settings, onSaveGeneratedImage, onAddToGenerationQueue, queuedGenerationCount = 0, generationResults = [] }) => {
     const [prompt, setPrompt] = useState('');
     const [negativePrompt, setNegativePrompt] = useState('');
     const [selectedAspectRatio, setSelectedAspectRatio] = useState<AspectRatio | undefined>('9:16');
@@ -148,6 +149,26 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, o
         return () => clearInterval(interval);
     }, [autoPlay, isGenerating, sessionImages.length]);
 
+    // Receive completed images from queue and add to session
+    useEffect(() => {
+        if (generationResults && generationResults.length > 0) {
+            // Add new results to session images (avoiding duplicates)
+            setSessionImages(prev => {
+                const existingIds = new Set(prev.map(img => img.id));
+                const newImages = generationResults.filter(img => !existingIds.has(img.id));
+                if (newImages.length > 0) {
+                    return [...prev, ...newImages];
+                }
+                return prev;
+            });
+
+            // Auto-advance to newest image if autoPlay is on
+            if (autoPlay && generationResults.length > sessionImages.length) {
+                setCurrentImageIndex(generationResults.length - 1);
+            }
+        }
+    }, [generationResults, autoPlay, sessionImages.length]);
+
     // Handlers for Player
     const handlePlayerGenerate = async () => {
         if (!prompt || isGenerating || !settings) return;
@@ -192,6 +213,7 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, o
                 taskType: 'generate',
                 fileName: `${prompt.slice(0, 30)}... [${i + 1}/${batchCount}]`,
                 addedAt: Date.now(),
+                priority: 2, // QueuePriority.INTERACTIVE - user actively watching
                 data: {
                     prompt: finalPrompt,
                     aspectRatio: currentAspectRatio,
@@ -213,10 +235,12 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, o
 
         console.log('[PromptSubmissionModal] Adding', queueItems.length, 'items to queue');
 
-        // Add to queue and close modal
+        // Add to queue - modal stays open so user can watch results
         onAddToGenerationQueue(queueItems);
-        onClose();
-        return;
+
+        // DON'T close modal - let user watch the generation process
+        // User can manually close if they want background processing
+        // onClose(); // Removed - modal stays open by default
     };
 
     const handlePlayerSave = () => {
