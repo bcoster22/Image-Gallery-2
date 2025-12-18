@@ -17,16 +17,18 @@ interface AdminSettingsPageProps {
 type ConnectionStatus = 'idle' | 'checking' | 'success' | 'error';
 type AdminTab = 'providers' | 'routing' | 'performance' | 'appearance' | 'content-safety' | 'prompts' | 'versions';
 
+// Fallback model list (dynamically fetched from /v1/models in useEffect below)
+// This list is only used if the backend is unreachable
 const MOONDREAM_MODELS = [
-    { id: 'moondream-2', name: 'Moondream 2 (Vision)' },
-    { id: 'moondream-3-preview', name: 'Moondream 3 Preview (Vision)' },
-    { id: 'joycaption-alpha-2', name: 'JoyCaption (Detailed Description)' },
-    { id: 'florence-2-large', name: 'Florence-2 (Analysis & OCR)' },
-    { id: 'wd14-vit-v2', name: 'WD14 Tagger (Tags & Organization)' },
-    { id: 'sdxl-realism', name: 'SDXL Realism (Generation)' },
-    { id: 'sdxl-anime', name: 'SDXL Anime (Generation)' },
-    { id: 'sdxl-surreal', name: 'SDXL Surreal (Generation)' },
-    { id: 'nsfw-detector', name: 'NSFW Detector' }
+    { id: 'moondream-3-preview', name: 'Moondream 3 Preview' },
+    { id: 'moondream-2', name: 'Moondream 2 Latest' },
+    { id: 'joycaption-alpha-2', name: 'JoyCaption Alpha 2' },
+    { id: 'florence-2-large', name: 'Florence-2 Large' },
+    { id: 'wd14-vit-v2', name: 'WD14 ViT Tagger v2' },
+    { id: 'sdxl-realism', name: 'SDXL Realism (Juggernaut)' },
+    { id: 'sdxl-anime', name: 'SDXL Anime (Animagine)' },
+    { id: 'sdxl-surreal', name: 'SDXL Surreal (DreamShaper)' },
+    { id: 'nsfw-detector', name: 'NSFW Detector (Marqo)' }
 ];
 
 const getMoondreamModelName = (id: string | null) => {
