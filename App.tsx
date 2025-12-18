@@ -519,9 +519,13 @@ const App: React.FC = () => {
             setAnalysisProgress(prev => {
               if (!prev) return null;
               const newCurrent = prev.current + 1;
+
+              // Auto-dismiss when complete
               if (newCurrent >= prev.total) {
-                setTimeout(() => setAnalysisProgress(null), 1000);
+                setTimeout(() => setAnalysisProgress(null), 2000); // Give user time to see completion
+                return { ...prev, current: newCurrent }; // Show 100% briefly
               }
+
               return { ...prev, current: newCurrent };
             });
           }
