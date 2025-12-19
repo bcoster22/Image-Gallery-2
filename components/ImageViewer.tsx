@@ -293,7 +293,7 @@ const MetadataPanel: React.FC<MetadataPanelProps> = ({
 
   const handleKeywordsWheel = (e: React.WheelEvent) => {
     if (keywordsScrollRef.current && e.deltaY !== 0) {
-      e.preventDefault();
+      // e.preventDefault(); // Removed to fix passive listener error
       keywordsScrollRef.current.scrollLeft += e.deltaY;
     }
   };
@@ -488,12 +488,73 @@ const MetadataPanel: React.FC<MetadataPanelProps> = ({
               )}
             </div>
 
-            {/* Keywords */}
+            {/* Keywords & Ratings */}
             {image.keywords && image.keywords.length > 0 && (
-              <div ref={keywordsScrollRef} onWheel={handleKeywordsWheel} className="flex flex-nowrap overflow-x-auto scrollbar-none gap-1.5 py-1">
-                {image.keywords.map((kw, i) => (
-                  <button key={i} onClick={() => onKeywordClick(kw)} className="px-2.5 py-1 text-xs bg-white/5 border border-white/5 rounded-full text-white/70 whitespace-nowrap">#{kw}</button>
+              <div
+                ref={keywordsScrollRef}
+                onWheel={handleKeywordsWheel}
+                onMouseEnter={() => setIsHoveringKeywords(true)}
+                onMouseLeave={() => setIsHoveringKeywords(false)}
+                className="flex flex-nowrap overflow-x-auto scrollbar-none gap-1.5 py-1"
+              >
+                {/* Render Ratings First */}
+                {image.keywords.filter(k => k.startsWith('rating:')).map((kw, i) => {
+                  const rating = kw.replace('rating:', '');
+                  let colorClass = 'bg-gray-500/20 text-gray-200 border-gray-500/30';
+                  if (rating === 'PG') colorClass = 'bg-green-500/20 text-green-200 border-green-500/30';
+                  if (rating === 'PG-13') colorClass = 'bg-yellow-500/20 text-yellow-200 border-yellow-500/30';
+                  if (rating === 'R') colorClass = 'bg-orange-500/20 text-orange-200 border-orange-500/30';
+                  if (rating === 'X') colorClass = 'bg-red-500/20 text-red-200 border-red-500/30';
+                  if (rating === 'XXX') colorClass = 'bg-red-900/40 text-red-300 border-red-700/50';
+
+                  return (
+                    <div key={`rating-${i}`} className={`px-2.5 py-1 text-xs font-bold border rounded-full whitespace-nowrap ${colorClass}`}>
+                      {rating}
+                    </div>
+                  );
+                })}
+
+                {/* Render Score Tags (Debug/Safety Info) */}
+                {image.keywords.filter(k => k.startsWith('score:')).map((kw, i) => {
+                  // Format: score:category:0.xx
+                  const parts = kw.split(':');
+                  if (parts.length === 3) {
+                    const category = parts[1].charAt(0).toUpperCase() + parts[1].slice(1);
+                    const percent = Math.round(parseFloat(parts[2]) * 100);
+                    // Only show significant scores or explicit/sensitive ones to avoid clutter?
+                    // User asked to "Show the tags", so let's show them all or at least the relevant ones for safety.
+                    const isSafety = ['Explicit', 'Sensitive', 'Questionable'].includes(category);
+                    const colorClass = isSafety ? 'text-pink-300 bg-pink-500/10 border-pink-500/20' : 'text-blue-300 bg-blue-500/10 border-blue-500/20';
+
+                    return (
+                      <div key={`score-${i}`} className={`px-2.5 py-1 text-[10px] font-mono border rounded-full whitespace-nowrap ${colorClass}`}>
+                        {category}: {percent}%
+                      </div>
+                    );
+                  }
+                  return null;
+                })}
+
+                {/* Render Detected Resources (Resource Detective) */}
+                {image.resourceUsage?.modelName && (
+                  <div key="res-model" className="flex items-center gap-1.5 px-3 py-1 text-xs font-bold bg-purple-500/20 text-purple-200 border border-purple-500/30 rounded-full whitespace-nowrap">
+                    <span className="text-[10px] uppercase opacity-60 tracking-wider">Model:</span>
+                    {image.resourceUsage.modelName}
+                  </div>
+                )}
+                {image.resourceUsage?.loraNames && image.resourceUsage.loraNames.map((lora, i) => (
+                  <div key={`res-lora-${i}`} className="flex items-center gap-1.5 px-3 py-1 text-xs font-bold bg-teal-500/20 text-teal-200 border border-teal-500/30 rounded-full whitespace-nowrap">
+                    <span className="text-[10px] uppercase opacity-60 tracking-wider">LoRA:</span>
+                    {lora}
+                  </div>
                 ))}
+
+                {/* Render Normal Keywords (excluding score tags and ratings) */}
+                {image.keywords
+                  .filter(k => !k.startsWith('rating:') && !k.startsWith('score:'))
+                  .map((kw, i) => (
+                    <button key={i} onClick={() => onKeywordClick(kw)} className="px-2.5 py-1 text-xs bg-white/5 border border-white/5 rounded-full text-white/70 whitespace-nowrap hover:bg-white/10 hover:text-white transition-colors">#{kw}</button>
+                  ))}
               </div>
             )}
           </div>

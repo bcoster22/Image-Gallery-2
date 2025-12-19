@@ -47,6 +47,13 @@ const callMoondreamApi = async (
     if (!response.ok) {
       const errorBody = await response.text();
       console.error(`Moondream API Error: ${response.status} - ${errorBody}`);
+
+      // Catch OOM in 500/Hard Errors
+      if (response.status === 500 && errorBody.includes('CUDA out of memory') && vramMode !== 'low') {
+        console.warn(`[Moondream API] OOM Detected (500). Retrying with 'low' VRAM mode...`);
+        return await callMoondreamApi(fullUrl, apiKey, body, isCloud, timeoutSeconds, 'low');
+      }
+
       throw new Error(`Moondream API error (${response.status}): ${errorBody}`);
     }
 
@@ -116,6 +123,11 @@ const callMoondreamApi = async (
     try {
       const parsed = JSON.parse(answer);
       if (parsed && typeof parsed === 'object' && parsed.error) {
+        const errStr = parsed.error;
+        if (typeof errStr === 'string' && errStr.includes('CUDA out of memory') && vramMode !== 'low') {
+          console.warn(`[Moondream API] OOM Detected. Retrying with 'low' VRAM mode to force unload...`);
+          return await callMoondreamApi(fullUrl, apiKey, body, isCloud, timeoutSeconds, 'low');
+        }
         throw new Error(`Model returned an error: ${parsed.error}`);
       }
     } catch (e) {
@@ -162,6 +174,18 @@ const callMoondreamApi = async (
 const normalizeEndpoint = (endpoint: string): string => {
   return endpoint.replace(/\/$/, '').replace(/\/v1$/, '');
 };
+
+function getImageRating(scores: Record<string, number>): string {
+  const explicit = scores.explicit || 0;
+  const questionable = scores.questionable || 0;
+  const sensitive = scores.sensitive || 0;
+
+  if (explicit > 0.85) return 'XXX';
+  if (explicit > 0.5) return 'X';
+  if (questionable > 0.5) return 'R';
+  if (sensitive > 0.5) return 'PG-13';
+  return 'PG';
+}
 
 // --- Providers ---
 
@@ -332,6 +356,147 @@ export class MoondreamLocalProvider extends BaseProvider {
       };
     }
 
+    // Check if we are using a specialized tagger
+    const modelName = (modelOverride || config.model || '').toLowerCase();
+    const isWd14 = modelName.includes('wd14') || modelName.includes('tagger') || modelName.includes('vit');
+
+    if (isWd14) {
+      // --- WD14 SPECIAL HANDLING ---
+      // WD14 is NOT a chat model. It does not understand "Describe this".
+      // It returns a raw string of comma-separated tags.
+      // We must bypass the 'analyzeImage' prompt strategy logic.
+
+      const providerConfig = effectiveSettings.providers.moondream_local;
+      let usedEndpoint = providerConfig.endpoint || 'http://127.0.0.1:2020/v1';
+      if (usedEndpoint.includes('localhost')) { usedEndpoint = usedEndpoint.replace('localhost', '127.0.0.1'); }
+      const baseUrl = normalizeEndpoint(usedEndpoint);
+
+      // Use chat completions but assume the backend wraps the Tagger to return text
+      // Use classify endpoint for WD14 Tagger (It is a classifier, not a chat model)
+      const apiUrl = `${baseUrl}/v1/classify`;
+      const body = {
+        model: modelOverride || "wd14-vit-v2",
+        image_url: image.dataUrl // Classify expects image_url at top level
+      };
+
+      const vramMode = settings.performance?.vramUsage || 'balanced';
+
+      // Make the call with fallback logic for V3 -> V2
+      let text = "";
+      try {
+        const result = await callMoondreamApi(apiUrl, "", body, false, 120, vramMode);
+        text = result.text;
+      } catch (err) {
+        // If V3 fails, try V2 automatically
+        if ((modelOverride === "wd-vit-tagger-v3" || !modelOverride) && err instanceof Error) {
+          console.warn("[WD14] V3 failed, attempting fallback to wd14-vit-v2...");
+          body.model = "wd14-vit-v2";
+          const result = await callMoondreamApi(apiUrl, "", body, false, 120, vramMode);
+          text = result.text;
+        } else {
+          throw err;
+        }
+      }
+
+      let tags: string[] = [];
+      let scores: Record<string, number> | null = null;
+      let imageRating = 'PG'; // Default
+
+      console.log('[WD14] Raw response text:', text);
+      try {
+        const json = JSON.parse(text);
+
+        if (json.scores) {
+          scores = json.scores;
+          // Extract tags from scores above threshold (0.35 is common for WD14)
+          const TAG_THRESHOLD = 0.35;
+          tags = Object.entries(json.scores)
+            .filter(([tag, score]) => {
+              // Exclude the special rating categories from general tags
+              if (['general', 'sensitive', 'questionable', 'explicit'].includes(tag)) return false;
+              return (score as number) >= TAG_THRESHOLD;
+            })
+            .sort((a, b) => (b[1] as number) - (a[1] as number)) // Sort by confidence descending  
+            .map(([tag]) => tag.replace(/_/g, ' ')); // Convert underscores to spaces
+
+          console.log('[WD14 Parser] Extracted tags from scores:', tags);
+        } else if (json.predictions && Array.isArray(json.predictions)) {
+          // Handle Classifier-style response (predictions array) and populate scores for Truth Committee
+          console.log('[WD14 Parser] Detected predictions format');
+          scores = {};
+          json.predictions.forEach((p: any) => {
+            if (p.label && typeof p.score === 'number') scores![p.label] = p.score;
+          });
+
+          const TAG_THRESHOLD = 0.35;
+          tags = json.predictions
+            .filter((p: any) => p.score >= TAG_THRESHOLD)
+            .map((p: any) => p.label.replace(/_/g, ' '));
+        } else if (Array.isArray(json)) {
+          tags = json;
+        } else {
+          // unexpected json
+          tags = [];
+        }
+      } catch (e) {
+        // Fallback CSV (Old backend or raw string)
+        tags = text.split(',').map(t => t.trim()).filter(t => t.length > 0 && t.toLowerCase() !== 'unknown');
+      }
+
+      // TRUTH COMMITTEE & RATING LOGIC
+      if (scores) {
+        imageRating = getImageRating(scores);
+        const sensitive = scores.sensitive || 0;
+        const questionable = scores.questionable || 0;
+
+        // Ambiguity Check: If rating is R OR gap between sensitive/questionable is small
+        // NEW AGGRESSIVE CHECK: If there is ANY hint of NSFW (>20% combined), consult Moondream
+        const nsfwSum = (scores.explicit || 0) + (scores.questionable || 0) + (scores.sensitive || 0);
+        const isSuspicious = nsfwSum > 0.2;
+        const isAmbiguous = Math.abs(sensitive - questionable) < 0.15;
+
+        if (imageRating === 'R' || imageRating === 'X' || isAmbiguous || isSuspicious) {
+          console.log(`[Truth Committee] Suspicious scores (Sum: ${nsfwSum.toFixed(2)}). Consulting Moondream 3...`);
+          try {
+            // Handoff to Moondream 3 (4-bit)
+            const handoffBody = {
+              model: "moondream-3-preview-4bit",
+              messages: [{
+                role: "user",
+                content: [
+                  { type: "text", text: "Rate this image as PG, PG-13, R, or X based on movie standards. Focus on whether the nudity is artistic or pornographic. Answer with just the rating." },
+                  { type: "image_url", image_url: { url: image.dataUrl } }
+                ]
+              }],
+              max_tokens: 10
+            };
+
+            // Quick call
+            const { text: mdAnswer } = await callMoondreamApi(apiUrl, "", handoffBody, false, 60, vramMode);
+            const mdRating = mdAnswer.trim().toUpperCase().replace(/[^A-Z0-9-]/g, '');
+
+            if (['PG', 'PG-13', 'R', 'X', 'XXX'].includes(mdRating)) {
+              console.log(`[Truth Committee] Moondream overrides ${imageRating} -> ${mdRating}`);
+              imageRating = mdRating;
+            }
+          } catch (err) {
+            console.warn("[Truth Committee] Failed to consult Moondream:", err);
+          }
+        }
+
+        // Inject Rating Tags
+        tags.push(`rating:${imageRating}`);
+        // Inject raw score tags for UI badges if needed
+        if (scores.explicit) tags.push(`score:explicit:${scores.explicit.toFixed(2)}`);
+      }
+
+      console.log('[Moondream tagImage] Final tags being returned:', tags);
+      console.log('[Moondream tagImage] Total tag count:', tags.length);
+      return tags;
+    }
+
+    // --- FALLBACK (JoyCaption/Moondream) ---
+    // Use standard analysis which supports strategies (like "Extract keywords")
     const result = await this.analyzeImage(image, effectiveSettings);
     return result.keywords;
   }
@@ -357,7 +522,8 @@ export class MoondreamLocalProvider extends BaseProvider {
     onStatus?: (message: string) => void
   ): Promise<ImageAnalysisResult> {
     const providerConfig = settings?.providers?.moondream_local || {};
-    const { endpoint, model } = providerConfig as any;
+    console.log('[analyzeImage] Provider Config (Checking for taggingModel):', providerConfig);
+    const { endpoint, model, taggingModel } = providerConfig as any;
     let usedEndpoint = endpoint || 'http://127.0.0.1:2020/v1';
     if (usedEndpoint.includes('localhost')) { usedEndpoint = usedEndpoint.replace('localhost', '127.0.0.1'); }
     const baseUrl = normalizeEndpoint(usedEndpoint);
@@ -396,8 +562,10 @@ export class MoondreamLocalProvider extends BaseProvider {
     const assignedStrategyId = settings.prompts.assignments?.['moondream_local'];
     const strategy = settings.prompts.strategies.find(s => s.id === assignedStrategyId) || settings.prompts.strategies[0];
 
+    let result: ImageAnalysisResult;
+
     if (strategy) {
-      return executeStrategy(
+      result = await executeStrategy(
         strategy,
         image,
         async (prompt) => {
@@ -412,19 +580,51 @@ export class MoondreamLocalProvider extends BaseProvider {
         },
         onStatus
       );
+    } else {
+      const prompt = "Describe this image.";
+      const body = {
+        model: (!model || model.startsWith('sdxl-')) ? "moondream-2" : model,
+        messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: image.dataUrl } }] }],
+        stream: false,
+        max_tokens: 1024
+      };
+
+      const vramMode = settings.performance?.vramUsage || 'balanced';
+      const { text: responseText, stats } = await callMoondreamApi(apiUrl, "", body, false, 120, vramMode);
+      result = { recreationPrompt: responseText, keywords: [], stats };
     }
 
-    const prompt = "Describe this image.";
-    const body = {
-      model: (!model || model.startsWith('sdxl-')) ? "moondream-2" : model,
-      messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: image.dataUrl } }] }],
-      stream: false,
-      max_tokens: 1024
-    };
+    // If tagging model override is set (e.g., WD14), call tagImage to get tags
+    if (taggingModel && taggingModel !== model) {
+      console.log('[analyzeImage] Tagging model override detected, calling tagImage separately');
+      try {
+        const tags = await this.tagImage(image, settings);
+        result.keywords = [...(result.keywords || []), ...tags];
+      } catch (error) {
+        console.warn('[analyzeImage] Tagging side-car failed, attempting fallback to Vision Model:', error);
+        // Fallback: Ask Moondream to tag it
+        try {
+          const fallbackBody = {
+            model: "moondream-2",
+            messages: [{
+              role: "user",
+              content: [
+                { type: "text", text: "List 10 key descriptive tags for this image, comma separated. Do not use sentences." },
+                { type: "image_url", image_url: { url: image.dataUrl } }
+              ]
+            }],
+            max_tokens: 100
+          };
+          const { text } = await callMoondreamApi(apiUrl, "", fallbackBody, false, 60, "balanced");
+          const fallbackTags = text.split(',').map(t => t.trim().toLowerCase()).filter(t => t.length > 0);
+          result.keywords = [...(result.keywords || []), ...fallbackTags];
+        } catch (e) {
+          console.warn('[analyzeImage] Tagging fallback also failed.');
+        }
+      }
+    }
 
-    const vramMode = settings.performance?.vramUsage || 'balanced';
-    const { text: responseText, stats } = await callMoondreamApi(apiUrl, "", body, false, 120, vramMode);
-    return { recreationPrompt: responseText, keywords: [], stats };
+    return result;
   }
 
   async detectSubject(

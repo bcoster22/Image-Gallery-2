@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { AdminSettings, ImageAnalysisStats, QueueStatus } from "../types";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
-import { Activity, Cpu, HardDrive, Server, Zap, AlertTriangle, Terminal, Lock, Clock, ScanEye, Crop, Film, Image as ImageIcon } from 'lucide-react';
+import { Activity, Cpu, HardDrive, Server, Zap, AlertTriangle, Terminal, Lock, Clock, ScanEye, Crop, Film, Image as ImageIcon, Play, Pause, Trash2 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { ProviderBenchmark } from '../src/components/ProviderBenchmark';
@@ -123,9 +123,20 @@ interface StatusPageProps {
   statsHistory: StatPoint[];
   settings: AdminSettings | null;
   queueStatus?: QueueStatus;
+  onPauseQueue?: (paused: boolean) => void;
+  onClearQueue?: () => void;
+  onRemoveFromQueue?: (ids: string[]) => void;
 }
 
-export default function StatusPage({ statsHistory, settings, queueStatus }: StatusPageProps) {
+export default function StatusPage({ statsHistory, settings, queueStatus, onPauseQueue, onClearQueue, onRemoveFromQueue }: StatusPageProps) {
+  const [selectedQueueIds, setSelectedQueueIds] = useState<Set<string>>(new Set());
+
+  const handleToggleSelect = (id: string) => {
+    const newSet = new Set(selectedQueueIds);
+    if (newSet.has(id)) newSet.delete(id);
+    else newSet.add(id);
+    setSelectedQueueIds(newSet);
+  };
   const [timeRange, setTimeRange] = useState<'1h' | '6h' | '12h' | '24h' | '1w'>('1h');
   const [otelMetrics, setOtelMetrics] = useState<OtelMetrics | null>(null);
   const [vramHistory, setVramHistory] = useState<{ timestamp: number; used: number; total: number }[]>([]);
@@ -1203,6 +1214,20 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
                 )}>
                   {queueStatus.isPaused ? 'Paused (Backpressure)' : 'Running'}
                 </div>
+                {onPauseQueue && (
+                  <button
+                    onClick={() => onPauseQueue(!queueStatus.isPaused)}
+                    className={cn(
+                      "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-colors border",
+                      queueStatus.isPaused
+                        ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20"
+                        : "bg-amber-500/10 text-amber-400 border-amber-500/20 hover:bg-amber-500/20"
+                    )}
+                  >
+                    {queueStatus.isPaused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
+                    {queueStatus.isPaused ? "Resume Queue" : "Pause Queue"}
+                  </button>
+                )}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -1286,13 +1311,55 @@ export default function StatusPage({ statsHistory, settings, queueStatus }: Stat
                   {/* Queued Jobs */}
                   {queueStatus.queuedJobs.length > 0 && (
                     <div>
-                      <h4 className="text-sm font-medium text-neutral-400 mb-2 flex items-center gap-2">
-                        <Clock className="w-3 h-3" /> Queued
-                      </h4>
-                      <div className="space-y-2 max-h-[150px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-neutral-700">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-sm font-medium text-neutral-400 flex items-center gap-2">
+                          <Clock className="w-3 h-3" /> Queued ({queueStatus.queuedJobs.length})
+                        </h4>
+                        <div className="flex gap-2">
+                          {selectedQueueIds.size > 0 && onRemoveFromQueue && (
+                            <button
+                              onClick={() => {
+                                if (confirm(`Delete ${selectedQueueIds.size} selected tasks?`)) {
+                                  onRemoveFromQueue(Array.from(selectedQueueIds));
+                                  setSelectedQueueIds(new Set());
+                                }
+                              }}
+                              className="text-[10px] px-2 py-1 rounded bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors uppercase font-bold"
+                            >
+                              Delete Selected ({selectedQueueIds.size})
+                            </button>
+                          )}
+                          {onClearQueue && (
+                            <button
+                              onClick={() => {
+                                if (confirm("Clear all queued jobs? This cannot be undone.")) {
+                                  onClearQueue();
+                                }
+                              }}
+                              className="text-[10px] px-2 py-1 rounded bg-neutral-700/50 text-neutral-300 border border-neutral-600 hover:bg-neutral-600 transition-colors uppercase font-bold"
+                            >
+                              Clear All
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-neutral-700">
                         {queueStatus.queuedJobs.map((job, idx) => (
-                          <div key={job.id} className="flex items-center justify-between bg-white/5 border border-white/5 rounded-lg p-2 text-sm opacity-75">
+                          <div
+                            key={job.id}
+                            className={cn(
+                              "flex items-center justify-between border rounded-lg p-2 text-sm transition-colors cursor-pointer",
+                              selectedQueueIds.has(job.id) ? "bg-indigo-500/20 border-indigo-500/50" : "bg-white/5 border-white/5 opacity-75 hover:opacity-100"
+                            )}
+                            onClick={() => handleToggleSelect(job.id)}
+                          >
                             <div className="flex items-center gap-3 overflow-hidden">
+                              <input
+                                type="checkbox"
+                                checked={selectedQueueIds.has(job.id)}
+                                onChange={() => handleToggleSelect(job.id)}
+                                className="rounded border-gray-600 bg-gray-700 text-indigo-500 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer pointer-events-none" // pointer-events-none to let row click handle it
+                              />
                               <div className="text-xs text-neutral-500 w-4">{idx + 1}.</div>
                               <span className="truncate text-neutral-300 max-w-[200px]">{job.fileName}</span>
                             </div>

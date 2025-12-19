@@ -1,5 +1,19 @@
-
 import { HarmBlockThreshold } from "@google/genai";
+
+// Resource Detective Types
+export interface ResourceHash {
+  hash: string;       // SHA256 (usually short 10-12 chars for display, full for match)
+  modelName: string;
+  type: 'checkpoint' | 'lora' | 'embedding';
+}
+
+export interface ResourceUsage {
+  modelHash?: string;
+  modelName?: string;
+  loraHashes?: string[];
+  loraNames?: string[];
+  embeddings?: string[];
+}
 
 export type AiProvider = 'gemini' | 'openai' | 'grok' | 'moondream_cloud' | 'moondream_local' | 'comfyui';
 export type GalleryView = 'public' | 'my-gallery' | 'creations' | 'prompt-history' | 'status' | 'admin-settings' | 'profile-settings' | 'duplicates';
@@ -236,6 +250,12 @@ export interface AdminSettings {
     maxAnalysisDimension: number;
     vramUsage: 'high' | 'balanced' | 'low';
   };
+  resilience?: {
+    pauseOnLocalFailure: boolean;
+    failoverEnabled: boolean;
+    checkBackendInterval: number; // ms
+    checkActiveJobOnRecovery: boolean;
+  };
   prompts: {
     assignments: Record<string, string>; // providerId -> strategyId
     strategies: PromptStrategy[];
@@ -279,7 +299,7 @@ export interface ImageInfo {
   isGenerating?: boolean;
   source?: 'upload' | 'generated' | 'enhanced' | 'video' | 'prompt';
   savedToGallery?: boolean; // If true, explicitly shown in My Gallery. If undefined, legacy behavior (uploads=true)
-  // New fields for Civitai-style cards
+  // New fields for Image ratings cards
   authorName?: string;
   authorAvatarUrl?: string;
   likes?: number;
@@ -303,6 +323,7 @@ export interface ImageInfo {
     scheduler?: string;
     loras?: string[];
   };
+  resourceUsage?: ResourceUsage; // Added by Resource Detective
 }
 
 export interface GenerationTask {

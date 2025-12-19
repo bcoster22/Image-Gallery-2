@@ -41,6 +41,148 @@ try:
 except ImportError:
     pynvml = None
 
+try:
+    from transformers import AutoModelForCausalLM, AutoProcessor, BitsAndBytesConfig, AutoTokenizer, AutoModelForImageClassification, AutoImageProcessor
+    from PIL import Image
+    import io
+    import requests
+    import torch
+    import numpy as np
+except ImportError:
+    print("Warning: Transformers/BitsAndBytes/PIL not found. Advanced models will fail.")
+
+class AdvancedModelService:
+    def __init__(self):
+        self.model = None
+        self.processor = None
+        self.tokenizer = None
+        self.current_model_id = None
+        self.labels = None
+        
+    def download_image(self, url):
+        try:
+            if url.startswith("data:"):
+                from base64 import b64decode
+                header, encoded = url.split(",", 1)
+                data = b64decode(encoded)
+                return Image.open(io.BytesIO(data)).convert("RGB")
+            elif url.startswith("http"):
+                 return Image.open(requests.get(url, stream=True).raw).convert("RGB")
+        except Exception as e:
+            print(f"Error downloading image: {e}")
+        return None
+
+    def start(self, model_id):
+        if self.current_model_id == model_id and self.model is not None:
+             return True
+             
+        # Unload
+        if self.model:
+             del self.model
+             del self.processor
+             del self.tokenizer
+             torch.cuda.empty_cache()
+             self.model = None
+             self.labels = None
+        
+        print(f"[Advanced] Loading {model_id}...")
+        
+        # 4-Bit Config
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True
+        )
+        
+        try:
+            if "wd-vit-tagger-v3" in model_id:
+                # WD14 V3 Loading
+                repo = "SmilingWolf/wd-vit-tagger-v3"
+                self.model = AutoModelForImageClassification.from_pretrained(repo, trust_remote_code=True)
+                self.processor = AutoImageProcessor.from_pretrained(repo, trust_remote_code=True)
+                self.model.to("cuda")
+                self.labels = self.model.config.id2label
+
+            elif "moondream" in model_id:
+                model_name = "alecccdd/moondream3-preview-4bit"
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    model_name, trust_remote_code=True, quantization_config=bnb_config, device_map="auto"
+                )
+                self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+                
+            elif "florence" in model_id:
+                model_name = "microsoft/Florence-2-large"
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    model_name, trust_remote_code=True, quantization_config=bnb_config, device_map="auto"
+                )
+                self.processor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
+                
+            self.current_model_id = model_id
+            print(f"[Advanced] Loaded {model_id} successfully.")
+            
+            if 'model_memory_tracker' in globals():
+                model_memory_tracker.track_model_load(model_id, model_id)
+                
+            return True
+        except Exception as e:
+            print(f"[Advanced] Failed to load {model_id}: {e}")
+            return False
+
+    def run(self, model_id, prompt, image_url):
+        image = self.download_image(image_url)
+        if not image: raise Exception("Failed to load image")
+        
+        if "wd-vit-tagger-v3" in model_id:
+            # WD14 Logic - Extract Tags AND Scores
+            inputs = self.processor(images=image, return_tensors="pt").to("cuda")
+            with torch.no_grad():
+                outputs = self.model(**inputs)
+            
+            logits = outputs.logits[0]
+            probs = torch.sigmoid(logits).cpu().numpy()
+            
+            # Format results
+            results = { "tags": [], "scores": {} }
+            
+            # Extract
+            for i, score in enumerate(probs):
+                label = self.labels[i]
+                
+                # Check for Rating tags
+                if label.startswith("rating:"):
+                    # rating:general, rating:explicit, etc.
+                    clean_name = label.replace("rating:", "")
+                    results["scores"][clean_name] = float(score)
+                
+                # Standard tags (threshold 0.35)
+                elif score > 0.35:
+                     # Escape special chars if needed
+                     results["tags"].append(label)
+                     
+            return json.dumps(results)
+
+        elif "moondream" in model_id:
+            enc_image = self.model.encode_image(image)
+            return self.model.answer_question(enc_image, prompt, self.tokenizer)
+
+        elif "florence" in model_id:
+             task_prompt = "<MORE_DETAILED_CAPTION>"
+             if "tag" in prompt.lower(): task_prompt = "<OD>" 
+             inputs = self.processor(text=task_prompt, images=image, return_tensors="pt").to("cuda")
+             generated_ids = self.model.generate(
+                  input_ids=inputs["input_ids"],
+                  pixel_values=inputs["pixel_values"],
+                  max_new_tokens=1024,
+                  do_sample=False,
+                  num_beams=3
+             )
+             generated_text = self.processor.batch_decode(generated_ids, skip_special_tokens=False)[0]
+             parsed = self.processor.post_process_generation(generated_text, task=task_prompt, image_size=(image.width, image.height))
+             return parsed.get(task_prompt, str(parsed))
+             
+        return "Model not supported"
+
 class HardwareMonitor:
     def __init__(self):
         self.nvidia_available = False
@@ -308,8 +450,39 @@ class RestServer:
                     print(f"[ModelTracker] Warning: Failed to track model load: {e}")
             return result
         self.inference_service.start = _tracked_start
+
+        # Initialize Advanced Model Service (4-Bit & WD14 V3)
+        self.advanced_service = AdvancedModelService()
         
-        self.app = FastAPI(title="Moondream Station Inference Server", version="1.0.0")
+        # Inject models into manifest so they appear in UI
+        try:
+            models = self.manifest_manager.get_models()
+            models['moondream-3-preview-4bit'] = type('ModelInfo', (object,), {
+                'id': 'moondream-3-preview-4bit',
+                'name': 'Moondream 3 (4-bit 8GB)',
+                'type': 'vision',
+                'description': 'Optimized 4-bit Moondream 3 for 8GB VRAM cards.',
+                'version': '3.0-preview'
+            })
+            models['florence-2-large-4bit'] = type('ModelInfo', (object,), {
+                'id': 'florence-2-large-4bit',
+                'name': 'Florence-2 Large (4-bit)',
+                'type': 'vision',
+                'description': 'Microsoft Florence-2 Large with 4-bit quantization.',
+                'version': '2.0'
+            })
+            models['wd-vit-tagger-v3'] = type('ModelInfo', (object,), {
+                'id': 'wd-vit-tagger-v3',
+                'name': 'WD14 ViT Tagger v3',
+                'type': 'vision',
+                'description': 'SmilingWolf WD Tagger V3. Returns tags and Image ratings.',
+                'version': '3.0'
+            })
+            print("[Advanced] Injected advanced models into manifest.")
+        except Exception as e:
+            print(f"[Advanced] Warning: Failed to inject models: {e}")
+        
+        self.app = FastAPI(title="Moondream Station (Advanced Logic)", version="1.2.0")
         self.app.add_middleware(
             CORSMiddleware,
             allow_origins=["*"],
@@ -706,6 +879,64 @@ class RestServer:
             messages = body.get("messages", [])
             stream = body.get("stream", False)
             requested_model = body.get("model")
+            
+            # --- ADVANCED MODEL INTERCEPTION ---
+            intercept_models = ['moondream-3-preview-4bit', 'florence-2-large-4bit', 'wd-vit-tagger-v3']
+            if requested_model in intercept_models:
+                try:
+                    # Parse image from messages
+                    image_url = None
+                    prompt_text = ""
+                    for msg in messages:
+                        if msg.get("role") == "user":
+                            content = msg.get("content")
+                            if isinstance(content, list):
+                                for item in content:
+                                    if item.get("type") == "image_url":
+                                        image_url = item.get("image_url", {}).get("url")
+                                    elif item.get("type") == "text":
+                                        prompt_text += item.get("text", "")
+                            elif isinstance(content, str):
+                                prompt_text = content
+                    
+                    if not image_url:
+                        raise HTTPException(status_code=400, detail="Image required")
+
+                    print(f"[Advanced] Intercepted request for {requested_model}")
+                    
+                    # Unload SDXL if present
+                    if 'sdxl_backend_new' in sys.modules:
+                         sys.modules['sdxl_backend_new'].unload_backend()
+                    
+                    # Ensure model is started
+                    if self.advanced_service.start(requested_model):
+                        answer = self.advanced_service.run(requested_model, prompt_text, image_url)
+                        
+                        # Return OpenAI-compatible response
+                        return {
+                            "id": f"chatcmpl-{int(time.time())}",
+                            "object": "chat.completion",
+                            "created": int(time.time()),
+                            "model": requested_model,
+                            "choices": [{
+                                "index": 0,
+                                "message": {
+                                    "role": "assistant",
+                                    "content": answer
+                                },
+                                "finish_reason": "stop"
+                            }],
+                            "usage": {
+                                "prompt_tokens": 0,
+                                "completion_tokens": 0,
+                                "total_tokens": 0
+                            }
+                        }
+                    else:
+                        raise HTTPException(status_code=500, detail=f"Failed to load {requested_model}")
+                except Exception as e:
+                    print(f"[Advanced] Request failed: {e}")
+                    raise HTTPException(status_code=500, detail=str(e))
             
             # --- AUTO-START / SWITCH LOGIC ---
             if not self.inference_service.is_running():

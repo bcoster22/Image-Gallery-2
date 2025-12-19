@@ -1,4 +1,4 @@
-import { AspectRatio } from "../types";
+import { AspectRatio, ResourceUsage } from "../types";
 
 export const fileToDataUrl = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -249,7 +249,43 @@ const parseA1111Parameters = (data: string): string | null => {
   return fullPrompt.replace(/,$/, '').trim(); // Remove trailing comma and trim
 };
 
-export const extractAIGenerationMetadata = async (file: File): Promise<{ originalMetadataPrompt?: string; keywords?: string[] } | null> => {
+const parseA1111Extended = (data: string): ResourceUsage | undefined => {
+  const result: ResourceUsage = {
+    loraHashes: [],
+    loraNames: []
+  };
+
+  // 1. Extract Model Hash and Name usually at the end lines
+  // "Model hash: 12345678, Model: MyModel_v1"
+  const modelHashMatch = data.match(/Model hash:\s*([a-f0-9]+)/i);
+  if (modelHashMatch) {
+    result.modelHash = modelHashMatch[1];
+  }
+
+  const modelNameMatch = data.match(/Model:\s*([^,]+)/i);
+  if (modelNameMatch) {
+    result.modelName = modelNameMatch[1].trim();
+  }
+
+  // 2. Extract LoRA hashes
+  // Typically: "Lora hashes: \"lora1: 1234, lora2: 5678\""
+  const loraHashesMatch = data.match(/Lora hashes:\s*"([^"]+)"/i);
+  if (loraHashesMatch) {
+    const content = loraHashesMatch[1]; // "lora1: 1234, lora2: 5678"
+    const pairs = content.split(',').map(s => s.trim());
+    pairs.forEach(p => {
+      const parts = p.split(':');
+      if (parts.length === 2) {
+        result.loraNames?.push(parts[0].trim());
+        result.loraHashes?.push(parts[1].trim());
+      }
+    });
+  }
+
+  return result;
+}
+
+export const extractAIGenerationMetadata = async (file: File): Promise<{ originalMetadataPrompt?: string; keywords?: string[], resourceUsage?: ResourceUsage } | null> => {
   // We will only support PNG for now as it's common and simpler to parse client-side
   if (file.type !== 'image/png') {
     return null;
@@ -279,9 +315,14 @@ export const extractAIGenerationMetadata = async (file: File): Promise<{ origina
 
           if (keyword === 'parameters') {
             const prompt = parseA1111Parameters(data);
+            // New extended parsing for Resource Detective
+            const resources = parseA1111Extended(data);
+
             if (prompt) {
-              // Map to originalMetadataPrompt
-              resolve({ originalMetadataPrompt: prompt });
+              resolve({
+                originalMetadataPrompt: prompt,
+                resourceUsage: resources
+              });
               return;
             }
           }

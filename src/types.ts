@@ -45,41 +45,41 @@ export interface AppSettings {
 
 // New V2 Admin Settings Structure
 export interface AdminSettings {
-    providers: {
-        gemini: {
-            apiKey: string | null;
-            generationModel: string | null;
-            veoModel: string | null;
-            safetySettings: GeminiSafetySettings | null;
-        };
-        grok: {
-            apiKey: string | null;
-            generationModel: string | null;
-        };
-        moondream_cloud: {
-            apiKey: string | null;
-        };
-        moondream_local: {
-            endpoint: string | null;
-        };
-        openai: {
-            apiKey: string | null;
-            generationModel: string | null;
-            textGenerationModel: string | null;
-            organizationId: string | null;
-            projectId: string | null;
-        };
-        comfyui: {
-            mode: 'local' | 'hosted';
-            endpoint: string | null;
-            apiKey: string | null;
-        };
+  providers: {
+    gemini: {
+      apiKey: string | null;
+      generationModel: string | null;
+      veoModel: string | null;
+      safetySettings: GeminiSafetySettings | null;
     };
-    routing: Record<Capability, AiProvider[]>;
-    performance: {
-        downscaleImages: boolean;
-        maxAnalysisDimension: number;
+    grok: {
+      apiKey: string | null;
+      generationModel: string | null;
     };
+    moondream_cloud: {
+      apiKey: string | null;
+    };
+    moondream_local: {
+      endpoint: string | null;
+    };
+    openai: {
+      apiKey: string | null;
+      generationModel: string | null;
+      textGenerationModel: string | null;
+      organizationId: string | null;
+      projectId: string | null;
+    };
+    comfyui: {
+      mode: 'local' | 'hosted';
+      endpoint: string | null;
+      apiKey: string | null;
+    };
+  };
+  routing: Record<Capability, AiProvider[]>;
+  performance: {
+    downscaleImages: boolean;
+    maxAnalysisDimension: number;
+  };
 }
 
 
@@ -100,7 +100,7 @@ export interface ImageInfo {
   videoUrl?: string; // Blob URL
   isGenerating?: boolean;
   source?: 'upload' | 'generated' | 'enhanced' | 'video' | 'prompt';
-  // New fields for Civitai-style cards
+  // New fields for Image ratings cards
   authorName?: string;
   authorAvatarUrl?: string;
   likes?: number;
@@ -148,15 +148,15 @@ export interface StatusPayload {
 }
 
 export interface UploadProgress {
-    current: number;
-    total: number;
-    eta: number; // in seconds
-    speed: number; // in MB/s
-    fileName: string;
+  current: number;
+  total: number;
+  eta: number; // in seconds
+  speed: number; // in MB/s
+  fileName: string;
 }
 
 export interface AnalysisProgress {
-    current: number;
-    total: number;
-    fileName: string;
+  current: number;
+  total: number;
+  fileName: string;
 }

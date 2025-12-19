@@ -12,8 +12,16 @@ const AnalysisProgressIndicator: React.FC<AnalysisProgressIndicatorProps> = ({ p
   React.useEffect(() => {
     if (progress) {
       setLastProgress(progress);
+    } else if (lastProgress) {
+      // When progress becomes null, wait for animation to complete then clear lastProgress
+      console.log('[Analysis Progress Indicator] Progress cleared, starting slide-up animation');
+      const timeout = setTimeout(() => {
+        console.log('[Analysis Progress Indicator] Animation complete, unmounting component');
+        setLastProgress(null);
+      }, 600); // 500ms animation + 100ms buffer
+      return () => clearTimeout(timeout);
     }
-  }, [progress]);
+  }, [progress, lastProgress]);
 
   if (!lastProgress) return null; // Don't render until we have first data
 

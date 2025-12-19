@@ -1,4 +1,5 @@
 import { ImageInfo, AdminSettings, AiProvider, AspectRatio, Capability, ImageAnalysisResult, GenerationResult } from "../types";
+import { logger } from "./loggingService";
 import { providerCapabilities } from "./providerCapabilities";
 import { registry } from "./providerRegistry";
 // Import providers to ensure they register themselves
@@ -132,13 +133,16 @@ async function executeWithFallback<T>(
 
         try {
             console.log(`Attempting ${funcName} with ${providerId}...`);
+            logger.info(`Attempting ${funcName} with ${providerId}...`, 'AI Service');
             onProgress?.({ provider: providerId, status: 'attempting' });
             // Call the function on the provider instance
             return await providerFunc.call(provider, ...finalCoreArgs, settings, onStatus);
         } catch (e: any) {
             lastError = e;
             failedAttempts.push({ provider: providerId, error: e.message });
-            console.warn(`Provider ${providerId} failed for ${funcName}:`, e.message);
+            const msg = `Provider ${providerId} failed for ${funcName}: ${e.message}`;
+            console.warn(msg);
+            logger.warn(msg, 'AI Service', e);
             onProgress?.({ provider: providerId, status: 'failed_attempt', message: e.message });
         }
     }
@@ -151,64 +155,7 @@ async function executeWithFallback<T>(
     throw new Error(`All routed AI providers failed or are not configured for '${requiredCapability}'. Please check your settings.`);
 }
 
-export const classifyImageSafety = async (
-    image: ImageInfo,
-    settings: AdminSettings
-): Promise<ImageInfo['nsfwClassification']> => {
-    const providerId = 'moondream_local';
-    const provider = registry.getProvider(providerId);
-
-    if (!provider || !isProviderConfiguredFor(settings, 'vision', providerId)) {
-        console.warn('Moondream Local not configured, skipping NSFW classification');
-        return undefined;
-    }
-
-    try {
-        const nsfwSettings: AdminSettings = {
-            ...settings,
-            providers: {
-                ...settings.providers,
-                moondream_local: {
-                    ...settings.providers.moondream_local,
-                    model: 'nsfw-detector'
-                }
-            }
-        };
-
-        const result = await provider.analyzeImage!(image, nsfwSettings);
-
-        const match = result.recreationPrompt.match(/NSFW Classification: (\w+) \(([0-9.]+)% confidence\)/);
-
-        if (match) {
-            const label = match[1] as 'NSFW' | 'SFW';
-            const confidence = parseFloat(match[2]);
-
-            const predictions = result.keywords?.map(kw => {
-                const predMatch = kw.match(/(\w+) \(([0-9]+)%\)/);
-                if (predMatch) {
-                    return {
-                        label: predMatch[1],
-                        score: parseInt(predMatch[2]) / 100
-                    };
-                }
-                return null;
-            }).filter(p => p !== null) as Array<{ label: string; score: number }>;
-
-            return {
-                label,
-                score: label === 'NSFW' ? confidence / 100 : 1 - (confidence / 100),
-                confidence,
-                predictions,
-                lastChecked: Date.now()
-            };
-        }
-
-        return undefined;
-    } catch (error) {
-        console.error('NSFW classification failed:', error);
-        return undefined;
-    }
-};
+// Legacy NSFW detector removed. Safety relies on WD14/Truth Committee 'rating:' tags.
 
 /**
  * Analyzes an image using configured providers.
@@ -254,26 +201,35 @@ export const analyzeImage = async (
         };
     }
 
-    if (settings.contentSafety?.enabled &&
-        settings.contentSafety?.autoClassify &&
-        !settings.contentSafety?.useSingleModelSession) {
-        if (onStatus) onStatus('Running content safety check...');
+    // Check for 5-Level Rating from tagging (WD14 V3 / Truth Committee)
+    // Only proceed if Content Safety is globally enabled
+    const ratingTag = result.keywords?.find(k => k.startsWith('rating:'));
+    if (ratingTag && settings.contentSafety?.enabled) {
+        if (onStatus) onStatus('Processing Image Rating...');
+        const rating = ratingTag.replace('rating:', '');
 
-        const classification = await classifyImageSafety(image, settings);
+        // Map 5-Level to Binary for legacy system compatibility (Blurring)
+        // R, X, XXX are considered NSFW for blurring purposes
+        const isNsfw = ['R', 'X', 'XXX'].includes(rating);
 
-        if (classification) {
-            const threshold = settings.contentSafety.threshold || 50;
-            const isNsfw = classification.label === 'NSFW' && classification.confidence >= threshold;
-            const keyword = isNsfw
-                ? (settings.contentSafety.nsfwKeyword || 'NSFW')
-                : (settings.contentSafety.sfwKeyword || 'SFW');
-
-            if (!result.keywords) result.keywords = [];
-            if (!result.keywords.includes(keyword)) result.keywords.unshift(keyword);
-
-            image.nsfwClassification = classification;
-            result.nsfwClassification = classification;
+        // Try to extract explicit score if available
+        const scoreTag = result.keywords?.find(k => k.startsWith('score:explicit:'));
+        let confidence = 99; // Default if not found
+        if (scoreTag) {
+            const rawScore = parseFloat(scoreTag.split(':')[2]);
+            if (!isNaN(rawScore)) confidence = rawScore * 100;
         }
+
+        const classification = {
+            label: (isNsfw ? 'NSFW' : 'SFW') as 'NSFW' | 'SFW',
+            score: isNsfw ? (confidence / 100) : (1 - (confidence / 100)),
+            confidence: confidence,
+            predictions: [],
+            lastChecked: Date.now()
+        };
+
+        image.nsfwClassification = classification;
+        result.nsfwClassification = classification;
     }
 
     return result;

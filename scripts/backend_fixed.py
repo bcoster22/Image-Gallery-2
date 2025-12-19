@@ -43,6 +43,7 @@ class SDXLBackend:
                 self.model_id,
                 torch_dtype=torch.float16,
                 quantization_config=quantization_config,
+                use_safetensors=True,
                 cache_dir=os.path.join(self._models_dir, "models")
             )
 

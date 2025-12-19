@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 // FIX: Added AppSettings to import for settings migration.
 import { ImageInfo, AdminSettings, User, GenerationTask, Notification, AspectRatio, GalleryView, AiProvider, UploadProgress, AppSettings, AnalysisProgress, QueueStatus, ActiveJob, GenerationResult, GenerationSettings, UpscaleSettings, QueueItem } from './types';
-import { analyzeImage, animateImage, editImage, generateImageFromPrompt, adaptPromptToTheme, FallbackChainError, detectSubject } from './services/aiService';
+import { analyzeImage, animateImage, editImage, generateImageFromPrompt, adaptPromptToTheme, FallbackChainError, detectSubject, testProviderConnection } from './services/aiService';
 import { fileToDataUrl, getImageMetadata, dataUrlToBlob, generateVideoThumbnail, createGenericPlaceholder, extractAIGenerationMetadata, resizeImage, getClosestSupportedAspectRatio } from './utils/fileUtils';
 import { RateLimitedApiQueue } from './utils/rateLimiter';
 import { initDB, getImages, saveImage, deleteImages, updateImage } from './utils/idb';
@@ -324,6 +324,9 @@ const App: React.FC = () => {
   // Adaptive Concurrency State
   const [concurrencyLimit, setConcurrencyLimit] = useState(1);
   const consecutiveSuccesses = useRef(0);
+  const recoveryIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const checkBackendHealthRef = useRef<(() => Promise<void>) | null>(null);
+  const analysisProgressTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const MAX_CONCURRENCY = 5;
   const queuedGenerationIds = useRef<Set<string>>(new Set());
   const [generationResults, setGenerationResults] = useState<{ id: string; url: string }[]>([]);
@@ -399,6 +402,7 @@ const App: React.FC = () => {
 
       // EXECUTE TASK
       (async () => {
+        let shouldUpdateProgress = true;
         try {
           if (task.taskType === 'analysis' && task.data.image) {
             // --- EXISTING ANALYSIS LOGIC ---
@@ -486,12 +490,39 @@ const App: React.FC = () => {
           const errorMessage = err.message || '';
           console.error(`Task ${task.fileName} failed:`, errorMessage);
 
-          // Check for "Queue is full" or similar backpressure errors
+          // Check for "Queue is full" or Connection Errors
+          const isConnectionError = errorMessage.toLowerCase().includes('failed to fetch') ||
+            errorMessage.includes('ECONNREFUSED') ||
+            errorMessage.includes('Network request failed') ||
+            errorMessage.includes('NetworkError') ||
+            errorMessage.includes('Load failed');
+
+          if (isConnectionError && settings?.resilience?.pauseOnLocalFailure) {
+            console.warn(`Backend Connection Lost (${errorMessage}). Pausing queue.`);
+            updateNotification(task.id, { status: 'warning', message: 'Backend Lost. Pausing Queue...' });
+
+            isPausedRef.current = true;
+            queueRef.current.unshift(task); // Re-queue current task to front
+            shouldUpdateProgress = false;
+
+            // Start Recovery Check
+            if (!recoveryIntervalRef.current) {
+              const intervalMs = settings.resilience.checkBackendInterval || 5000;
+              recoveryIntervalRef.current = setInterval(() => {
+                if (checkBackendHealthRef.current) checkBackendHealthRef.current();
+              }, intervalMs);
+            }
+
+            syncQueueStatus();
+            return; // Stop processing final block/failure marking for this task
+          }
+
           if (errorMessage.includes("Queue is full") || errorMessage.includes("rejected")) {
             console.warn(`Backpressure. Pausing queue and re-queueing ${task.fileName}.`);
             updateNotification(task.id, { status: 'warning', message: `Server busy. Re-queueing ${task.fileName}...` });
             isPausedRef.current = true;
             queueRef.current.unshift(task); // Re-queue
+            shouldUpdateProgress = false;
             // Reduce concurrency
             setConcurrencyLimit(prev => Math.max(1, Math.floor(prev / 2)));
             consecutiveSuccesses.current = 0;
@@ -519,14 +550,25 @@ const App: React.FC = () => {
           activeJobsRef.current = activeJobsRef.current.filter(j => j.id !== task.id);
 
           // Update progress for analysis tasks
-          if (task.taskType === 'analysis') {
+          if (task.taskType === 'analysis' && shouldUpdateProgress) {
             setAnalysisProgress(prev => {
               if (!prev) return null;
               const newCurrent = prev.current + 1;
 
               // Auto-dismiss when complete
               if (newCurrent >= prev.total) {
-                setTimeout(() => setAnalysisProgress(null), 2000); // Give user time to see completion
+                console.log('[Analysis Progress] Batch complete, setting 2s auto-dismiss timeout');
+                // Clear any existing timeout first
+                if (analysisProgressTimeoutRef.current) {
+                  console.log('[Analysis Progress] Clearing existing timeout before setting new one');
+                  clearTimeout(analysisProgressTimeoutRef.current);
+                }
+                // Set new timeout and store its ID
+                analysisProgressTimeoutRef.current = setTimeout(() => {
+                  console.log('[Analysis Progress] Auto-dismiss timeout fired, clearing modal');
+                  setAnalysisProgress(null);
+                  analysisProgressTimeoutRef.current = null;
+                }, 2000);
                 return { ...prev, current: newCurrent }; // Show 100% briefly
               }
 
@@ -579,6 +621,15 @@ const App: React.FC = () => {
       // If previous batch finished (current >= total), start fresh.
       // Otherwise, append to the existing total.
       const isFreshBatch = !prev || prev.current >= prev.total;
+
+      if (isFreshBatch) {
+        // Clear any pending auto-dismiss timeout when starting a new batch
+        if (analysisProgressTimeoutRef.current) {
+          console.log('[Analysis Progress] Clearing old timeout on fresh batch');
+          clearTimeout(analysisProgressTimeoutRef.current);
+          analysisProgressTimeoutRef.current = null;
+        }
+      }
 
       return {
         current: isFreshBatch ? 0 : prev.current,
@@ -1103,10 +1154,25 @@ const App: React.FC = () => {
     }
   }, [settings, currentUser, addNotification, runImageAnalysis]);
 
-  const handleSaveGeneratedImage = useCallback(async (base64Image: string, prompt: string, metadata?: any) => {
-    addPromptToHistory(prompt);
+  const handleSaveGeneratedImage = useCallback(async (imageInput: string | any, prompt: string | boolean, metadata?: any) => {
+    // Defensive input handling
+    let base64Image = '';
+    if (typeof imageInput === 'string') {
+      base64Image = imageInput;
+    } else if (imageInput && typeof imageInput === 'object' && imageInput.image) {
+      base64Image = imageInput.image;
+    }
+
+    if (!base64Image) {
+      console.error("handleSaveGeneratedImage received invalid input:", imageInput);
+      return;
+    }
+
+    const safePrompt = typeof prompt === 'string' ? prompt : (typeof metadata === 'string' ? metadata : '');
+    if (safePrompt) addPromptToHistory(safePrompt);
+
     const dataUrl = base64Image.startsWith('data:') ? base64Image : `data:image/png;base64,${base64Image}`;
-    saveImageToGallery(dataUrl, false, prompt, 'generated', currentUser?.autoSaveToGallery, metadata);
+    saveImageToGallery(dataUrl, false, safePrompt, 'generated', currentUser?.autoSaveToGallery, metadata);
   }, [addPromptToHistory, saveImageToGallery, currentUser]);
 
   const handleRegenerateCaption = useCallback(async (imageId: string) => {
@@ -1122,10 +1188,22 @@ const App: React.FC = () => {
     // Update Progress Counter
     setAnalysisProgress(prev => {
       const isFreshBatch = !prev || prev.current >= prev.total;
+      if (isFreshBatch) {
+        // Clear any pending auto-dismiss timeout when starting a new batch
+        if (analysisProgressTimeoutRef.current) {
+          clearTimeout(analysisProgressTimeoutRef.current);
+          analysisProgressTimeoutRef.current = null;
+        }
+        return {
+          current: 0,
+          total: 1, // Only one image being regenerated
+          fileName: imageToRegenerate.fileName,
+        };
+      }
       return {
-        current: isFreshBatch ? 0 : prev.current,
-        total: (isFreshBatch ? 0 : prev.total) + 1,
-        fileName: isFreshBatch ? imageToRegenerate.fileName : prev.fileName,
+        current: prev.current,
+        total: prev.total + 1,
+        fileName: prev.fileName, // Keep the original file name for the batch
       };
     });
 
@@ -1643,10 +1721,12 @@ const App: React.FC = () => {
 
           // Step 2: Generate Image
           const aspectRatio = sourceImage.aspectRatio ? getClosestSupportedAspectRatio(sourceImage.aspectRatio) : '1:1';
-          const generatedBase64 = await generateImageFromPrompt(adaptedPrompt, settings, aspectRatio);
+          const result = await generateImageFromPrompt(adaptedPrompt, settings, aspectRatio);
+
+          if (!result || !result.image) throw new Error("Generation returned no image data");
 
           // Step 3: Save
-          await handleSaveGeneratedImage(generatedBase64, false, adaptedPrompt);
+          await handleSaveGeneratedImage(result.image, adaptedPrompt, { ...result.metadata, source: 'remix', originalId: sourceImage.id });
 
           setGenerationTasks(prev => prev.filter(t => t.id !== taskId));
         } catch (error: any) {
@@ -1786,6 +1866,52 @@ const App: React.FC = () => {
   }, [generationTasks]);
 
 
+
+  // --- RESILIENCE LOGIC ---
+  const checkBackendHealth = useCallback(async () => {
+    if (!settings?.resilience?.pauseOnLocalFailure) return;
+
+    try {
+      // Check if backend is reachable (Moondream Local)
+      // We assume Moondream Local is the "Critical" backend for now
+      await testProviderConnection('moondream_local', settings);
+      console.log("Backend recovered!");
+
+      // Stop checking
+      if (recoveryIntervalRef.current) {
+        clearInterval(recoveryIntervalRef.current);
+        recoveryIntervalRef.current = null;
+      }
+
+      // Resume
+      isPausedRef.current = false;
+      addNotification({ status: 'success', message: 'Backend Connection Restored. Resuming Queue.' });
+
+      // Resume processing (avoid direct cycle by relying on next tick or effect, but direct call is safe here)
+      // But we need to call processQueue. It's safe if we use the ref or just wait for trigger.
+      // We will trigger prompt submission logic? No, processQueue.
+      // Since checkBackendHealth depends on processQueue, and processQueue logic starts interval...
+      // We handle cycle via Ref.
+      // actually we can't call processQueue here if it's not defined yet? 
+      // It IS defined in the scope (functions are hoisted, consts are not).
+      // But processQueue is const. 
+      // We will use a separate useEffect to bind the ref.
+    } catch (e) {
+      console.log("Backend still down...");
+    }
+  }, [settings, addNotification]);
+
+  // Update logic to call processQueue when recovered
+  useEffect(() => {
+    checkBackendHealthRef.current = async () => {
+      await checkBackendHealth();
+      if (!recoveryIntervalRef.current && !isPausedRef.current) {
+        processQueue();
+      }
+    };
+  }, [checkBackendHealth, processQueue]);
+
+  // -------------------------
 
   // --- Smart Crop Logic ---
 
@@ -1972,6 +2098,64 @@ const App: React.FC = () => {
       setTimeout(() => setTriggerBulkDownload(false), 100);
     }
   }, [selectedIds]);
+
+
+  // --- Queue Control Handlers ---
+  const handlePauseQueue = useCallback((paused: boolean) => {
+    isPausedRef.current = paused;
+    if (!paused) {
+      addNotification({ status: 'info', message: 'Queue Resumed' });
+      // Check if queue has items and process
+      if (queueRef.current.length > 0) {
+        processQueue();
+      }
+    } else {
+      addNotification({ status: 'warning', message: 'Queue Paused' });
+    }
+    syncQueueStatus();
+  }, [addNotification, syncQueueStatus, processQueue]);
+
+  const handleClearQueue = useCallback(() => {
+    const count = queueRef.current.length;
+    queueRef.current = [];
+    // Clear ID trackers
+    const removedGenIds = Array.from(queuedGenerationIds.current);
+    const removedAnalysisIds = Array.from(queuedAnalysisIds.current);
+
+    queuedGenerationIds.current.clear();
+    queuedAnalysisIds.current.clear();
+
+    // We should probably NOT clear activeJobsRef, they are running.
+    // queueRef is strictly pending.
+
+    // Update AnalysisProgress if we just cleared the pending batch?
+    // No, AnalysisProgress tracks current batch total. 
+    // If we clear queue, we might want to reset the "Total" count if valid?
+    // But typically we just let it finish current and stop.
+
+    addNotification({ status: 'success', message: `Cleared ${count} items from queue` });
+    syncQueueStatus();
+  }, [addNotification, syncQueueStatus]);
+
+  const handleRemoveFromQueue = useCallback((ids: string[]) => {
+    const idSet = new Set(ids);
+    const originalCount = queueRef.current.length;
+
+    // Filter the queue
+    queueRef.current = queueRef.current.filter(item => !idSet.has(item.id));
+
+    // Update trackers
+    ids.forEach(id => {
+      queuedGenerationIds.current.delete(id);
+      queuedAnalysisIds.current.delete(id);
+    });
+
+    const removedCount = originalCount - queueRef.current.length;
+    if (removedCount > 0) {
+      addNotification({ status: 'success', message: `Removed ${removedCount} items` });
+      syncQueueStatus();
+    }
+  }, [addNotification, syncQueueStatus]);
 
 
   const handleSelectionChange = (newSelectedIds: Set<string>) => {
@@ -2179,7 +2363,14 @@ const App: React.FC = () => {
               )}
 
               {galleryView === 'status' ? (
-                <StatusPage statsHistory={statsHistory} settings={settings} queueStatus={queueStatus} />
+                <StatusPage
+                  statsHistory={statsHistory}
+                  settings={settings}
+                  queueStatus={queueStatus}
+                  onPauseQueue={handlePauseQueue}
+                  onClearQueue={handleClearQueue}
+                  onRemoveFromQueue={handleRemoveFromQueue}
+                />
               ) : galleryView === 'profile-settings' && currentUser ? (
                 <UserProfilePage
                   user={currentUser}
