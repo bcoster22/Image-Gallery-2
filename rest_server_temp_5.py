@@ -105,11 +105,22 @@ class AdvancedModelService:
                 self.labels = self.model.config.id2label
 
             elif "moondream" in model_id:
-                model_name = "alecccdd/moondream3-preview-4bit"
-                self.model = AutoModelForCausalLM.from_pretrained(
-                    model_name, trust_remote_code=True, quantization_config=bnb_config, device_map="auto"
-                )
-                self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+                try:
+                    print("[Advanced] Attempting to load Moondream 3 (4-bit)...")
+                    model_name = "alecccdd/moondream3-preview-4bit"
+                    self.model = AutoModelForCausalLM.from_pretrained(
+                        model_name, trust_remote_code=True, quantization_config=bnb_config, device_map="auto"
+                    )
+                    self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+                    print("[Advanced] Moondream 3 loaded successfully.")
+                except Exception as e:
+                    print(f"[Advanced] Failed to load Moondream 3 ({e}). Falling back to Moondream 2.")
+                    model_name = "vikhyatk/moondream2"
+                    self.model = AutoModelForCausalLM.from_pretrained(
+                        model_name, trust_remote_code=True, quantization_config=bnb_config, device_map="auto"
+                    )
+                    self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+                    print("[Advanced] Moondream 2 loaded as fallback.")
                 
             elif "florence" in model_id:
                 model_name = "microsoft/Florence-2-large"

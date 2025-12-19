@@ -495,7 +495,9 @@ const App: React.FC = () => {
             errorMessage.includes('ECONNREFUSED') ||
             errorMessage.includes('Network request failed') ||
             errorMessage.includes('NetworkError') ||
-            errorMessage.includes('Load failed');
+            errorMessage.includes('Load failed') ||
+            errorMessage.includes('500') ||
+            errorMessage.includes('Internal Server Error');
 
           if (isConnectionError && settings?.resilience?.pauseOnLocalFailure) {
             console.warn(`Backend Connection Lost (${errorMessage}). Pausing queue.`);
