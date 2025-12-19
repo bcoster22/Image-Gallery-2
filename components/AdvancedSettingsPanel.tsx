@@ -29,12 +29,42 @@ const AdvancedSettingsPanel: React.FC<AdvancedSettingsPanelProps> = ({
     const [selectedPreset, setSelectedPreset] = useState<string>('custom');
     const [showSavePreset, setShowSavePreset] = useState(false);
     const [presetName, setPresetName] = useState('');
+    const [availableSchedulers, setAvailableSchedulers] = useState<Array<{
+        id: string;
+        name: string;
+        description: string;
+        recommended: boolean;
+        optimal_steps_min?: number;
+        optimal_steps_max?: number;
+    }>>([
+        // Fallback defaults
+        { id: 'dpm_pp_2m_karras', name: 'DPM++ 2M Karras', description: 'Best quality, works great with 20-35 steps', recommended: true },
+        { id: 'euler', name: 'Euler', description: 'Fast and reliable', recommended: false }
+    ]);
 
     // Load presets on mount and when taskType changes
     useEffect(() => {
         const allPresets = getPresetsForTaskType(taskType);
         setPresets(allPresets);
     }, [taskType]);
+
+    // Fetch available schedulers from backend
+    useEffect(() => {
+        const fetchSchedulers = async () => {
+            try {
+                const response = await fetch('http://127.0.0.1:2020/v1/schedulers');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.schedulers && Array.isArray(data.schedulers)) {
+                        setAvailableSchedulers(data.schedulers);
+                    }
+                }
+            } catch (error) {
+                console.warn('Failed to fetch schedulers from backend, using defaults:', error);
+            }
+        };
+        fetchSchedulers();
+    }, []);
 
     const isGenerationSettings = (s: any): s is GenerationSettings => {
         return 'steps' in s && 'cfg_scale' in s;
@@ -87,6 +117,20 @@ const AdvancedSettingsPanel: React.FC<AdvancedSettingsPanelProps> = ({
             setDefaultPreset(selectedPreset);
             alert('Set as default preset!');
         }
+    };
+
+    // Get current scheduler or recommended default
+    const getCurrentScheduler = () => {
+        if (isGenerationSettings(settings) && settings.scheduler) {
+            return settings.scheduler;
+        }
+        const recommended = availableSchedulers.find(s => s.recommended);
+        return recommended?.id || 'dpm_pp_2m_karras';
+    };
+
+    const getSchedulerDescription = (schedulerId: string) => {
+        const scheduler = availableSchedulers.find(s => s.id === schedulerId);
+        return scheduler?.description || '';
     };
 
     return (
@@ -202,6 +246,54 @@ const AdvancedSettingsPanel: React.FC<AdvancedSettingsPanelProps> = ({
                                     <span>125</span>
                                     <span>250 (Quality)</span>
                                 </div>
+                            </div>
+
+                            {/* Scheduler Selection */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-2">
+                                    Scheduler
+                                    <span className="ml-2 text-xs text-gray-500" title="Noise scheduling algorithm">ℹ️</span>
+                                </label>
+                                <select
+                                    value={getCurrentScheduler()}
+                                    onChange={(e) => updateGeneration({ scheduler: e.target.value })}
+                                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                >
+                                    {availableSchedulers.map((scheduler) => (
+                                        <option key={scheduler.id} value={scheduler.id}>
+                                            {scheduler.recommended ? '⭐ ' : ''}{scheduler.name}
+                                            {scheduler.recommended ? ' (Recommended)' : ''}
+                                        </option>
+                                    ))}
+                                </select>
+                                <p className="text-xs text-gray-500 mt-1">
+                                    {getSchedulerDescription(getCurrentScheduler())}
+                                </p>
+                            </div>
+
+                            {/* Sampler Selection (Note: In diffusers, samplers are tied to schedulers) */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-2">
+                                    Sampler Type
+                                    <span className="ml-2 text-xs text-gray-500" title="Override preset sampler">🔧</span>
+                                </label>
+                                <select
+                                    value={settings.sampler || 'auto'}
+                                    onChange={(e) => updateGeneration({ sampler: e.target.value })}
+                                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                >
+                                    <option value="auto">Auto (from preset/model)</option>
+                                    <option value="dpmpp_2m_sde_gpu">DPM++ 2M SDE ⭐ (Texture)</option>
+                                    <option value="dpmpp_2m">DPM++ 2M ⭐ (Structure)</option>
+                                    <option value="dpmpp_3m_sde_gpu">DPM++ 3M SDE (Detail)</option>
+                                    <option value="dpmpp_sde_gpu">DPM++ SDE (Lightning)</option>
+                                    <option value="euler">Euler (Basic)</option>
+                                    <option value="euler_ancestral">Euler Ancestral (Creative)</option>
+                                    <option value="restart">Restart (Anatomy Fix)</option>
+                                </select>
+                                <p className="text-xs text-gray-500 mt-1">
+                                    Note: Some samplers require specific schedulers to work properly
+                                </p>
                             </div>
 
                             {/* Denoise Slider (for img2img only) */}

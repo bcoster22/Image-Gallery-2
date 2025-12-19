@@ -93,7 +93,8 @@ export interface IAiProvider {
     prompt: string,
     aspectRatio: AspectRatio,
     sourceImage: ImageInfo | undefined,
-    settings: AdminSettings
+    settings: AdminSettings,
+    overrides?: GenerationSettings
   ): Promise<GenerationResult>;
 
   /**
@@ -423,6 +424,8 @@ export interface GenerationSettings {
   seed: number; // -1 for random
   width?: number; // Output width (if not using aspect ratio)
   height?: number; // Output height (if not using aspect ratio)
+  scheduler?: string; // e.g. 'euler', 'dpm_pp_2m_karras'
+  sampler?: string; // e.g. 'dpmpp_2m_sde_gpu', 'euler_ancestral'
 }
 
 // AI Model Settings for Restoration (2025 Best Practices)

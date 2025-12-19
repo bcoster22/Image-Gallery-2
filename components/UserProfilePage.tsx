@@ -548,7 +548,7 @@ const UserProfilePage: React.FC<UserProfilePageProps> = ({
                                         </div>
                                         <input
                                             type="range"
-                                            min="2000" max="30000" step="500"
+                                            min="1000" max="30000" step="500"
                                             value={user.slideshowInterval || 4000}
                                             onChange={(e) => onUpdateUser({ ...user, slideshowInterval: parseInt(e.target.value) })}
                                             className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"

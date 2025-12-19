@@ -1,4 +1,4 @@
-import { ImageInfo, AdminSettings, AspectRatio, ImageAnalysisResult, ProviderCapabilities, ProviderStats, Capability, GenerationResult } from "../../types";
+import { ImageInfo, AdminSettings, AspectRatio, ImageAnalysisResult, ProviderCapabilities, ProviderStats, Capability, GenerationResult, GenerationSettings } from "../../types";
 import { BaseProvider } from "../baseProvider";
 import { registry } from "../providerRegistry";
 import { executeStrategy } from "../promptStrategy";
@@ -716,7 +716,8 @@ export class MoondreamLocalProvider extends BaseProvider {
     prompt: string,
     aspectRatio: AspectRatio,
     sourceImage: ImageInfo | undefined,
-    settings: AdminSettings
+    settings: AdminSettings,
+    overrides?: GenerationSettings
   ): Promise<GenerationResult> {
     const startTime = Date.now();
     const providerConfig = settings?.providers?.moondream_local || {};
@@ -762,14 +763,32 @@ export class MoondreamLocalProvider extends BaseProvider {
       model: selectedModel,
       width,
       height,
-      steps: 8,
-      guidance_scale: 2.0
+      steps: overrides?.steps || 8,
+      guidance_scale: overrides?.cfg_scale || 2.0,
+      scheduler: overrides?.scheduler || 'euler'
     };
+
+    // If request settings have scheduler
+    // The 'settings' arg is 'AdminSettings', but 'generateImageFromPrompt' assumes global settings.
+    // However, the caller usually merges things. 
+    // Actually, PromptSubmissionModal calls this.
+    // Wait, PromptSubmissionModal calls `aiService` which calls `provider.generateImageFromPrompt`.
+    // I need to see how settings are passed.
+
+    // For now, let's just piggyback on body construction if I can find where the per-request settings are.
+    // 'generateImageFromPrompt' signature is (prompt, aspectRatio, sourceImage, settings: AdminSettings).
+    // It does NOT accept 'GenerationSettings' override currently in the signature.
+    // This is a limitation of the interface.
+
+    // HOWEVER, `PromptSubmissionModal` handles queueing.
+    // The `QueueWorker` (in App.tsx or similar?) processes this.
+    // Let's check `services/aiService.ts` to see how it calls the provider.
+
 
     // If source image is provided, pass it for img2img (Remix)
     if (sourceImage && sourceImage.dataUrl) {
       body.image = sourceImage.dataUrl;
-      body.strength = 0.75; // Default strength for remix
+      body.strength = overrides?.denoise ? (overrides.denoise / 100) : 0.75; // Default strength for remix
     }
 
     try {

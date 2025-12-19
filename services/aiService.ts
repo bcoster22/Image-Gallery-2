@@ -1,4 +1,4 @@
-import { ImageInfo, AdminSettings, AiProvider, AspectRatio, Capability, ImageAnalysisResult, GenerationResult } from "../types";
+import { ImageInfo, AdminSettings, AiProvider, AspectRatio, Capability, ImageAnalysisResult, GenerationResult, GenerationSettings } from "../types";
 import { logger } from "./loggingService";
 import { providerCapabilities } from "./providerCapabilities";
 import { registry } from "./providerRegistry";
@@ -260,9 +260,10 @@ export const generateImageFromPrompt = async (
     prompt: string,
     settings: AdminSettings,
     aspectRatio: AspectRatio,
-    sourceImage?: ImageInfo
+    sourceImage?: ImageInfo,
+    overrides?: GenerationSettings
 ): Promise<GenerationResult> => {
-    return executeWithFallback(settings, 'generateImageFromPrompt', [prompt, aspectRatio, sourceImage]);
+    return executeWithFallback(settings, 'generateImageFromPrompt', [prompt, aspectRatio, sourceImage, overrides]);
 };
 
 export const animateImage = async (

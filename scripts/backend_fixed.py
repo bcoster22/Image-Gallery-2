@@ -3,7 +3,19 @@ import torch
 import base64
 import io
 from PIL import Image
-from diffusers import AutoPipelineForText2Image, AutoPipelineForImage2Image, EulerDiscreteScheduler, PipelineQuantizationConfig, AutoencoderKL
+from diffusers import (
+    AutoPipelineForText2Image, 
+    AutoPipelineForImage2Image, 
+    EulerDiscreteScheduler, 
+    EulerAncestralDiscreteScheduler,
+    DPMSolverMultistepScheduler,
+    DDIMScheduler,
+    HeunDiscreteScheduler,
+    KDPM2DiscreteScheduler,
+    LMSDiscreteScheduler,
+    PipelineQuantizationConfig, 
+    AutoencoderKL
+)
 import logging
 
 # Global instance
@@ -27,25 +39,67 @@ class SDXLBackend:
         try:
             self.logger.info(f"Initializing SDXL Backend with model: {self.model_id}")
 
-            quantization_config = None
-            if self.use_4bit:
-                quantization_config = PipelineQuantizationConfig(
-                    quant_backend="bitsandbytes_4bit",
-                    quant_kwargs={
-                        "load_in_4bit": True,
-                        "bnb_4bit_compute_dtype": torch.float16,
-                        "bnb_4bit_use_double_quant": True,
-                        "bnb_4bit_quant_type": "nf4"
-                    }
+            # Map HuggingFace model IDs to local checkpoint files
+            checkpoints_dir = os.path.join(self._models_dir, "sdxl-checkpoints")
+            model_checkpoint_map = {
+                "RunDiffusion/Juggernaut-XL-Lightning": "juggernaut-xl-lightning.safetensors",
+                "SG161222/RealVisXL_V5.0": "realvisxl-v5.safetensors",
+                "cyberdelia/CyberRealisticXL": "cyberrealistic-xl-v80.safetensors",
+                "cyberdelia/CyberRealisticPony": "cyberrealistic-pony.safetensors",
+                "Lykon/dreamshaper-xl-1-0": "dreamshaper-xl.safetensors",
+                "dataautogpt3/ProteusV0.4": "proteus-xl.safetensors",
+                "cagliostrolab/animagine-xl-3.1": "animagine-xl.safetensors",
+                "imagepipeline/NightVisionXL": "nightvision-xl.safetensors",
+                "stablediffusionapi/epicrealism-xl-v5": "epicrealism-xl-purefix.safetensors",
+                "stablediffusionapi/epicella-xl": "epicella-xl.safetensors",
+            }
+            
+            # Check if we have a local checkpoint file
+            checkpoint_file = model_checkpoint_map.get(self.model_id)
+            checkpoint_path = None
+            
+            if checkpoint_file:
+                potential_path = os.path.join(checkpoints_dir, checkpoint_file)
+                if os.path.exists(potential_path):
+                    checkpoint_path = potential_path
+                    self.logger.info(f"Using local checkpoint: {checkpoint_path}")
+                else:
+                    self.logger.warning(f"Checkpoint not found: {potential_path}")
+            
+            # Load from single checkpoint file if available
+            if checkpoint_path:
+                from diffusers import StableDiffusionXLPipeline
+                
+                self.logger.info(f"Loading from single checkpoint file...")
+                self.pipeline = StableDiffusionXLPipeline.from_single_file(
+                    checkpoint_path,
+                    torch_dtype=torch.float16,
+                    use_safetensors=True,
+                    safety_checker=None,
+                    feature_extractor=None
                 )
-
-            self.pipeline = AutoPipelineForText2Image.from_pretrained(
-                self.model_id,
-                torch_dtype=torch.float16,
-                quantization_config=quantization_config,
-                use_safetensors=True,
-                cache_dir=os.path.join(self._models_dir, "models")
-            )
+            else:
+                # Fallback to HuggingFace download (original behavior)
+                self.logger.info(f"Loading from HuggingFace: {self.model_id}")
+                
+                quantization_config = None
+                if self.use_4bit:
+                    quantization_config = PipelineQuantizationConfig(
+                        quant_backend="bitsandbytes_4bit",
+                        quant_kwargs={
+                            "load_in_4bit": True,
+                            "bnb_4bit_compute_dtype": torch.float16,
+                            "bnb_4bit_use_double_quant": True,
+                            "bnb_4bit_quant_type": "nf4"
+                        }
+                    )
+                
+                self.pipeline = AutoPipelineForText2Image.from_pretrained(
+                    self.model_id,
+                    torch_dtype=torch.float16,
+                    quantization_config=quantization_config,
+                    use_safetensors=True
+                )
 
             self.pipeline.scheduler = EulerDiscreteScheduler.from_config(
                 self.pipeline.scheduler.config, 
@@ -56,8 +110,7 @@ class SDXLBackend:
                 vae = AutoencoderKL.from_pretrained(
                     self.model_id, 
                     subfolder="vae", 
-                    torch_dtype=torch.float16,
-                    cache_dir=os.path.join(self._models_dir, "models")
+                    torch_dtype=torch.float16
                 )
                 self.pipeline.vae = vae
             except Exception as e:
@@ -87,11 +140,307 @@ class SDXLBackend:
             raise e
         return self.img2img_pipeline
 
-    def generate_image(self, prompt, negative_prompt="", steps=4, guidance_scale=1.5, width=1024, height=1024, num_images=1, image=None, strength=0.75, **kwargs):
+    def set_scheduler(self, scheduler_name):
+        """Set scheduler for God Tier presets"""
+        if not self.pipeline: return
+        
+        try:
+            config = self.pipeline.scheduler.config
+            
+            # DPM++ 2M Variants (Most Common)
+            if scheduler_name == "dpm_pp_2m_karras" or scheduler_name == "karras":
+                self.pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
+                    config, use_karras_sigmas=True
+                )
+            elif scheduler_name == "dpm_pp_2m_sde_karras" or scheduler_name == "dpmpp_2m_sde_gpu":
+                self.pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
+                    config, 
+                    use_karras_sigmas=True,
+                    algorithm_type="sde-dpmsolver++"
+                )
+            elif scheduler_name == "dpm_pp_2m":
+                self.pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
+                    config, use_karras_sigmas=False
+                )
+            
+            # God Tier Specialized Schedulers
+            elif scheduler_name == "beta":
+                # Beta scheduler - smoother gradients for soft portraits
+                self.pipeline.scheduler = DDIMScheduler.from_config(
+                    config,
+                    beta_schedule="scaled_linear",  # Beta schedule variant
+                    clip_sample=False
+                )
+            elif scheduler_name == "exponential":
+                # Exponential - aggressive end curve for dark/moody
+                self.pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
+                    config,
+                    use_karras_sigmas=True,
+                    final_sigmas_type="zero"  # Exponential-like behavior
+                )
+            elif scheduler_name == "sgm_uniform":
+                # SGM Uniform - for Lightning models
+                self.pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
+                    config,
+                    timestep_spacing="trailing",
+                    use_karras_sigmas=False
+                )
+            elif scheduler_name == "simple" or scheduler_name == "normal":
+                # Simple/Normal - basic linear schedule
+                self.pipeline.scheduler = EulerDiscreteScheduler.from_config(
+                    config,
+                    timestep_spacing="linspace"
+                )
+            elif scheduler_name == "align_your_steps" or scheduler_name == "ays":
+                # AYS - Smart step scheduler for efficiency
+                self.pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
+                    config,
+                    use_karras_sigmas=True,
+                    algorithm_type="dpmsolver++"
+                )
+            
+            # Euler Variants
+            elif scheduler_name == "euler_a" or scheduler_name == "euler_ancestral":
+                self.pipeline.scheduler = EulerAncestralDiscreteScheduler.from_config(config)
+            elif scheduler_name == "euler":
+                self.pipeline.scheduler = EulerDiscreteScheduler.from_config(
+                    config, timestep_spacing="trailing"
+                )
+            
+            # Additional Samplers
+            elif scheduler_name == "heun":
+                self.pipeline.scheduler = HeunDiscreteScheduler.from_config(config)
+            elif scheduler_name == "dpm2":
+                self.pipeline.scheduler = KDPM2DiscreteScheduler.from_config(config)
+            elif scheduler_name == "lms":
+                self.pipeline.scheduler = LMSDiscreteScheduler.from_config(config)
+                
+            else:
+                # Default to Euler
+                self.pipeline.scheduler = EulerDiscreteScheduler.from_config(
+                    config, timestep_spacing="trailing"
+                )
+                
+        except Exception as e:
+            self.logger.warning(f"Failed to set scheduler {scheduler_name}: {e}")
+
+    def get_available_schedulers(self):
+        """Return comprehensive list of available schedulers with metadata"""
+        return [
+            {
+                "id": "dpm_pp_2m_karras",
+                "name": "DPM++ 2M Karras",
+                "aliases": ["karras", "dpmpp_2m_karras"],
+                "description": "Best quality, works great with 20-35 steps",
+                "recommended": True,
+                "optimal_steps_min": 20,
+                "optimal_steps_max": 35,
+                "best_for": "structure",
+                "category": "DPM"
+            },
+            {
+                "id": "dpm_pp_2m_sde_karras",
+                "name": "DPM++ 2M SDE Karras",
+                "aliases": ["dpmpp_2m_sde_gpu", "dpmpp_2m_sde_karras"],
+                "description": "Adds grain/texture detail, perfect for skin & fabric",
+                "recommended": True,
+                "optimal_steps_min": 30,
+                "optimal_steps_max": 45,
+                "best_for": "texture",
+                "category": "DPM"
+            },
+            {
+                "id": "beta",
+                "name": "Beta (DDIM)",
+                "aliases": ["beta_schedule"],
+                "description": "Smoothest gradients for soft portraits",
+                "recommended": False,
+                "optimal_steps_min": 35,
+                "optimal_steps_max": 50,
+                "best_for": "portraits",
+                "category": "Specialized"
+            },
+            {
+                "id": "exponential",
+                "name": "Exponential",
+                "aliases": ["exp"],
+                "description": "Aggressive end-curve for dark/moody scenes",
+                "recommended": False,
+                "optimal_steps_min": 35,
+                "optimal_steps_max": 45,
+                "best_for": "dark",
+                "category": "Specialized"
+            },
+            {
+                "id": "align_your_steps",
+                "name": "Align Your Steps (AYS)",
+                "aliases": ["ays"],
+                "description": "Front-loaded efficiency - 30-step quality in 12-15 steps",
+                "recommended": False,
+                "optimal_steps_min": 12,
+                "optimal_steps_max": 20,
+                "best_for": "speed",
+                "category": "Efficiency"
+            },
+            {
+                "id": "sgm_uniform",
+                "name": "SGM Uniform",
+                "aliases": ["uniform"],
+                "description": "For Lightning models - ultra-fast",
+                "recommended": False,
+                "optimal_steps_min": 6,
+                "optimal_steps_max": 10,
+                "best_for": "lightning",
+                "category": "Efficiency"
+            },
+            {
+                "id": "simple",
+                "name": "Simple",
+                "aliases": ["normal", "linear"],
+                "description": "Basic linear schedule - predictable",
+                "recommended": False,
+                "optimal_steps_min": 20,
+                "optimal_steps_max": 50,
+                "best_for": "general",
+                "category": "Basic"
+            },
+            {
+                "id": "dpm_pp_2m",
+                "name": "DPM++ 2M",
+                "aliases": ["dpmpp_2m"],
+                "description": "Good quality without Karras sigmas",
+                "recommended": False,
+                "optimal_steps_min": 20,
+                "optimal_steps_max": 40,
+                "best_for": "general",
+                "category": "DPM"
+            },
+            {
+                "id": "euler_a",
+                "name": "Euler Ancestral",
+                "aliases": ["euler_ancestral", "euler_a"],
+                "description": "Creative variation, adds noise throughout",
+                "recommended": False,
+                "optimal_steps_min": 15,
+                "optimal_steps_max": 30,
+                "best_for": "creative",
+                "category": "Euler"
+            },
+            {
+                "id": "euler",
+                "name": "Euler",
+                "aliases": ["euler_discrete"],
+                "description": "Fast and reliable, good for testing",
+                "recommended": False,
+                "optimal_steps_min": 8,
+                "optimal_steps_max": 25,
+                "best_for": "testing",
+                "category": "Euler"
+            },
+            {
+                "id": "heun",
+                "name": "Heun",
+                "aliases": [],
+                "description": "2nd order solver - more accurate",
+                "recommended": False,
+                "optimal_steps_min": 15,
+                "optimal_steps_max": 30,
+                "best_for": "quality",
+                "category": "Advanced"
+            },
+            {
+                "id": "dpm2",
+                "name": "DPM2",
+                "aliases": ["kdpm2"],
+                "description": "Alternative 2nd order solver",
+                "recommended": False,
+                "optimal_steps_min": 20,
+                "optimal_steps_max": 35,
+                "best_for": "quality",
+                "category": "Advanced"
+            },
+            {
+                "id": "lms",
+                "name": "LMS",
+                "aliases": [],
+                "description": "Linear multi-step - stable",
+                "recommended": False,
+                "optimal_steps_min": 20,
+                "optimal_steps_max": 40,
+                "best_for": "stable",
+                "category": "Basic"
+            }
+        ]
+    
+    def get_available_samplers(self):
+        """Return list of available samplers (note: samplers are tied to schedulers in diffusers)"""
+        return [
+            {
+                "id": "dpmpp_2m_sde_gpu",
+                "name": "DPM++ 2M SDE",
+                "description": "Best for skin/fabric texture",
+                "scheduler_required": "dpm_pp_2m_sde_karras",
+                "recommended": True,
+                "category": "Texture"
+            },
+            {
+                "id": "dpmpp_2m",
+                "name": "DPM++ 2M",
+                "description": "Clean structure, no texture noise",
+                "scheduler_required": "dpm_pp_2m_karras",
+                "recommended": True,
+                "category": "Structure"
+            },
+            {
+                "id": "dpmpp_3m_sde_gpu",
+                "name": "DPM++ 3M SDE",
+                "description": "Highest detail resolution (slow)",
+                "scheduler_required": "dpm_pp_2m_sde_karras",
+                "recommended": False,
+                "category": "Detail"
+            },
+            {
+                "id": "dpmpp_sde_gpu",
+                "name": "DPM++ SDE",
+                "description": "For Lightning models",
+                "scheduler_required": "sgm_uniform",
+                "recommended": False,
+                "category": "Speed"
+            },
+            {
+                "id": "euler",
+                "name": "Euler",
+                "description": "Simple and stable",
+                "scheduler_required": "euler",
+                "recommended": False,
+                "category": "Basic"
+            },
+            {
+                "id": "euler_ancestral",
+                "name": "Euler Ancestral",
+                "description": "Creative with variation",
+                "scheduler_required": "euler_a",
+                "recommended": False,
+                "category": "Creative"
+            },
+            {
+                "id": "restart",
+                "name": "Restart",
+                "description": "Self-correcting for anatomy",
+                "scheduler_required": "karras",
+                "recommended": False,
+                "category": "Specialist"
+            }
+        ]
+
+    def generate_image(self, prompt, negative_prompt="", steps=4, guidance_scale=1.5, width=1024, height=1024, num_images=1, image=None, strength=0.75, scheduler="euler", **kwargs):
         if not self.pipeline:
             raise RuntimeError("Pipeline not initialized")
             
         try:
+            # Configure Scheduler
+            self.set_scheduler(scheduler)
+
             with torch.inference_mode():
                 if image:
                     # Img2Img
@@ -157,3 +506,33 @@ def generate(prompt, **kwargs):
 def images(**kwargs):
     if not BACKEND: return {"error": "Backend not initialized"}
     return BACKEND.generate_image(**kwargs)
+
+def get_available_schedulers():
+    """Get list of available schedulers with metadata"""
+    if not BACKEND:
+        # Return default list even if backend not initialized
+        return [
+            {"id": "dpm_pp_2m_karras", "name": "DPM++ 2M Karras", "description": "Best quality, works great with 20-35 steps", "recommended": True, "optimal_steps_min": 20, "optimal_steps_max": 35},
+            {"id": "dpm_pp_2m", "name": "DPM++ 2M", "description": "Good quality without Karras sigmas", "recommended": False, "optimal_steps_min": 20, "optimal_steps_max": 40},
+            {"id": "euler_a", "name": "Euler Ancestral", "description": "More creative variation between steps", "recommended": False, "optimal_steps_min": 15, "optimal_steps_max": 30},
+            {"id": "euler", "name": "Euler", "description": "Fast and reliable, good for testing", "recommended": False, "optimal_steps_min": 8, "optimal_steps_max": 25}
+        ]
+    return BACKEND.get_available_schedulers()
+
+def get_available_samplers():
+    """Get list of available samplers with metadata"""
+    if not BACKEND:
+        return [
+            {"id": "dpmpp_2m_sde_gpu", "name": "DPM++ 2M SDE", "description": "Best for texture", "recommended": True},
+            {"id": "dpmpp_2m", "name": "DPM++ 2M", "description": "Best for structure", "recommended": True},
+            {"id": "euler", "name": "Euler", "description": "Simple and stable", "recommended": False}
+        ]
+    return BACKEND.get_available_samplers()
+
+def unload_backend():
+    global BACKEND
+    if BACKEND:
+        del BACKEND.pipeline
+        if BACKEND.img2img_pipeline:
+            del BACKEND.img2img_pipeline
+        BACKEND = None

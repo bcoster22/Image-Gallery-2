@@ -4,7 +4,8 @@ import { ImageInfo, AdminSettings, User, GenerationTask, Notification, AspectRat
 import { analyzeImage, animateImage, editImage, generateImageFromPrompt, adaptPromptToTheme, FallbackChainError, detectSubject, testProviderConnection } from './services/aiService';
 import { fileToDataUrl, getImageMetadata, dataUrlToBlob, generateVideoThumbnail, createGenericPlaceholder, extractAIGenerationMetadata, resizeImage, getClosestSupportedAspectRatio } from './utils/fileUtils';
 import { RateLimitedApiQueue } from './utils/rateLimiter';
-import { initDB, getImages, saveImage, deleteImages, updateImage } from './utils/idb';
+import { initDB, getImages, saveImage, deleteImages, updateImage, getNegativePrompts, saveNegativePrompt, deleteNegativePrompt, NegativePrompt } from './utils/idb';
+import { DEFAULT_NEGATIVE_PROMPTS } from './constants/prompts';
 import ImageGrid from './components/ImageGrid';
 import ImageViewer from './components/ImageViewer';
 import UploadArea from './components/UploadArea';
@@ -37,17 +38,8 @@ const SETTINGS_STORAGE_KEY = 'ai_gallery_settings_v2'; // Updated key for new st
 const OLD_SETTINGS_STORAGE_KEY = 'ai_gallery_settings'; // Old key for migration
 const USER_STORAGE_KEY = 'ai_gallery_user';
 const PROMPTS_STORAGE_KEY = 'ai_gallery_prompts';
-const NEGATIVE_PROMPTS_STORAGE_KEY = 'ai_gallery_negative_prompts';
+// const NEGATIVE_PROMPTS_STORAGE_KEY = 'ai_gallery_negative_prompts'; // Deprecated for IDB
 const MAX_PROMPT_HISTORY = 100;
-
-const DEFAULT_NEGATIVE_PROMPTS = [
-  "blur, noise, grain, low resolution, deformed, distorted, disfigured, bad anatomy, bad hands, missing limbs, floating limbs, disconnected limbs, mutation, mutated, ugly, disgusting, watermark, text",
-  "nsfw, nude, naked, uncensored, shirtless, cleavage, sexual, gore, violence, blood",
-  "cartoon, anime, sketch, 3d, vector, monochrome, b&w, painting, drawing, illustration",
-  "low quality, jpeg artifacts, compression artifacts, terrible quality, lowres",
-  "oversaturated, high contrast, bad lighting, wash out",
-  "duplicate, copy, multi, two faces, multiple subjects"
-];
 
 const MOCK_USERS = {
   google: {
@@ -276,7 +268,10 @@ const App: React.FC = () => {
   const [triggerBulkDownload, setTriggerBulkDownload] = useState(false);
   const idleTimerRef = useRef<number | null>(null);
   const [promptHistory, setPromptHistory] = useState<string[]>([]);
-  const [negativePromptHistory, setNegativePromptHistory] = useState<string[]>([]);
+  // Use object array for IDB items, but simplistic array for UI props usually?
+  // We'll map to strings for UI where needed, or update UI to accept objects.
+  // For now, let's keep simplistic state:
+  const [negativePromptHistory, setNegativePromptHistory] = useState<NegativePrompt[]>([]);
 
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [showHealthDashboard, setShowHealthDashboard] = useState(false);
@@ -457,7 +452,8 @@ const App: React.FC = () => {
               task.data.prompt,
               settings!,
               task.data.aspectRatio,
-              task.data.sourceImage
+              task.data.sourceImage,
+              task.data.generationSettings
             );
 
             if (result.image) {
@@ -799,31 +795,35 @@ const App: React.FC = () => {
       }
     }
 
-    // Load negative prompt history
-    const storedNegativePrompts = localStorage.getItem(NEGATIVE_PROMPTS_STORAGE_KEY);
-    if (storedNegativePrompts) {
-      try {
-        const parsed = JSON.parse(storedNegativePrompts);
-        if (Array.isArray(parsed)) {
-          setNegativePromptHistory(parsed.filter((p): p is string => typeof p === 'string'));
-        }
-      } catch (e) {
-        console.error("Failed to parse negative prompts from localStorage", e);
-      }
-    } else {
-      // Initialize with defaults if empty
-      setNegativePromptHistory(DEFAULT_NEGATIVE_PROMPTS);
-      localStorage.setItem(NEGATIVE_PROMPTS_STORAGE_KEY, JSON.stringify(DEFAULT_NEGATIVE_PROMPTS));
-    }
-
+    // Initialize DB and Load Data
     const loadDbData = async () => {
       try {
+        setIsDbLoading(true);
         await initDB();
+
+        // 1. Load Images
         const loadedImages = await getImages();
         setImages(loadedImages);
+
+        // 2. Load Negative Prompts
+        const loadedPrompts = await getNegativePrompts();
+
+        if (loadedPrompts.length === 0) {
+          // Seed defaults
+          console.log("Seeding default negative prompts...");
+          for (const prompt of DEFAULT_NEGATIVE_PROMPTS) {
+            await saveNegativePrompt(prompt);
+          }
+          // Reload
+          const reloaded = await getNegativePrompts();
+          setNegativePromptHistory(reloaded);
+        } else {
+          setNegativePromptHistory(loadedPrompts);
+        }
+
       } catch (e) {
-        console.error("Failed to load images from IndexedDB", e);
-        addNotification({ status: 'error', message: 'Could not load your saved gallery.' });
+        console.error("Failed to load data from IndexedDB", e);
+        addNotification({ status: 'error', message: 'Could not load your saved gallery data.' });
       } finally {
         setIsDbLoading(false);
       }
@@ -867,17 +867,34 @@ const App: React.FC = () => {
     setGalleryView('my-gallery'); // Switch to user's gallery after login
   };
 
-  const addNegativePromptToHistory = useCallback((prompt: string) => {
-    if (!prompt || !prompt.trim()) return;
+  const addNegativePromptToHistory = useCallback(async (prompt: string) => {
     const trimmed = prompt.trim();
-    setNegativePromptHistory(prev => {
-      // Don't add if already exists? Or move to top? Move to top.
-      const filtered = prev.filter(p => p !== trimmed);
-      const newHistory = [trimmed, ...filtered].slice(0, MAX_PROMPT_HISTORY);
-      localStorage.setItem(NEGATIVE_PROMPTS_STORAGE_KEY, JSON.stringify(newHistory));
-      return newHistory;
-    });
-  }, []);
+    if (!trimmed) return;
+
+    // Check if already exists in state to avoid DB thrashing
+    const exists = negativePromptHistory.some(p => p.content === trimmed);
+    if (exists) return;
+
+    try {
+      const newPrompt = await saveNegativePrompt(trimmed);
+      setNegativePromptHistory(prev => [newPrompt, ...prev]);
+    } catch (e) {
+      console.error("Failed to save negative prompt", e);
+    }
+  }, [negativePromptHistory]);
+
+  const deleteNegativePromptFromHistory = useCallback(async (content: string) => {
+    // Find ID from content
+    const item = negativePromptHistory.find(p => p.content === content);
+    if (!item) return;
+
+    try {
+      await deleteNegativePrompt(item.id);
+      setNegativePromptHistory(prev => prev.filter(p => p.id !== item.id));
+    } catch (e) {
+      console.error("Failed to delete negative prompt", e);
+    }
+  }, [negativePromptHistory]);
 
   const clearPromptHistory = useCallback(() => {
     setPromptHistory([]);
@@ -2510,7 +2527,7 @@ const App: React.FC = () => {
             }}
             config={promptModalConfig}
             promptHistory={promptHistory}
-            negativePromptHistory={negativePromptHistory} // Pass updated prop
+            negativePromptHistory={negativePromptHistory.map(n => n.content)} // Pass mapped strings
             settings={settings}
             onSaveGeneratedImage={(dataUrl, prompt, metadata) => {
               handleSaveGeneratedImage(dataUrl, prompt, metadata);
@@ -2519,6 +2536,7 @@ const App: React.FC = () => {
             onAddToGenerationQueue={handleAddToGenerationQueue}
             queuedGenerationCount={queuedGenerationIds.current.size}
             generationResults={generationResults}
+            onDeleteNegativePrompt={deleteNegativePromptFromHistory}
             onSubmit={(prompt, options) => {
               if (!promptModalConfig) return;
 

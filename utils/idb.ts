@@ -1,10 +1,18 @@
 import { ImageInfo } from '../types';
 
 const DB_NAME = 'ai-gallery-db';
-const DB_VERSION = 1;
-const STORE_NAME = 'images';
+const DB_VERSION = 2; // Incremented for new store
+const STORE_IMAGES = 'images';
+const STORE_PROMPTS = 'negative_prompts';
 
 let db: IDBDatabase;
+
+export interface NegativePrompt {
+    id: string;
+    content: string;
+    category?: string;
+    timestamp: number;
+}
 
 export const initDB = (): Promise<boolean> => {
     return new Promise((resolve, reject) => {
@@ -24,12 +32,22 @@ export const initDB = (): Promise<boolean> => {
 
         request.onupgradeneeded = (event) => {
             const db = (event.target as IDBOpenDBRequest).result;
-            if (!db.objectStoreNames.contains(STORE_NAME)) {
-                db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+
+            // Image Store
+            if (!db.objectStoreNames.contains(STORE_IMAGES)) {
+                db.createObjectStore(STORE_IMAGES, { keyPath: 'id' });
+            }
+
+            // Negative Prompts Store
+            if (!db.objectStoreNames.contains(STORE_PROMPTS)) {
+                const store = db.createObjectStore(STORE_PROMPTS, { keyPath: 'id' });
+                store.createIndex('timestamp', 'timestamp', { unique: false });
             }
         };
     });
 };
+
+// --- Images ---
 
 export const saveImage = (image: ImageInfo): Promise<void> => {
     // The videoUrl is a temporary blob URL and should not be stored.
@@ -38,8 +56,8 @@ export const saveImage = (image: ImageInfo): Promise<void> => {
     const { videoUrl, ...imageToStore } = image;
     return new Promise((resolve, reject) => {
         if (!db) return reject("DB not initialized");
-        const transaction = db.transaction([STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(STORE_NAME);
+        const transaction = db.transaction([STORE_IMAGES], 'readwrite');
+        const store = transaction.objectStore(STORE_IMAGES);
         const request = store.put(imageToStore);
 
         request.onsuccess = () => resolve();
@@ -53,8 +71,8 @@ export const saveImage = (image: ImageInfo): Promise<void> => {
 export const getImages = (): Promise<ImageInfo[]> => {
     return new Promise((resolve, reject) => {
         if (!db) return reject("DB not initialized");
-        const transaction = db.transaction([STORE_NAME], 'readonly');
-        const store = transaction.objectStore(STORE_NAME);
+        const transaction = db.transaction([STORE_IMAGES], 'readonly');
+        const store = transaction.objectStore(STORE_IMAGES);
         const request = store.getAll();
 
         request.onsuccess = () => {
@@ -77,8 +95,8 @@ export const getImages = (): Promise<ImageInfo[]> => {
 export const deleteImages = (ids: string[]): Promise<void[]> => {
     return new Promise((resolve, reject) => {
         if (!db) return reject("DB not initialized");
-        const transaction = db.transaction([STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(STORE_NAME);
+        const transaction = db.transaction([STORE_IMAGES], 'readwrite');
+        const store = transaction.objectStore(STORE_IMAGES);
 
         const deletePromises = ids.map(id => {
             return new Promise<void>((resolveDelete, rejectDelete) => {
@@ -98,8 +116,8 @@ export const deleteImages = (ids: string[]): Promise<void[]> => {
 export const updateImage = (id: string, updates: Partial<ImageInfo>): Promise<void> => {
     return new Promise((resolve, reject) => {
         if (!db) return reject("DB not initialized");
-        const transaction = db.transaction([STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(STORE_NAME);
+        const transaction = db.transaction([STORE_IMAGES], 'readwrite');
+        const store = transaction.objectStore(STORE_IMAGES);
         const request = store.get(id);
 
         request.onsuccess = () => {
@@ -115,6 +133,58 @@ export const updateImage = (id: string, updates: Partial<ImageInfo>): Promise<vo
             updateRequest.onsuccess = () => resolve();
             updateRequest.onerror = () => reject(updateRequest.error);
         };
+        request.onerror = () => reject(request.error);
+    });
+};
+
+// --- Negative Prompts ---
+
+export const getNegativePrompts = (): Promise<NegativePrompt[]> => {
+    return new Promise((resolve, reject) => {
+        if (!db) return reject("DB not initialized");
+        const transaction = db.transaction([STORE_PROMPTS], 'readonly');
+        const store = transaction.objectStore(STORE_PROMPTS);
+        const index = store.index('timestamp'); // Sort by timestamp 
+        const request = index.getAll(); // get all sorted by timestamp
+
+        request.onsuccess = () => {
+            // Return newest first? index.getAll() returns ascending.
+            // Let's reverse to get newest first.
+            resolve(request.result.reverse());
+        };
+        request.onerror = () => reject(request.error);
+    });
+};
+
+export const saveNegativePrompt = (content: string): Promise<NegativePrompt> => {
+    return new Promise((resolve, reject) => {
+        if (!db) return reject("DB not initialized");
+        const transaction = db.transaction([STORE_PROMPTS], 'readwrite');
+        const store = transaction.objectStore(STORE_PROMPTS);
+
+        // Check for duplicate content first? 
+        // For simplicity, we just add. De-duping can happen in UI or here.
+        // Let's rely on ID uniqueness.
+
+        const newPrompt: NegativePrompt = {
+            id: crypto.randomUUID(),
+            content,
+            timestamp: Date.now()
+        };
+
+        const request = store.put(newPrompt);
+        request.onsuccess = () => resolve(newPrompt);
+        request.onerror = () => reject(request.error);
+    });
+};
+
+export const deleteNegativePrompt = (id: string): Promise<void> => {
+    return new Promise((resolve, reject) => {
+        if (!db) return reject("DB not initialized");
+        const transaction = db.transaction([STORE_PROMPTS], 'readwrite');
+        const store = transaction.objectStore(STORE_PROMPTS);
+        const request = store.delete(id);
+        request.onsuccess = () => resolve();
         request.onerror = () => reject(request.error);
     });
 };

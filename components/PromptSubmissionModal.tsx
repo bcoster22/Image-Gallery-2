@@ -5,6 +5,7 @@ import EnhancePlayer from './EnhancePlayer';
 import AIModelSettingsPanel from './AIModelSettingsPanel';
 import AdvancedSettingsPanel from './AdvancedSettingsPanel';
 import GenerationPlayer from './GenerationPlayer';
+import ModelRecommendation from './ModelRecommendation';
 import * as aiService from '../services/aiService';
 
 export interface PromptModalConfig {
@@ -32,6 +33,7 @@ interface PromptSubmissionModalProps {
     onAddToGenerationQueue?: (items: import('../types').QueueItem[]) => void;
     queuedGenerationCount?: number;
     generationResults?: { id: string; url: string }[]; // Completed images from queue
+    onDeleteNegativePrompt?: (prompt: string) => void;
 }
 
 const titles = {
@@ -40,7 +42,7 @@ const titles = {
     enhance: { icon: WandIcon, text: "Enhance & Upscale Image" },
 }
 
-const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, onClose, onSubmit, config, promptHistory, negativePromptHistory = [], onSaveNegativePrompt, settings, onSaveGeneratedImage, onAddToGenerationQueue, queuedGenerationCount = 0, generationResults = [] }) => {
+const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, onClose, onSubmit, config, promptHistory, negativePromptHistory = [], onSaveNegativePrompt, settings, onSaveGeneratedImage, onAddToGenerationQueue, queuedGenerationCount = 0, generationResults = [], onDeleteNegativePrompt }) => {
     const [prompt, setPrompt] = useState('');
     const [negativePrompt, setNegativePrompt] = useState('');
     const [selectedAspectRatio, setSelectedAspectRatio] = useState<AspectRatio | undefined>('9:16');
@@ -59,6 +61,7 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, o
     const [autoSave, setAutoSave] = useState(true);
     const [autoSeedAdvance, setAutoSeedAdvance] = useState(false);
     const [autoPlay, setAutoPlay] = useState(true);
+    const [slideshowSpeed, setSlideshowSpeed] = useState(3000);
     const [randomAspectRatio, setRandomAspectRatio] = useState(false);
     // Random Ratio Pool
     const [enabledRandomRatios, setEnabledRandomRatios] = useState<AspectRatio[]>(['1:1', '16:9', '9:16', '4:3', '3:4']);
@@ -113,6 +116,7 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, o
                     denoise: 75,
                     cfg_scale: 7,
                     seed: -1,
+                    scheduler: 'dpm_pp_2m_karras', // Recommended for best quality
                     ratio: config.aspectRatio || '1:1'
                 } as GenerationSettings);
             }
@@ -143,11 +147,11 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, o
                     if (prev >= sessionImages.length - 1) return 0;
                     return prev + 1;
                 });
-            }, 3000); // 3s per slide
+            }, slideshowSpeed);
         }
 
         return () => clearInterval(interval);
-    }, [autoPlay, isGenerating, sessionImages.length]);
+    }, [autoPlay, isGenerating, sessionImages.length, slideshowSpeed]);
 
     // Receive completed images from queue and add to session
     useEffect(() => {
@@ -458,6 +462,9 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = ({ isOpen, o
                     onEnabledRandomRatiosChange={setEnabledRandomRatios}
 
                     negativePromptHistory={negativePromptHistory}
+                    onDeleteNegativePrompt={onDeleteNegativePrompt}
+                    slideshowSpeed={slideshowSpeed}
+                    onSlideshowSpeedChange={setSlideshowSpeed}
                 />
             </div>
         );

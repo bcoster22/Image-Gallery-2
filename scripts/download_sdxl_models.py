@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+"""
+Download all premium SDXL models for the Image Gallery Generation Studio
+"""
+
+import os
+import sys
+from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from huggingface_hub import snapshot_download
+from tqdm import tqdm
+
+# Model list from rest_server_temp_5.py SDXL_MODELS
+MODELS_TO_DOWNLOAD = {
+    "juggernaut-xl": {
+        "repo": "RunDiffusion/Juggernaut-XL-Lightning",
+        "name": "Juggernaut XL",
+        "tier": "🥇 Gold"
+    },
+    "realvisxl-v5": {
+        "repo": "SG161222/RealVisXL_V5.0",
+        "name": "RealVisXL V5",
+        "tier": "🥇 Gold"
+    },
+    "cyberrealistic-xl": {
+        "repo": "Cyberdelia/CyberRealistic_XL",
+        "name": "CyberRealistic XL",
+        "tier": "🥇 Gold"
+    },
+    "epicrealism-xl": {
+        "repo": "emilianJR/epiCRealism_XL",
+        "name": "epiCRealism XL",
+        "tier": "⭐ Specialized"
+    },
+    "zavychroma-xl": {
+        "repo": "stablediffusionapi/zavychromaxl-v80",
+        "name": "ZavyChroma XL",
+        "tier": "⭐ Specialized"
+    },
+    "helloworld-xl": {
+        "repo": "Leosam/HelloWorld_XL",
+        "name": "HelloWorld XL",
+        "tier": "⭐ Specialized"
+    },
+    "nightvision-xl": {
+        "repo": "Disra/NightVisionXL",
+        "name": "NightVision XL",
+        "tier": "⭐ Specialized"
+    },
+    "albedobase-xl": {
+        "repo": "stablediffusionapi/albedobase-xl-v13",
+        "name": "AlbedoBase XL",
+        "tier": "⭐ Specialized"
+    },
+    "copax-timeless-xl": {
+        "repo": "Copax/Copax_TimeLessXL",
+        "name": "Copax Timeless XL",
+        "tier": "⭐ Specialized"
+    },
+    "dreamshaper-xl": {
+        "repo": "Lykon/dreamshaper-xl-1-0",
+        "name": "DreamShaper XL",
+        "tier": "⭐ Specialized"
+    }
+}
+
+def download_model(model_id, model_info):
+    """Download a single model from HuggingFace"""
+    repo_id = model_info["repo"]
+    name = model_info["name"]
+    tier = model_info["tier"]
+    
+    print(f"\n{'='*60}")
+    print(f"{tier} {name}")
+    print(f"Repository: {repo_id}")
+    print(f"{'='*60}")
+    
+    try:
+        # Download to HuggingFace cache (automatically managed)
+        cache_dir = snapshot_download(
+            repo_id=repo_id,
+            allow_patterns=["*.safetensors", "*.json", "*.txt", "*.md"],  # Only essential files
+            ignore_patterns=["*.ckpt", "*.bin"],  # Skip old formats
+            resume_download=True,
+            local_files_only=False
+        )
+        
+        print(f"✅ Downloaded successfully to: {cache_dir}")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Failed to download: {e}")
+        return False
+
+def main():
+    print("\n" + "="*60)
+    print("🎨 SDXL Model Downloader - Premium Realistic Models")
+    print("="*60)
+    print("\nThis will download 10 state-of-the-art SDXL models:")
+    print("• 3 Gold Standard models (The Big Three)")
+    print("• 7 Specialized models for specific use cases")
+    print("\nTotal size: ~30-50 GB")
+    print("="*60)
+    
+    # Ask for confirmation
+    response = input("\nProceed with download? [y/N]: ").strip().lower()
+    if response != 'y':
+        print("Download cancelled.")
+        return
+    
+    # Download all models
+    success_count = 0
+    failed_models = []
+    
+    for model_id, model_info in MODELS_TO_DOWNLOAD.items():
+        success = download_model(model_id, model_info)
+        if success:
+            success_count += 1
+        else:
+            failed_models.append(model_info["name"])
+    
+    # Summary
+    print("\n" + "="*60)
+    print("📊 DOWNLOAD SUMMARY")
+    print("="*60)
+    print(f"✅ Successfully downloaded: {success_count}/{len(MODELS_TO_DOWNLOAD)} models")
+    
+    if failed_models:
+        print(f"\n❌ Failed downloads:")
+        for model in failed_models:
+            print(f"   • {model}")
+        print("\nNote: You can re-run this script to retry failed downloads.")
+    else:
+        print("\n🎉 All models downloaded successfully!")
+        print("\nYou can now use all 10 models in the Generation Studio!")
+    
+    print("="*60)
+
+if __name__ == "__main__":
+    main()

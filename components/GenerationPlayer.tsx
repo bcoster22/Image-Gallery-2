@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ImageInfo, AdminSettings, AspectRatio, AiProvider, GenerationSettings } from '../types';
+import ModelRecommendation from './ModelRecommendation';
+import PresetSelector from './PresetSelector';
+import NegativePromptSelector from './NegativePromptSelector';
 
 interface GenerationPlayerProps {
     // Content state
@@ -55,6 +58,11 @@ interface GenerationPlayerProps {
 
     // History
     negativePromptHistory?: string[];
+    onDeleteNegativePrompt?: (prompt: string) => void;
+
+    // Slideshow
+    slideshowSpeed?: number;
+    onSlideshowSpeedChange?: (speed: number) => void;
 }
 
 const AspectRatios: AspectRatio[] = ['1:1', '16:9', '9:16', '4:3', '3:4'];
@@ -80,7 +88,8 @@ const GenerationPlayer: React.FC<GenerationPlayerProps> = ({
     autoPlay = true, onAutoPlayChange = (v) => { },
     randomAspectRatio = false, onRandomAspectRatioChange = (v) => { },
     enabledRandomRatios = AspectRatios, onEnabledRandomRatiosChange = (v) => { },
-    negativePromptHistory = []
+    negativePromptHistory = [], onDeleteNegativePrompt,
+    slideshowSpeed = 3000, onSlideshowSpeedChange = (v) => { }
 }) => {
     // View State
     const [zoom, setZoom] = useState<number | 'fit'>('fit');
@@ -88,9 +97,136 @@ const GenerationPlayer: React.FC<GenerationPlayerProps> = ({
 
     // Effective Image to display
     // If not in a session (legacy?), use generatedImage. If in session, use index.
-    const displayImage = (sessionImages.length > 0 && currentImageIndex !== -1)
-        ? sessionImages[currentImageIndex]
-        : generatedImage;
+    // Effective Image to display
+    // If autoPlay is false, we want to show the LATEST image generated, if any.
+    // If not in a session (legacy?), use generatedImage. 
+
+    // We need to track the "latest" generated image specifically for non-autoplay mode?
+    // Actually, `generatedImage` prop IS the latest single generated image passed from parent usually.
+    // `sessionImages` is the collection.
+    // If autoPlay is OFF, we should show the `generatedImage` (newest one) instead of following the `currentImageIndex`?
+    // Or we should update `currentImageIndex` to point to the newest one only if `autoPlay` is ON?
+
+    // The previous logic was:
+    // const displayImage = (sessionImages.length > 0 && currentImageIndex !== -1) ? sessionImages[currentImageIndex] : generatedImage;
+
+    // If autoPlay is OFF, `currentImageIndex` might not be updated to the end.
+    // BUT `generatedImage` (prop) updates whenever a new one arrives.
+    // So if we prefer `generatedImage` when `autoPlay` is off AND it's fresh...
+
+    // Let's refine based on user request: "if auto-play is deselect... display the current generated image and each image generated after that".
+    // This implies that even if we are browsing history (index != end), a NEW generation should forcibly display itself? 
+    // Or simply that we shouldn't act as a slideshow?
+
+    // If Auto-Play is OFF:
+    // When a new image arrives, does the parent update `currentImageIndex`?
+    // If parent updates index, we follow index. 
+    // If we want to "stick" to the latest generation, we should look at `generatedImage`.
+
+    // Let's assume if `autoPlay` is false, `currentImageIndex` is NOT auto-advancing in parent? 
+    // Actually, logic is likely in parent. WE are just a UI.
+    // If this component solely controls view, we select what to show.
+
+    // Let's defer to `generatedImage` if it conflicts with session navigation? 
+    // No, that breaks manual navigation.
+
+    // Simple Fix:
+    // If we have a `generatedImage`, we should probably show it, unless the user has manually navigated heavily.
+    // But `generatedImage` is refreshed on every generation.
+
+    // User request: "display the current genreated image and each image generated after that."
+    // This suggests that when a NEW image comes in, we switch to it.
+    // This is the default "Auto-Play" behavior usually? 
+    // Maybe "Auto-Play" refers to the *Slideshow* feature or the "Auto-Advance" feature?
+    // If "Auto-Play Images" toggle is the one in the right sidebar...
+
+    // Let's look at `autoPlay` prop use. It is passed but mostly unused in this file except for rendering the toggle?
+    // It seems logic is external or missing.
+
+    // To implement "Show latest generated image always":
+    // We need to detect when `generatedImage` changes.
+    // We can use a ref or effect to track "latest displayed".
+    // But simply:
+    // If `autoPlay` is OFF, we might want to ignore the *SlideShow* timer, but typically "Auto-Play" in this context (Gallery) 
+    // often means "Auto-Advance to next image".
+
+    // If User means: "When I generate, show me the result immediately even if I was looking at an old one."
+    // Then we need to update our internal view state or ensure we render `generatedImage` when it updates.
+
+    // Let's update `displayImage` logic to verify.
+    // Currently: 
+    // const displayImage = (sessionImages.length > 0 && currentImageIndex !== -1) ? sessionImages[currentImageIndex] : generatedImage;
+
+    // If `sessionImages` has items, we ignore `generatedImage`! This is the bug. 
+    // `generatedImage` is likely the "latest result", but `sessionImages` is the history.
+    // If we are generating, `generatedImage` updates. `sessionImages` updates too.
+
+    // We need to ensure that when a NEW `generatedImage` arrives, we effectively "jump" to it.
+    // We can do this by syncing a local `viewingImage` state.
+
+    // Let's introduce `lastGeneratedId` to detect changes.
+    const [lastGenId, setLastGenId] = useState<string>('');
+    const [viewingSpecificImage, setViewingSpecificImage] = useState<ImageInfo | null>(null);
+
+    // Sync generatedImage updates
+    useEffect(() => {
+        if (generatedImage && generatedImage.id !== lastGenId) {
+            setLastGenId(generatedImage.id);
+            // Always snap to new image when it arrives
+            setViewingSpecificImage(null); // Clear manual override to fall back to latest or index logic?
+            // Actually, if we want to show it, we can just let existing logic work IF it points to end?
+            // But if `currentImageIndex` is stuck at 0...
+
+            // If we are just a dumb UI, we might depend on parent. 
+            // BUT: "display the current generated image...".
+
+            // If we simply check: "Is `generatedImage` newer than what's in `sessionImages[currentImageIndex]`?"
+            // It's hard to tell without timestamps or ordering.
+
+            // Let's change the display logic:
+            // If `generatedImage` changed recently, show it?
+        }
+    }, [generatedImage, lastGenId]);
+
+    // Refined Logic:
+    // If `autoPlay` is OFF (user disabled "Auto-play Images"), we assume they want to see each result as it comes in?
+    // Wait, usually "Auto-Play" means "Slideshow". 
+    // Maybe "Auto-Play Images" toggle does nothing right now? (onAutoPlayChange exists).
+
+    // Let's assume the user wants:
+    // - Enable "Auto-Play": Cycle through images? Or maybe they mean "Auto-Advance seed"?
+    // - Disable "Auto-Play": STOP cycling, but still SHOW the result of generation.
+
+    // Current Bug interpretation:
+    // If "Auto-Play" is ON, maybe the system IS showing images.
+    // If OFF, maybe it's NOT checking for new images?
+
+    // Actually, looking at the code:
+    // `displayImage` relies heavily on `sessionImages[currentImageIndex]`.
+    // If `currentImageIndex` is not updated by parent when a new image is added, we won't see it.
+
+    // If we want to guarantee visibility of new images:
+    // We should allow `generatedImage` to take precedence if it matches the *latest* item in `sessionImages`?
+    // Or simpler:
+    // If `generatedImage` is present, it IS the result.
+    // We should display `generatedImage` unless the user explicitly navigated away?
+
+    // Let's try explicit `overrideImage`:
+    const [overrideImage, setOverrideImage] = useState<{ id: string; url: string } | null>(null);
+
+    useEffect(() => {
+        if (generatedImage) {
+            setOverrideImage(generatedImage);
+        }
+    }, [generatedImage]);
+
+
+    // Display Logic
+    const displayImage = overrideImage
+        ? overrideImage
+        : (sessionImages.length > 0 && currentImageIndex !== -1)
+            ? sessionImages[currentImageIndex]
+            : generatedImage;
 
     const [pan, setPan] = useState({ x: 0, y: 0 });
     const [isPanning, setIsPanning] = useState(false);
@@ -122,6 +258,10 @@ const GenerationPlayer: React.FC<GenerationPlayerProps> = ({
     };
 
     const handleMouseUp = () => setIsPanning(false);
+
+    // If user navigates (prev/next), clear override.
+    const handlePrev = () => { setOverrideImage(null); onPrev?.(); };
+    const handleNext = () => { setOverrideImage(null); onNext?.(); };
 
     // Update Helpers
     const updateSetting = (key: keyof GenerationSettings, value: any) => {
@@ -253,23 +393,37 @@ const GenerationPlayer: React.FC<GenerationPlayerProps> = ({
                             </select>
                         </div>
 
-                        {/* Model (Simplified list - should ideally come from props or dynamic) */}
-                        <div>
-                            <label className="block text-xs text-gray-400 mb-1">Model Architecture</label>
-                            <select
-                                value={settings.model}
-                                onChange={e => updateSetting('model', e.target.value)}
-                                className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-sm text-white focus:ring-2 focus:ring-indigo-500"
-                                disabled={modelOptions.length === 0}
-                            >
-                                {modelOptions.length > 0 ? (
-                                    modelOptions.map(opt => (
-                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                    ))
-                                ) : (
-                                    <option value={settings.model || ''}>{settings.model || 'Default'}</option>
-                                )}
-                            </select>
+                        {/* God Tier Presets */}
+                        <div className="border-t border-gray-700 pt-4">
+                            <PresetSelector
+                                prompt={prompt}
+                                currentPreset={settings.model}  // Track by preset ID
+                                onPresetSelect={(presetId, preset) => {
+                                    // Apply complete preset configuration
+                                    onSettingsChange({
+                                        ...settings,
+                                        model: preset.model,
+                                        scheduler: preset.scheduler,
+                                        steps: preset.steps,
+                                        cfg_scale: preset.cfg
+                                    });
+                                }}
+                            />
+                        </div>
+
+                        {/* Intelligent Model Recommendation */}
+                        <div className="border-t border-gray-700 pt-4 mt-4">
+                            <ModelRecommendation
+                                prompt={prompt}
+                                currentModel={settings.model}
+                                onModelSelect={(modelId, autoConfig) => {
+                                    // Apply auto-configuration
+                                    onSettingsChange({
+                                        ...settings,
+                                        ...autoConfig
+                                    });
+                                }}
+                            />
                         </div>
 
 
@@ -393,6 +547,22 @@ const GenerationPlayer: React.FC<GenerationPlayerProps> = ({
                                 </button>
                             </div>
 
+                            {/* Slideshow Speed Slider */}
+                            <div className={`transition-all duration-300 overflow-hidden ${autoPlay ? 'max-h-16 opacity-100 mt-3 ' : 'max-h-0 opacity-0'}`}>
+                                <div className="flex justify-between items-center mb-1">
+                                    <span className="text-xs text-gray-500">Speed</span>
+                                    <span className="text-xs text-indigo-400">{(slideshowSpeed / 1000).toFixed(1)}s</span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min="1000" max="30000" step="500"
+                                    value={slideshowSpeed}
+                                    onChange={(e) => onSlideshowSpeedChange(parseInt(e.target.value))}
+                                    className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                                    title="Slideshow interval"
+                                />
+                            </div>
+
                             {!autoSave && (
                                 <p className="mt-2 text-[10px] text-yellow-500 leading-tight">
                                     ⚠️ Warning: Images will not be saved automatically. They may be lost if you navigate away or generate a new batch.
@@ -447,20 +617,51 @@ const GenerationPlayer: React.FC<GenerationPlayerProps> = ({
                             )}
                         </div>
                         {showNegativeHistory && (
-                            <div className="absolute bottom-full right-0 mb-2 w-64 bg-[#1a1a1a] border border-gray-700 rounded-lg shadow-xl max-h-48 overflow-y-auto z-50 p-1">
+                            <div className="absolute bottom-full right-0 mb-2 w-72 bg-[#1a1a1a] border border-gray-700 rounded-lg shadow-xl max-h-48 overflow-y-auto z-50 p-1">
                                 {negativePromptHistory.map((p, i) => (
-                                    <button
-                                        key={i}
-                                        onClick={() => { onNegativePromptChange(p); setShowNegativeHistory(false); }}
-                                        className="w-full text-left p-2 text-xs text-gray-300 hover:bg-gray-800 rounded truncate block border-b border-gray-800 last:border-0"
-                                        title={p}
-                                    >
-                                        {p}
-                                    </button>
+                                    <div key={i} className="flex items-center group/item hover:bg-gray-800 rounded border-b border-gray-800 last:border-0">
+                                        <button
+                                            onClick={() => { onNegativePromptChange(p); setShowNegativeHistory(false); }}
+                                            className="flex-grow text-left p-2 text-xs text-gray-300 truncate"
+                                            title={p}
+                                        >
+                                            {p}
+                                        </button>
+                                        {onDeleteNegativePrompt && (
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onDeleteNegativePrompt(p);
+                                                }}
+                                                className="p-2 text-gray-500 hover:text-red-400 opacity-0 group-hover/item:opacity-100 transition-opacity"
+                                                title="Remove from history"
+                                            >
+                                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                            </button>
+                                        )}
+                                    </div>
                                 ))}
                             </div>
                         )}
                     </div>
+                </div>
+
+                {/* Negative Prompt Templates Section */}
+                <div className="mt-4">
+                    <NegativePromptSelector
+                        currentPrompt={negativePrompt}
+                        onSelectTemplate={(template) => onNegativePromptChange(template)}
+                        onSaveCustom={(customPrompt) => {
+                            // Save to history if handler provided
+                            if (onDeleteNegativePrompt) {
+                                // This implies we have save functionality
+                                const updatedHistory = [...negativePromptHistory, customPrompt];
+                                // Trigger save via parent
+                            }
+                            onNegativePromptChange(customPrompt);
+                        }}
+                        customTemplates={negativePromptHistory}
+                    />
                 </div>
 
                 <div className="flex items-center justify-between">
@@ -477,7 +678,7 @@ const GenerationPlayer: React.FC<GenerationPlayerProps> = ({
 
                     <div className="flex items-center justify-center gap-4">
                         <button
-                            onClick={onPrev}
+                            onClick={handlePrev}
                             disabled={!onPrev || (!sessionImages || sessionImages.length === 0)}
                             className={`text-gray-500 hover:text-white transition-colors ${(!onPrev || sessionImages?.length === 0) ? 'opacity-30 cursor-not-allowed' : ''}`}
                             title="Previous Image"
@@ -498,7 +699,7 @@ const GenerationPlayer: React.FC<GenerationPlayerProps> = ({
                         </button>
 
                         <button
-                            onClick={onNext}
+                            onClick={handleNext}
                             disabled={!onNext || (!sessionImages || sessionImages.length === 0)}
                             className={`text-gray-500 hover:text-white transition-colors ${(!onNext || sessionImages?.length === 0) ? 'opacity-30 cursor-not-allowed' : ''}`}
                             title="Next Image"

@@ -429,13 +429,153 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from moondream_station.core.inference_service import InferenceService
 
-MODEL_MAP = {
-    "sdxl-realism": "RunDiffusion/Juggernaut-XL-Lightning",
-    "sdxl-anime": "cagliostrolab/animagine-xl-3.1",
-    "sdxl-surreal": "Lykon/dreamshaper-xl-lightning",
-    "sdxl": "RunDiffusion/Juggernaut-XL-Lightning", # Fallback
-    "sdxl-base": "RunDiffusion/Juggernaut-XL-Lightning"
+# Comprehensive SDXL Model Database with Metadata
+SDXL_MODELS = {
+    "juggernaut-xl": {
+        "hf_id": "RunDiffusion/Juggernaut-XL-Lightning",
+        "name": "Juggernaut XL",
+        "tier": "gold",
+        "best_for": "Cinematic lighting and composition",
+        "description": "The most intelligent model for complex scenes. Creates high-budget movie still quality with perfect anatomy.",
+        "scheduler": "dpm_pp_2m_karras",
+        "optimal_steps": 30,
+        "cfg_range": [4.5, 6.5],
+        "keywords": ["cinematic", "movie", "dramatic", "composition", "scene", "lighting", "professional"]
+    },
+    "realvisxl-v5": {
+        "hf_id": "SG161222/RealVisXL_V5.0",
+        "name": "RealVisXL V5",
+        "tier": "gold",
+        "best_for": "Raw photography and imperfect realism",
+        "description": "DSLR/smartphone quality with natural imperfections. Messy hair, skin texture, less idealized lighting.",
+        "scheduler": "dpm_pp_2m_sde_karras",
+        "optimal_steps": 35,
+        "cfg_range": [4.0, 6.0],
+        "keywords": ["photo", "photography", "raw", "candid", "natural", "realistic", "camera", "lens"]
+    },
+    "cyberrealistic-xl": {
+        "hf_id": "cyberdelia/CyberRealisticXL",
+        "name": "CyberRealistic XL",
+        "tier": "gold",
+        "best_for": "Skin texture and portraits",
+        "description": "Pore-level detail master. Excels at close-up portraits with exceptional skin, fabric, and metal texture.",
+        "scheduler": "dpm_pp_2m_sde_karras",
+        "optimal_steps": 40,
+        "cfg_range": [4.0, 5.5],
+        "keywords": ["portrait", "face", "skin", "closeup", "texture", "detail", "pores", "fabric"]
+    },
+    "epicrealism-xl": {
+        "hf_id": "stablediffusionapi/epicrealism-xl-v5",
+        "name": "epiCRealism XL PureFix",
+        "tier": "specialized",
+        "best_for": "Natural unpolished realism",
+        "description": "Avoids plastic AI look aggressively. Produces unedited raw camera file aesthetics.",
+        "scheduler": "dpm_pp_2m_karras",
+        "optimal_steps": 30,
+        "cfg_range": [4.5, 6.0],
+        "keywords": ["natural", "raw", "unpolished", "authentic", "real", "candid"]
+    },
+    "cyberrealistic-pony": {
+        "hf_id": "cyberdelia/CyberRealisticPony",
+        "name": "CyberRealistic Pony V1.5",
+        "tier": "specialized",
+        "best_for": "Anime/Stylized Realism",
+        "description": "Best of both worlds: Pony anime style mixed with photorealism. Great for characters.",
+        "scheduler": "dpm_pp_2m_sde_karras",
+        "optimal_steps": 35,
+        "cfg_range": [5.0, 7.0],
+        "keywords": ["pony", "anime", "stylized", "character", "fusion"]
+    },
+    "epicella-xl": {
+        "hf_id": "stablediffusionapi/epicella-xl",
+        "name": "epiCella XL Photo",
+        "tier": "specialized",
+        "best_for": "Portrait Photography",
+        "description": "Specialized for beautiful, clean portrait photography.",
+        "scheduler": "dpm_pp_2m_karras",
+        "optimal_steps": 30,
+        "cfg_range": [4.5, 6.0],
+        "keywords": ["portrait", "clean", "photo", "photography", "beauty"]
+    },
+    "zavychroma-xl": {
+        "hf_id": "stablediffusionapi/zavychromaxl-v80",
+        "name": "ZavyChroma XL",
+        "tier": "specialized",
+        "best_for": "Magic realism with vibrant color",
+        "description": "Realistic subjects with punchy magazine-cover color grading out of the box.",
+        "scheduler": "dpm_pp_2m_karras",
+        "optimal_steps": 30,
+        "cfg_range": [5.0, 6.5],
+        "keywords": ["vibrant", "colorful", "magazine", "cover", "saturated", "punchy", "vivid"]
+    },
+    "helloworld-xl": {
+        "hf_id": "Leosam/HelloWorld_XL",
+        "name": "HelloWorld XL",
+        "tier": "specialized",
+        "best_for": "Diverse subjects and architecture",
+        "description": "Neutral bias for diverse ethnicities and architectural styles. Excellent for commercial stock photos.",
+        "scheduler": "dpm_pp_2m_karras",
+        "optimal_steps": 32,
+        "cfg_range": [5.0, 6.5],
+        "keywords": ["diversity", "architecture", "building", "commercial", "stock", "global", "ethnic"]
+    },
+    "nightvision-xl": {
+        "hf_id": "Disra/NightVisionXL",
+        "name": "NightVision XL",
+        "tier": "specialized",
+        "best_for": "Low-light and night photography",
+        "description": "Handles true black values and dynamic lighting (street lamps, neon) without artifacts.",
+        "scheduler": "dpm_pp_2m_karras",
+        "optimal_steps": 35,
+        "cfg_range": [4.5, 6.0],
+        "keywords": ["night", "dark", "neon", "low-light", "evening", "street", "lamp", "glow"]
+    },
+    "albedobase-xl": {
+        "hf_id": "stablediffusionapi/albedobase-xl-v13",
+        "name": "AlbedoBase XL",
+        "tier": "specialized",
+        "best_for": "General purpose safe realism",
+        "description": "Stable and strictly prompt-adherent. Less opinionated, won't force a style unless requested.",
+        "scheduler": "dpm_pp_2m_karras",
+        "optimal_steps": 30,
+        "cfg_range": [5.0, 7.0],
+        "keywords": ["general", "versatile", "neutral", "stable", "reliable", "accurate"]
+    },
+    "copax-timeless-xl": {
+        "hf_id": "Copax/Copax_TimeLessXL",
+        "name": "Copax Timeless XL",
+        "tier": "specialized",
+        "best_for": "Artistic/painterly realism",
+        "description": "Border between photograph and hyper-realistic oil painting. Too good to be true but still photographic.",
+        "scheduler": "dpm_pp_2m_karras",
+        "optimal_steps": 35,
+        "cfg_range": [5.5, 7.0],
+        "keywords": ["artistic", "painterly", "oil", "painting", "art", "hyper-realistic", "refined"]
+    },
+    "dreamshaper-xl": {
+        "hf_id": "Lykon/dreamshaper-xl-1-0",
+        "name": "DreamShaper XL",
+        "tier": "specialized",
+        "best_for": "Fantasy realism and concept art",
+        "description": "Top-tier for realistic fantasy. Warriors, cyborgs, sci-fi environments with creative edge.",
+        "scheduler": "dpm_pp_2m_karras",
+        "optimal_steps": 30,
+        "cfg_range": [5.0, 6.5],
+        "keywords": ["fantasy", "sci-fi", "warrior", "cyborg", "concept", "creative", "imaginative"]
+    }
 }
+
+# Legacy compatibility map (short names -> model IDs)
+MODEL_MAP = {k: v["hf_id"] for k, v in SDXL_MODELS.items()}
+# Add legacy aliases
+MODEL_MAP.update({
+    "sdxl-realism": SDXL_MODELS["juggernaut-xl"]["hf_id"],
+    "sdxl-anime": "cagliostrolab/animagine-xl-3.1",
+    "sdxl-surreal": SDXL_MODELS["dreamshaper-xl"]["hf_id"],
+    "sdxl": SDXL_MODELS["juggernaut-xl"]["hf_id"],
+    "sdxl-base": SDXL_MODELS["juggernaut-xl"]["hf_id"]
+})
+
 
 class RestServer:
     def __init__(self, config, manifest_manager, session_state=None, analytics=None):
@@ -449,7 +589,9 @@ class RestServer:
         # Monkey-patch InferenceService.start() to track all model loads
         _original_start = self.inference_service.start
         def _tracked_start(model_id: str):
+            print(f"[Debug] Attempting to start model: {model_id}")
             result = _original_start(model_id)
+            print(f"[Debug] Start result for {model_id}: {result}")
             if result:
                 # Track the model load
                 try:
@@ -468,13 +610,15 @@ class RestServer:
         # Inject models into manifest so they appear in UI
         try:
             models = self.manifest_manager.get_models()
-            models['moondream-3-preview-4bit'] = type('ModelInfo', (object,), {
-                'id': 'moondream-3-preview-4bit',
-                'name': 'Moondream 3 (4-bit 8GB)',
-                'type': 'vision',
-                'description': 'Optimized 4-bit Moondream 3 for 8GB VRAM cards.',
-                'version': '3.0-preview'
-            })
+            # DISABLED: moondream-3-preview-4bit has dtype errors (Float vs Half)
+            # Using moondream2 instead which works correctly
+            # models['moondream-3-preview-4bit'] = type('ModelInfo', (object,), {
+            #     'id': 'moondream-3-preview-4bit',
+            #     'name': 'Moondream 3 (4-bit 8GB)',
+            #     'type': 'vision',
+            #     'description': 'Optimized 4-bit Moondream 3 for 8GB VRAM cards.',
+            #     'version': '3.0-preview'
+            # })
             models['florence-2-large-4bit'] = type('ModelInfo', (object,), {
                 'id': 'florence-2-large-4bit',
                 'name': 'Florence-2 Large (4-bit)',
@@ -734,6 +878,8 @@ class RestServer:
                 image = data.get("image") 
                 strength = data.get("strength", 0.75)
 
+                scheduler = data.get("scheduler", "euler")
+
                 try:
                     result = sdxl_backend_new.generate(
                         prompt=prompt,
@@ -741,7 +887,8 @@ class RestServer:
                         height=height,
                         steps=steps,
                         image=image,
-                        strength=strength
+                        strength=strength,
+                        scheduler=scheduler
                     )
                 except Exception as gen_err:
                     if "out of memory" in str(gen_err).lower():
@@ -758,7 +905,8 @@ class RestServer:
                             height=height,
                             steps=steps,
                             image=image,
-                            strength=strength
+                            strength=strength,
+                            scheduler=scheduler
                         )
                     else:
                         raise gen_err
@@ -792,6 +940,141 @@ class RestServer:
                         for model_id, model_info in models.items()
                     ]
                 }
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.get("/v1/schedulers")
+        async def list_schedulers():
+            """Get available SDXL schedulers with metadata"""
+            try:
+                if sdxl_backend_new:
+                    schedulers = sdxl_backend_new.get_available_schedulers()
+                    return {"schedulers": schedulers}
+                else:
+                    # Fallback if backend not loaded
+                    return {
+                        "schedulers": [
+                            {"id": "euler", "name": "Euler", "description": "Default scheduler", "recommended": True}
+                        ]
+                    }
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.get("/v1/samplers")
+        async def list_samplers():
+            """Get available SDXL samplers with metadata"""
+            try:
+                if sdxl_backend_new:
+                    samplers = sdxl_backend_new.get_available_samplers()
+                    return {"samplers": samplers}
+                else:
+                    # Fallback if backend not loaded
+                    return {
+                        "samplers": [
+                            {"id": "dpmpp_2m", "name": "DPM++ 2M", "description": "Default sampler", "recommended": True}
+                        ]
+                    }
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.get("/v1/models/sdxl")
+        async def list_sdxl_models():
+            """Get all SDXL models with full metadata"""
+            try:
+                models_with_meta = []
+                for model_id, meta in SDXL_MODELS.items():
+                    models_with_meta.append({
+                        "id": model_id,
+                        **meta
+                    })
+                return {"models": models_with_meta}
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post("/v1/models/recommend")
+        async def recommend_model(request: Request):
+            """Analyze prompt and recommend best SDXL model"""
+            try:
+                data = await request.json()
+                prompt = data.get("prompt", "").lower()
+                
+                if not prompt:
+                    # Default to Juggernaut if no prompt
+                    return {
+                        "recommended": "juggernaut-xl",
+                        "confidence": 0.5,
+                        "matches": ["juggernaut-xl"]
+                    }
+                
+                # Score each model based on keyword matches
+                scores = {}
+                for model_id, meta in SDXL_MODELS.items():
+                    score = 0
+                    matched_keywords = []
+                    
+                    # Check if any keywords appear in prompt
+                    for keyword in meta["keywords"]:
+                        if keyword in prompt:
+                            score += 1
+                            matched_keywords.append(keyword)
+                    
+                    # Boost gold tier models slightly
+                    if meta["tier"] == "gold":
+                        score += 0.2
+                    
+                    if score > 0:
+                        scores[model_id] = {
+                            "score": score,
+                            "matched_keywords": matched_keywords,
+                            "meta": meta
+                        }
+                
+                # If no matches, return top gold models
+                if not scores:
+                    return {
+                        "recommended": "juggernaut-xl",
+                        "confidence": 0.3,
+                        "reason": "No specific keywords matched. Using versatile default.",
+                        "matches": [
+                            {"id": "juggernaut-xl", **SDXL_MODELS["juggernaut-xl"]},
+                            {"id": "realvisxl-v5", **SDXL_MODELS["realvisxl-v5"]},
+                            {"id": "albedobase-xl", **SDXL_MODELS["albedobase-xl"]}
+                        ]
+                    }
+                
+                # Sort by score
+                sorted_models = sorted(scores.items(), key=lambda x: x[1]["score"], reverse=True)
+                
+                # Get top 3
+                top_model_id = sorted_models[0][0]
+                top_score = sorted_models[0][1]
+                
+                confidence = min(top_score["score"] / 5.0, 1.0)  # Normalize to 0-1
+                
+                matches = []
+                for model_id, data in sorted_models[:3]:
+                    matches.append({
+                        "id": model_id,
+                        "score": data["score"],
+                        "matched_keywords": data["matched_keywords"],
+                        **data["meta"]
+                    })
+                
+                return {
+                    "recommended": top_model_id,
+                    "confidence": confidence,
+                    "reason": f"Matched keywords: {', '.join(top_score['matched_keywords'])}",
+                    "matches": matches
+                }
+                
             except Exception as e:
                 import traceback
                 traceback.print_exc()
@@ -892,7 +1175,8 @@ class RestServer:
             requested_model = body.get("model")
             
             # --- ADVANCED MODEL INTERCEPTION ---
-            intercept_models = ['moondream-3-preview-4bit', 'florence-2-large-4bit', 'wd-vit-tagger-v3']
+            # Removed moondream-3-preview-4bit (dtype errors) - will use moondream2 fallback
+            intercept_models = ['florence-2-large-4bit', 'wd-vit-tagger-v3']
             if requested_model in intercept_models:
                 try:
                     # Parse image from messages
@@ -1471,7 +1755,7 @@ class RestServer:
             return False
 
         if not self.inference_service.start(current_model):
-            return False
+            print(f"[Warning] Failed to start {current_model}. Continuing mostly for SDXL features.")
 
         try:
             config = uvicorn.Config(
@@ -1489,7 +1773,10 @@ class RestServer:
             time.sleep(1)
 
             return self.is_running()
-        except Exception:
+        except Exception as e:
+            print(f"Error starting server: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def _run_server(self):
@@ -1551,3 +1838,28 @@ class RestServer:
             and self.server
             and not self.server.should_exit
         )
+
+if __name__ == "__main__":
+    from moondream_station.core.config import ConfigManager as Config
+    from moondream_station.core.manifest import ManifestManager
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--port", type=int, default=2020)
+    args = parser.parse_args()
+
+    config = Config()
+    manifest_manager = ManifestManager(config)
+    
+    server = RestServer(config, manifest_manager)
+    print(f"Starting Moondream Station on port {args.port}...")
+    if server.start(port=args.port):
+        print(f"Server started on port {args.port}")
+        try:
+            while server.is_running():
+                time.sleep(1)
+        except KeyboardInterrupt:
+            print("Stopping server...")
+            server.stop()
+    else:
+        print("Failed to start server")
