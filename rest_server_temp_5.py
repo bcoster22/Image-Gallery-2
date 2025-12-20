@@ -48,6 +48,7 @@ try:
     import requests
     import torch
     import numpy as np
+    from fastapi.concurrency import run_in_threadpool
 except ImportError:
     print("Warning: Transformers/BitsAndBytes/PIL not found. Advanced models will fail.")
 
@@ -475,16 +476,16 @@ SDXL_MODELS = {
         "cfg_range": [4.5, 6.0],
         "keywords": ["natural", "raw", "unpolished", "authentic", "real", "candid"]
     },
-    "cyberrealistic-pony": {
-        "hf_id": "cyberdelia/CyberRealisticPony",
-        "name": "CyberRealistic Pony V1.5",
-        "tier": "specialized",
-        "best_for": "Anime/Stylized Realism",
-        "description": "Best of both worlds: Pony anime style mixed with photorealism. Great for characters.",
+    "cyberrealistic-xl": {
+        "hf_id": "Cyberdelia/CyberRealistic_XL",
+        "name": "CyberRealistic XL",
+        "tier": "gold",
+        "best_for": "Skin texture and portraits",
+        "description": "Pore-level detail master. Excels at close-up portraits with exceptional skin, fabric, and metal texture.",
         "scheduler": "dpm_pp_2m_sde_karras",
-        "optimal_steps": 35,
-        "cfg_range": [5.0, 7.0],
-        "keywords": ["pony", "anime", "stylized", "character", "fusion"]
+        "optimal_steps": 40,
+        "cfg_range": [4.0, 5.5],
+        "keywords": ["portrait", "face", "skin", "closeup", "texture", "detail", "pores", "fabric"]
     },
     "epicella-xl": {
         "hf_id": "stablediffusionapi/epicella-xl",
@@ -870,6 +871,11 @@ class RestServer:
                 )
                 if not success:
                      return JSONResponse(content={"error": "Failed to initialize SDXL backend"}, status_code=500)
+                
+                # Update Memory Tracker
+                try:
+                    model_memory_tracker.track_model_load(requested_model, SDXL_MODELS.get(requested_model, {}).get("name", requested_model))
+                except: pass
 
                 # Generation Logic with Retry
                 width = data.get("width", 1024)
@@ -881,7 +887,8 @@ class RestServer:
                 scheduler = data.get("scheduler", "euler")
 
                 try:
-                    result = sdxl_backend_new.generate(
+                    result = await run_in_threadpool(
+                        sdxl_backend_new.generate,
                         prompt=prompt,
                         width=width,
                         height=height,
@@ -899,7 +906,8 @@ class RestServer:
                             model_id=data.get("model", "sdxl-realism"),
                             use_4bit=True
                         )
-                        result = sdxl_backend_new.generate(
+                        result = await run_in_threadpool(
+                            sdxl_backend_new.generate,
                             prompt=prompt,
                             width=width,
                             height=height,
@@ -915,6 +923,9 @@ class RestServer:
                 if vram_mode == "low":
                     print("[VRAM] Low mode: Unloading SDXL after generation.")
                     sdxl_backend_new.unload_backend()
+                    try:
+                        model_memory_tracker.track_model_unload(requested_model)
+                    except: pass
 
                 return {"created": int(time.time()), "data": [{"b64_json": img} for img in result], "images": result, "image": result[0] if result else None}
 
@@ -928,17 +939,42 @@ class RestServer:
         async def list_models():
             try:
                 models = self.manifest_manager.get_models()
+                model_list = [
+                    {
+                        "id": model_id,
+                        "name": model_info.name,
+                        "description": model_info.description,
+                        "version": getattr(model_info, "version", "unknown"),
+                        "last_known_vram_mb": model_memory_tracker.get_last_known_vram(model_id),
+                    }
+                    for model_id, model_info in models.items()
+                ]
+                
+                # Add SDXL Models
+                for model_id, model_info in SDXL_MODELS.items():
+                     model_list.append({
+                        "id": model_id,
+                        "name": model_info["name"],
+                        "description": model_info["description"],
+                        "version": "SDXL",
+                        "last_known_vram_mb": model_memory_tracker.get_last_known_vram(model_id) or 6000,
+                        "type": "generation"
+                    })
+                
+                # Add WD14 if missing (Fallback)
+                has_wd14 = any(m["id"] == "wd14-vit-v2" for m in model_list)
+                if not has_wd14:
+                     model_list.append({
+                        "id": "wd14-vit-v2",
+                        "name": "WD14 Tagger V2",
+                        "description": "Waifu Diffusion 1.4 Tagger for Anime/Illustration analysis.",
+                        "version": "v2",
+                        "last_known_vram_mb": model_memory_tracker.get_last_known_vram("wd14-vit-v2") or 900,
+                        "type": "analysis" 
+                    })
+
                 return {
-                    "models": [
-                        {
-                            "id": model_id,
-                            "name": model_info.name,
-                            "description": model_info.description,
-                            "version": getattr(model_info, "version", "unknown"),
-                            "last_known_vram_mb": model_memory_tracker.get_last_known_vram(model_id),
-                        }
-                        for model_id, model_info in models.items()
-                    ]
+                    "models": model_list
                 }
             except Exception as e:
                 import traceback
