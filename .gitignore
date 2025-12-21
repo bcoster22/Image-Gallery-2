@@ -112,3 +112,7 @@ routing_*.png
 moondream_*.png
 enhanced_debug.png
 test_eye_*.png
+
+# Debug/test scripts
+debug_manifest.py
+test_list_models.py
