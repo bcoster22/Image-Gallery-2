@@ -779,6 +779,64 @@ class RestServer:
                 return {"status": "error", "message": str(e)}
 
         
+        @self.app.post("/v1/system/update-packages")
+        async def update_packages(request: Request):
+            """
+            Update specified npm packages.
+            """
+            import re
+            import subprocess
+            
+            try:
+                body = await request.json()
+                packages = body.get("packages", [])
+                
+                if not packages or not isinstance(packages, list):
+                     return JSONResponse(status_code=400, content={"status": "error", "message": "No packages specified"})
+
+                # Security: Validate package names (alphanumeric, -, @, /)
+                # Prevents command injection like "; rm -rf /"
+                safe_packages = []
+                for pkg in packages:
+                    if re.match(r"^[@a-zA-Z0-9\-\/\.\^~]+$", pkg):
+                        safe_packages.append(pkg)
+                    else:
+                        print(f"Skipping invalid package name: {pkg}")
+                
+                if not safe_packages:
+                     return JSONResponse(status_code=400, content={"status": "error", "message": "No valid packages provided"})
+
+                # Construct command: npm install pkg1@latest pkg2@latest ...
+                # We assume we are in the project root where package.json exists.
+                # The server is started from project root, so cwd should be correct.
+                # We verify package.json exists just in case.
+                if not os.path.exists("package.json"):
+                     return JSONResponse(status_code=500, content={"status": "error", "message": "package.json not found in server root"})
+
+                cmd = ["npm", "install"] + [f"{p}@latest" for p in safe_packages]
+                print(f"Executing: {' '.join(cmd)}")
+                
+                # Execute
+                process = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=300 # 5 minutes max for install
+                )
+                
+                if process.returncode == 0:
+                    return {"status": "success", "message": f"Updated {len(safe_packages)} packages.", "output": process.stdout}
+                else:
+                    print(f"Update failed: {process.stderr}")
+                    return JSONResponse(status_code=500, content={"status": "error", "message": "Update failed", "details": process.stderr})
+
+            except subprocess.TimeoutExpired:
+                 return JSONResponse(status_code=504, content={"status": "error", "message": "Update timed out"})
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
         @self.app.get("/v1/system/prime-profile")
         async def get_prime_profile():
             """Get the current NVIDIA Prime profile (nvidia/on-demand/intel)"""
@@ -934,44 +992,92 @@ class RestServer:
                 traceback.print_exc()
                 return JSONResponse(content={"error": str(e)}, status_code=500)
 
-
         @self.app.get("/v1/models")
         async def list_models():
             try:
-                models = self.manifest_manager.get_models()
-                model_list = [
-                    {
-                        "id": model_id,
-                        "name": model_info.name,
-                        "description": model_info.description,
-                        "version": getattr(model_info, "version", "unknown"),
-                        "last_known_vram_mb": model_memory_tracker.get_last_known_vram(model_id),
-                    }
-                    for model_id, model_info in models.items()
-                ]
+                all_models = []
                 
-                # Add SDXL Models
+                # 1. Add Manifest Models
+                manifest_models_raw = list(self.manifest_manager.get_models().values())
+                for m_raw in manifest_models_raw:
+                    m = {}
+                    
+                    # 1. Convert to Dict (Safe)
+                    m_data = {}
+                    if hasattr(m_raw, "model_dump"): m_data = m_raw.model_dump()
+                    elif hasattr(m_raw, "dict"): m_data = m_raw.dict()
+                    elif hasattr(m_raw, "__dict__"): m_data = m_raw.__dict__
+                    elif isinstance(m_raw, dict): m_data = m_raw
+                    
+                    # 2. Extract ID (Robust)
+                    mid = m_data.get("id")
+                    if not mid:
+                        mid = m_data.get("model_id")
+                    if not mid and "args" in m_data:
+                        mid = m_data["args"].get("model_id")
+                        
+                    if not mid:
+                         print(f"Warning: Skipping model without ID: {m_data}")
+                         continue
+                         
+                    # 3. Construct Clean Object (Prevents Serialization Errors)
+                    m["id"] = mid
+                    m["name"] = m_data.get("name", mid)
+                    m["description"] = m_data.get("description", "")
+                    m["version"] = m_data.get("version", "1.0.0")
+                    
+                    # 4. Determine Type
+                    mid_lower = mid.lower()
+                    if "moondream" in mid_lower or "florence" in mid_lower or "joycaption" in mid_lower:
+                        m["type"] = "vision"
+                    elif "wd14" in mid_lower or "tagger" in mid_lower or "nsfw" in mid_lower:
+                        m["type"] = "analysis"
+                    elif "sdxl" in mid_lower or "juggernaut" in mid_lower or "animagine" in mid_lower or "dreamshaper" in mid_lower or "flux" in mid_lower or "epicrealism" in mid_lower:
+                        m["type"] = "generation"
+                    else:
+                        m["type"] = "analysis" # Default
+
+                    m["is_downloaded"] = True
+                    m["last_known_vram_mb"] = model_memory_tracker.get_last_known_vram(mid)
+                    
+                    all_models.append(m)
+
+                # 2. Add SDXL Models
                 for model_id, model_info in SDXL_MODELS.items():
-                     model_list.append({
+                     # Check availability
+                     is_downloaded = False
+                     try:
+                         if hasattr(self.sdxl_backend, "is_model_downloaded"):
+                             is_downloaded = self.sdxl_backend.is_model_downloaded(model_info.get("hf_id"))
+                         else:
+                             pass
+                     except Exception as ex:
+                         print(f"Error checking download status for {model_id}: {ex}")
+
+                     all_models.append({
                         "id": model_id,
                         "name": model_info["name"],
                         "description": model_info["description"],
                         "version": "SDXL",
                         "last_known_vram_mb": model_memory_tracker.get_last_known_vram(model_id) or 6000,
-                        "type": "generation"
+                        "type": "generation",
+                        "is_downloaded": is_downloaded
                     })
                 
-                # Add WD14 if missing (Fallback)
-                has_wd14 = any(m["id"] == "wd14-vit-v2" for m in model_list)
+                # 3. WD14 Fallback
+                has_wd14 = any(m["id"] == "wd14-vit-v2" for m in all_models)
                 if not has_wd14:
-                     model_list.append({
+                     all_models.append({
                         "id": "wd14-vit-v2",
                         "name": "WD14 Tagger V2",
                         "description": "Waifu Diffusion 1.4 Tagger for Anime/Illustration analysis.",
                         "version": "v2",
                         "last_known_vram_mb": model_memory_tracker.get_last_known_vram("wd14-vit-v2") or 900,
-                        "type": "analysis" 
+                        "type": "analysis",
+                        "is_downloaded": True
                     })
+
+                return JSONResponse(content={"models": all_models})
 
                 return {
                     "models": model_list
@@ -1133,61 +1239,114 @@ class RestServer:
             if not model_id:
                 raise HTTPException(status_code=400, detail="model is required")
             
-            if model_id not in self.manifest_manager.get_models():
-                raise HTTPException(status_code=404, detail="Model not found")
-                
-            # Unload SDXL if present (Zombie Prevention)
-            if sdxl_backend_new:
-                try:
-                    sdxl_backend_new.unload_backend()
-                    print("[ZombiePrevention] Unloaded SDXL before manual switch")
-                except: pass
+            # Case 1: Manifest Model (Moondream, Florence, etc.)
+            # Robust Lookup: The model_id from frontend might be an 'alias' (args.model_id) 
+            # and not the actual key in manifest_manager. We need to find the correct key.
+            found_key = None
+            if model_id in self.manifest_manager.get_models():
+                found_key = model_id
+            else:
+                # Search values for a match
+                for key, m_raw in self.manifest_manager.get_models().items():
+                    m_data = {}
+                    if hasattr(m_raw, "model_dump"): m_data = m_raw.model_dump()
+                    elif hasattr(m_raw, "dict"): m_data = m_raw.dict()
+                    elif hasattr(m_raw, "__dict__"): m_data = m_raw.__dict__
+                    elif isinstance(m_raw, dict): m_data = m_raw
+                    
+                    # Check all potential ID fields
+                    possible_ids = [
+                        m_data.get("id"),
+                        m_data.get("model_id"),
+                        m_data.get("args", {}).get("model_id")
+                    ]
+                    if model_id in possible_ids:
+                        found_key = key
+                        break
             
-            # Check SDXL map first
-            if model_id in MODEL_MAP:
-                 # It's an SDXL model switch - handling strictly via generate call usually, but we can set context here if needed
-                 # For now, just success as we init lazily on generate
-                 self.config.set("current_model", model_id)
-                 return {"status": "success", "model": model_id, "vram_mb": 0, "ram_mb": 0}
-
-            success = self.inference_service.start(model_id)
-            if success:
-                # Capture previous model BEFORE updating config (Critical for unload logic)
+            if found_key:
+                # Unload SDXL if present (Zombie Prevention)
+                if sdxl_backend_new:
+                    try:
+                        sdxl_backend_new.unload_backend()
+                        print("[ZombiePrevention] Unloaded SDXL before manual switch")
+                    except: pass
+                
+                # Check previous for unloading
                 previous_model = self.config.get("current_model")
                 
-                self.config.set("current_model", model_id)
+                print(f"[Switch] Switching to Manifest Model: {found_key} (Requested: {model_id})")
                 
-                # Unload previous model from tracker
+                if self.inference_service.start(found_key):
+                    self.config.set("current_model", found_key)
+                    
+                    # TRACKER UPDATE
+                    try:
+                        if previous_model and previous_model != found_key:
+                            model_memory_tracker.track_model_unload(previous_model)
+                        
+                        model_info = self.manifest_manager.get_models().get(found_key)
+                        if model_info:
+                            model_memory_tracker.track_model_load(model_id, model_info.name)
+                    except Exception as e:
+                        print(f"Warning: Failed to track model load: {e}")
+                else:
+                    raise HTTPException(status_code=500, detail="Failed to switch model")
+
+            # Case 2: SDXL Model
+            elif model_id in SDXL_MODELS:
+                print(f"[Switch] Switching to SDXL model: {model_id}")
+                
+                # Unload Manifest Model
                 try:
-                    if previous_model and previous_model != model_id:
-                        model_memory_tracker.track_model_unload(previous_model)
-                        print(f"Unloaded previous model from tracker: {previous_model}")
+                    self.inference_service.unload_model()
+                    print("[Switch] Unloaded InferenceService (Manifest Model)")
                 except Exception as e:
-                    print(f"Warning: Failed to unload previous model: {e}")
+                    print(f"Warning unloading inference service: {e}")
                 
-                # Track model load and get stats
-                vram_mb = 0
-                ram_mb = 0
+                # Initialize SDXL
                 try:
-                    model_info = self.manifest_manager.get_models().get(model_id)
-                    if model_info:
-                        model_memory_tracker.track_model_load(model_id, model_info.name)
-                        # Get the stats we just tracked
-                        if model_id in model_memory_tracker.loaded_models:
-                            stats = model_memory_tracker.loaded_models[model_id]
-                            vram_mb = stats.get("vram_mb", 0)
-                            ram_mb = stats.get("ram_mb", 0)
+                    from scripts import backend_fixed
+                    hf_id = SDXL_MODELS[model_id]['hf_id']
+                    
+                    # Unload previous SDXL if different (init_backend handles re-init but good to be clean)
+                    if sdxl_backend_new:
+                        if hasattr(sdxl_backend_new, 'BACKEND') and sdxl_backend_new.BACKEND:
+                             pass
+                    
+                    success = backend_fixed.init_backend(model_id=hf_id)
+                    if not success:
+                         raise HTTPException(status_code=500, detail=f"Failed to initialize SDXL Backend for {model_id}")
+                    
+                    # Track Load
+                    model_memory_tracker.track_model_load(model_id, SDXL_MODELS[model_id]['name'])
+                    self.config.set("current_model", model_id)
+
                 except Exception as e:
-                    print(f"Warning: Failed to track model load: {e}")
-                
-                return {
-                    "status": "success", 
-                    "model": model_id,
-                    "vram_mb": vram_mb,
-                    "ram_mb": ram_mb
-                }
+                    import traceback
+                    traceback.print_exc()
+                    raise HTTPException(status_code=500, detail=f"SDXL Switch Failed: {str(e)}")
+
             else:
-                raise HTTPException(status_code=500, detail="Failed to switch model")
+                 raise HTTPException(status_code=404, detail=f"Model {model_id} not found in Manifest or SDXL list")
+                
+            # Return Stats
+            vram_mb = 0
+            ram_mb = 0
+            try:
+                if model_id in model_memory_tracker.loaded_models:
+                    stats = model_memory_tracker.loaded_models[model_id]
+                    vram_mb = stats.get("vram_mb", 0)
+                    ram_mb = stats.get("ram_mb", 0)
+            except Exception as e:
+                print(f"Warning: Failed to get stats: {e}")
+            
+            return {
+                "status": "success", 
+                "model": model_id,
+                "vram_mb": vram_mb,
+                "ram_mb": ram_mb
+            }
 
         @self.app.post("/v1/chat/completions")
         async def chat_completions(request: Request):
@@ -1887,6 +2046,14 @@ if __name__ == "__main__":
     config = Config()
     manifest_manager = ManifestManager(config)
     
+    # Load Manifest
+    manifest_path = os.path.join(MOONDREAM_PATH, "local_manifest.json")
+    if os.path.exists(manifest_path):
+        manifest_manager.load_manifest(manifest_path)
+        print(f"[System] Loaded manifest from {manifest_path}")
+    else:
+        print(f"[Warning] Manifest not found at {manifest_path}")
+
     server = RestServer(config, manifest_manager)
     print(f"Starting Moondream Station on port {args.port}...")
     if server.start(port=args.port):

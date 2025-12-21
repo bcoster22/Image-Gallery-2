@@ -126,9 +126,10 @@ interface StatusPageProps {
   onPauseQueue?: (paused: boolean) => void;
   onClearQueue?: () => void;
   onRemoveFromQueue?: (ids: string[]) => void;
+  onShowPerformance?: () => void;
 }
 
-export default function StatusPage({ statsHistory, settings, queueStatus, onPauseQueue, onClearQueue, onRemoveFromQueue }: StatusPageProps) {
+export default function StatusPage({ statsHistory, settings, queueStatus, onPauseQueue, onClearQueue, onRemoveFromQueue, onShowPerformance }: StatusPageProps) {
   const [selectedQueueIds, setSelectedQueueIds] = useState<Set<string>>(new Set());
 
   const handleToggleSelect = (id: string) => {
@@ -151,10 +152,13 @@ export default function StatusPage({ statsHistory, settings, queueStatus, onPaus
   const [showSetupInstructions, setShowSetupInstructions] = useState(false);
   const [setupCommand, setSetupCommand] = useState<string>("/home/bcoster/.gemini/antigravity/brain/5d2b2b6e-62df-4aef-9214-aa14de5529d3/setup_gpu_reset.sh");
   const [primeProfile, setPrimeProfile] = useState<string | null>(null);
-  const [availableModels, setAvailableModels] = useState<Array<{ id: string; name: string; description: string; last_known_vram_mb?: number }>>([]);
+  const [availableModels, setAvailableModels] = useState<Array<{ id: string; name: string; description: string; last_known_vram_mb?: number; type?: string }>>([]);
+  const [testResults, setTestResults] = useState<Record<string, { status: 'idle' | 'loading' | 'success' | 'error'; error?: string }>>({});
   const [modelLoadCounts, setModelLoadCounts] = useState<Record<string, number>>({});
   const [modelUnloadCounts, setModelUnloadCounts] = useState<Record<string, number>>({});
   const [lastVramUsed, setLastVramUsed] = useState(0);
+  const [testPrompt, setTestPrompt] = useState('The image features an attractive woman with blonde hair styled in a high ponytail. She is wearing minimal clothing, primarily denim shorts and a necklace. Her pose is suggestive and revealing, emphasizing her breasts. The lighting is controlled, highlighting the subject against a soft, professional studio background.');
+  const [generatedImages, setGeneratedImages] = useState<Array<{ modelId: string; modelName: string; imageData: string }>>([]);
 
   const [currentlyLoadedModels, setCurrentlyLoadedModels] = useState<Set<string>>(new Set());
   const [autoFixTriggered, setAutoFixTriggered] = useState<{ timestamp: number; active: boolean }>({ timestamp: 0, active: false });
@@ -443,16 +447,26 @@ export default function StatusPage({ statsHistory, settings, queueStatus, onPaus
       <div className="max-w-7xl mx-auto space-y-6">
 
         {/* Header */}
-        <div className="flex items-center gap-4">
-          <div className="h-12 w-12 rounded-xl bg-cyan-500/20 text-cyan-400 grid place-items-center">
-            <Activity className="w-6 h-6" />
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="h-12 w-12 rounded-xl bg-cyan-500/20 text-cyan-400 grid place-items-center">
+              <Activity className="w-6 h-6" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-white">System Status</h1>
+              <p className="text-neutral-400">Real-time service health and performance metrics</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-bold text-white">System Status</h1>
-            <p className="text-neutral-400">Real-time service health and performance metrics</p>
-          </div>
+          {onShowPerformance && (
+            <button
+              onClick={onShowPerformance}
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 rounded-lg hover:bg-indigo-600/30 transition-colors"
+            >
+              <ScanEye className="w-4 h-4" />
+              Performance & Benchmarks
+            </button>
+          )}
         </div>
-
         {/* Overall Status Banner */}
         <div className={cn("flex items-center gap-3 rounded-2xl px-6 py-4 border", statusColor(moondreamStatus))}>
           <div className="relative flex h-3 w-3">
@@ -965,112 +979,220 @@ export default function StatusPage({ statsHistory, settings, queueStatus, onPaus
 
                       {/* Models Section */}
                       <div className="space-y-2 pt-2 border-t border-white/10">
+                        {/* Test Prompt Input */}
+                        <div className="mb-3">
+                          <label className="block text-xs font-semibold text-neutral-400 mb-1.5">Models test prompt</label>
+                          <textarea
+                            value={testPrompt}
+                            onChange={(e) => setTestPrompt(e.target.value)}
+                            className="w-full bg-neutral-800/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-blue-500/50 resize-none"
+                            rows={3}
+                            placeholder="Enter a test prompt for generation models..."
+                          />
+                        </div>
+
                         <div className="flex items-center justify-between text-xs text-neutral-400 font-semibold mb-1">
                           <div className="flex items-center gap-2">
                             <span>Available Models ({availableModels.length})</span>
-                            <div className="relative">
-                              <div className="group w-3.5 h-3.5">
-                                <svg
-                                  className="w-3.5 h-3.5 text-neutral-500 hover:text-neutral-300 cursor-help transition-colors"
-                                  fill="none"
-                                  viewBox="0 0 24 24"
-                                  stroke="currentColor"
-                                >
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                                {/* Tooltip */}
-                                <div className="pointer-events-none invisible group-hover:visible absolute left-0 top-full mt-1 w-64 bg-neutral-800 border border-neutral-700 rounded-lg p-3 shadow-xl z-[100] text-[10px] leading-relaxed">
-                                  <div className="font-semibold text-white mb-2">VRAM Tracking</div>
-                                  <div className="space-y-1.5 text-neutral-300">
-                                    <div className="flex items-start gap-2">
-                                      <span className="text-sm">🟢</span>
-                                      <div>
-                                        <span className="text-yellow-400 font-medium">Yellow</span> - Currently loaded (real-time)
-                                      </div>
-                                    </div>
-                                    <div className="flex items-start gap-2">
-                                      <span className="text-sm">⚪</span>
-                                      <div>
-                                        <span className="text-neutral-400 italic font-medium">Gray italic</span> - Unloaded (last known)
-                                      </div>
-                                    </div>
-                                    <div className="flex items-start gap-2">
-                                      <span className="text-sm">⚪</span>
-                                      <div>
-                                        <span className="text-neutral-600 font-medium">Dark gray "—"</span> - Never loaded
-                                      </div>
-                                    </div>
-                                  </div>
-                                  <div className="mt-2 pt-2 border-t border-neutral-700 text-neutral-400">
-                                    Hover over VRAM to see RAM usage
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
+
                           </div>
 
-                          {/* Test Button - Modern 2025 Style */}
+                          {/* Test Button - Enhanced with Detailed Reporting */}
                           <button
                             onClick={async (e) => {
                               const button = e.currentTarget;
                               const originalText = button.innerHTML;
 
+                              // Reset previous results
+                              setTestResults({});
+                              setGeneratedImages([]); // Clear previous images
+
                               try {
                                 button.disabled = true;
-                                button.innerHTML = '<span class="flex items-center gap-1.5"><svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Loading...</span>';
+                                button.innerHTML = '<span class="flex items-center gap-1.5"><svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Initializing...</span>';
 
                                 console.log('[Test] Starting model load cycle...');
+                                let successCount = 0;
+                                let failCount = 0;
+                                let skippedCount = 0;
+
+                                // VRAM threshold based on settings
+                                const vramSetting = settings?.performance?.vramUsage || 'balanced';
+                                const vramThresholds = {
+                                  low: 60,      // Stop at 60% VRAM usage
+                                  balanced: 75, // Stop at 75% VRAM usage
+                                  high: 90      // Stop at 90% VRAM usage
+                                };
+                                const maxVramPct = vramThresholds[vramSetting];
+                                console.log(`[Test] VRAM limit: ${maxVramPct}% (${vramSetting} mode)`);
 
                                 for (let i = 0; i < availableModels.length; i++) {
                                   const model = availableModels[i];
+
+                                  // Check VRAM before loading next model
+                                  if (i > 0 && otelMetrics?.gpus?.[0]) {
+                                    const gpu = otelMetrics.gpus[0];
+                                    const vramUsedPct = (gpu.memory_used / gpu.memory_total) * 100;
+
+                                    if (vramUsedPct >= maxVramPct) {
+                                      console.log(`[Test] VRAM limit reached (${vramUsedPct.toFixed(1)}% >= ${maxVramPct}%). Stopping test.`);
+                                      skippedCount = availableModels.length - i;
+                                      break;
+                                    }
+                                  }
+
                                   try {
                                     console.log(`[Test] [${i + 1}/${availableModels.length}] Loading ${model.id}...`);
                                     button.innerHTML = `<span class="flex items-center gap-1.5"><svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>${i + 1}/${availableModels.length}</span>`;
 
-                                    const res = await fetch(`${moondreamUrl}/v1/models/switch`, {
-                                      method: 'POST',
-                                      headers: { 'Content-Type': 'application/json' },
-                                      body: JSON.stringify({ model: model.id })
-                                    });
 
-                                    if (res.ok) {
-                                      const data = await res.json();
-                                      console.log(`[Test] ✓ Loaded ${model.id}:`, data);
+                                    setTestResults(prev => ({
+                                      ...prev,
+                                      [model.id]: { status: 'loading' }
+                                    }));
 
-                                      // Backend now returns VRAM/RAM usage in the response!
-                                      // Update local state immediately without waiting for metrics
-                                      if (data.vram_mb !== undefined) {
+                                    // Different testing strategy based on model type
+                                    let testSuccess = false;
+                                    let vramMb: number | undefined;
+
+                                    if (model.type === 'generation') {
+                                      // For generation models: Test with actual image generation
+                                      console.log(`[Test] Testing generation model ${model.id} with prompt...`);
+                                      try {
+                                        const genRes = await fetch(`${moondreamUrl}/v1/generate`, {
+                                          method: 'POST',
+                                          headers: {
+                                            'Content-Type': 'application/json',
+                                            'X-Model-ID': model.id // Specify which model to use
+                                          },
+                                          body: JSON.stringify({
+                                            prompt: testPrompt,
+                                            width: 512,
+                                            height: 512,
+                                            steps: 4 // Quick test
+                                          })
+                                        });
+
+                                        if (genRes.ok) {
+                                          const genData = await genRes.json();
+                                          console.log(`[Test] ✓ Generation successful for ${model.id}`);
+                                          testSuccess = true;
+
+                                          // Store the generated image
+                                          if (genData.image || genData.images?.[0]) {
+                                            const imageData = genData.image || genData.images[0];
+                                            setGeneratedImages(prev => [...prev, {
+                                              modelId: model.id,
+                                              modelName: model.name,
+                                              imageData: imageData.startsWith('data:') ? imageData : `data:image/png;base64,${imageData}`
+                                            }]);
+                                          }
+
+                                          // Try to get VRAM from subsequent switch call
+                                          const switchRes = await fetch(`${moondreamUrl}/v1/models/switch`, {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ model: model.id })
+                                          });
+                                          if (switchRes.ok) {
+                                            const switchData = await switchRes.json();
+                                            vramMb = switchData.vram_mb;
+                                          }
+                                        } else {
+                                          const errorText = await genRes.text();
+                                          throw new Error(`Generation failed: ${errorText}`);
+                                        }
+                                      } catch (genError: any) {
+                                        console.error(`[Test] ✗ Generation failed for ${model.id}:`, genError.message);
+                                        throw genError;
+                                      }
+                                    } else {
+                                      // For vision/analysis models: Just switch to them
+                                      const res = await fetch(`${moondreamUrl}/v1/models/switch`, {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ model: model.id })
+                                      });
+
+                                      if (res.ok) {
+                                        const data = await res.json();
+                                        console.log(`[Test] ✓ Loaded ${model.id}:`, data);
+                                        testSuccess = true;
+                                        vramMb = data.vram_mb;
+                                      } else {
+                                        const errorText = await res.text();
+                                        let cleanError = errorText;
+                                        try {
+                                          const jsonErr = JSON.parse(errorText);
+                                          if (jsonErr.detail) cleanError = jsonErr.detail;
+                                        } catch { }
+                                        throw new Error(cleanError);
+                                      }
+                                    }
+
+                                    if (testSuccess) {
+                                      successCount++;
+
+                                      setTestResults(prev => ({
+                                        ...prev,
+                                        [model.id]: { status: 'success' }
+                                      }));
+
+                                      if (vramMb !== undefined) {
                                         setModelLoadCounts(prev => ({
                                           ...prev,
                                           [model.id]: (prev[model.id] || 0) + 1
                                         }));
 
-                                        // Update the available models list with new last_known_vram
                                         setAvailableModels(prev => prev.map(m =>
                                           m.id === model.id
-                                            ? { ...m, last_known_vram_mb: data.vram_mb }
+                                            ? { ...m, last_known_vram_mb: vramMb }
                                             : m
                                         ));
-
-                                        // Update the display text for this specific button run
-                                        // (Optional: could show the measured VRAM momentarily)
-                                        console.log(`[Test] Measured VRAM: ${data.vram_mb}MB`);
                                       }
 
-                                      // Short delay just to separate the requests visually
-                                      await new Promise(resolve => setTimeout(resolve, 2000));
-                                    } else {
-                                      const error = await res.text();
-                                      console.error(`[Test] ✗ Failed to load ${model.id}:`, error);
+                                      // VRAM Management: Decide whether to unload
+                                      if (vramSetting === 'low') {
+                                        // Low VRAM: Unload each model immediately after testing
+                                        console.log(`[Test] Low VRAM mode: Unloading ${model.id}`);
+                                        await fetch(`${moondreamUrl}/v1/system/unload`, { method: 'POST' });
+                                        setModelUnloadCounts(prev => ({
+                                          ...prev,
+                                          [model.id]: (prev[model.id] || 0) + 1
+                                        }));
+                                        await new Promise(resolve => setTimeout(resolve, 500));
+                                      } else if (vramSetting === 'balanced' && i < availableModels.length - 1) {
+                                        // Balanced: Unload if we have more models to test (keep last one)
+                                        console.log(`[Test] Balanced mode: Unloading ${model.id} to prepare for next`);
+                                        await fetch(`${moondreamUrl}/v1/system/unload`, { method: 'POST' });
+                                        setModelUnloadCounts(prev => ({
+                                          ...prev,
+                                          [model.id]: (prev[model.id] || 0) + 1
+                                        }));
+                                        await new Promise(resolve => setTimeout(resolve, 500));
+                                      } else {
+                                        // High VRAM: Keep models loaded (no unload)
+                                        console.log(`[Test] High VRAM mode: Keeping ${model.id} loaded`);
+                                        await new Promise(resolve => setTimeout(resolve, 1000));
+                                      }
                                     }
                                   } catch (e) {
                                     console.error(`[Test] ✗ Error loading ${model.id}:`, e);
+                                    failCount++;
+                                    const errMsg = e instanceof Error ? e.message : String(e);
+                                    setTestResults(prev => ({
+                                      ...prev,
+                                      [model.id]: { status: 'error', error: errMsg }
+                                    }));
                                   }
                                 }
 
-                                console.log('[Test] ✓ Cycle complete! Check the models list for VRAM values.');
-                                button.innerHTML = '<span class="flex items-center gap-1.5"><svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>Done!</span>';
-                                await new Promise(resolve => setTimeout(resolve, 2000));
+                                console.log('[Test] ✓ Cycle complete!');
+                                alert(`Test Load Complete\n------------------\nSuccess: ${successCount}\nFailed: ${failCount}\n\nVRAM Mode: ${vramSetting}\n${vramSetting === 'low' ? 'All models unloaded after test' : vramSetting === 'balanced' ? 'Last model kept loaded' : 'All models kept in memory'}\n\nCheck the table for details.`);
+
+                                button.innerHTML = '<span class="flex items-center gap-1.5"><svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>Complete</span>';
+                                await new Promise(resolve => setTimeout(resolve, 3000));
+
                               } catch (e) {
                                 console.error('[Test] Fatal error:', e);
                                 button.innerHTML = '<span class="flex items-center gap-1.5">Error</span>';
@@ -1091,13 +1213,15 @@ export default function StatusPage({ statsHistory, settings, queueStatus, onPaus
                           </button>
                         </div>
 
-                        {/* Table Header */}
-                        <div className="grid grid-cols-[20px_1fr_65px_50px_65px] gap-2 text-[9px] text-neutral-500 uppercase tracking-wide pb-0.5 border-b border-white/5">
+                        {/* Table Header with New Columns */}
+                        <div className="grid grid-cols-[20px_1fr_75px_65px_40px_40px_1fr] gap-2 text-[9px] text-neutral-500 uppercase tracking-wide pb-0.5 border-b border-white/5">
                           <div className="text-center">●</div>
                           <div>Model</div>
+                          <div>Type</div>
                           <div className="text-right">VRAM</div>
-                          <div className="text-right">Loads</div>
-                          <div className="text-right">Unloads</div>
+                          <div className="text-right">Lds</div>
+                          <div className="text-right">Unld</div>
+                          <div className="text-left">Status/Error</div>
                         </div>
 
                         {/* Models List - Loaded first, then unloaded */}
@@ -1121,6 +1245,7 @@ export default function StatusPage({ statsHistory, settings, queueStatus, onPaus
                               const isLoaded = currentlyLoadedModels.has(model.id);
                               const loadCount = modelLoadCounts[model.id] || 0;
                               const unloadCount = modelUnloadCounts[model.id] || 0;
+                              const testRes = testResults[model.id];
 
                               // Get real VRAM/RAM usage from backend
                               const loadedModel = otelMetrics?.loaded_models?.find(m => m.id === model.id);
@@ -1138,10 +1263,16 @@ export default function StatusPage({ statsHistory, settings, queueStatus, onPaus
                                 isHistorical = true;
                               }
 
+                              // Type Badge Style
+                              let typeColor = "text-neutral-500";
+                              if (model.type === 'vision') typeColor = "text-violet-400";
+                              else if (model.type === 'generation') typeColor = "text-blue-400";
+                              else if (model.type === 'analysis') typeColor = "text-amber-400";
+
                               return (
                                 <div
                                   key={model.id}
-                                  className="grid grid-cols-[20px_1fr_65px_50px_65px] gap-2 text-xs items-center py-0.5 hover:bg-white/5 rounded transition-colors"
+                                  className="grid grid-cols-[20px_1fr_75px_65px_40px_40px_1fr] gap-2 text-xs items-center py-0.5 hover:bg-white/5 rounded transition-colors"
                                 >
                                   {/* Loaded Indicator */}
                                   <div className="text-center text-sm leading-none">
@@ -1155,12 +1286,15 @@ export default function StatusPage({ statsHistory, settings, queueStatus, onPaus
                                     </div>
                                   </div>
 
+                                  {/* Type */}
+                                  <div className={`text-[9px] uppercase font-bold tracking-wider ${typeColor}`}>
+                                    {model.type || 'UNK'}
+                                  </div>
+
                                   {/* VRAM Usage */}
                                   <div
-                                    className={`text-right text-[9px] tabular-nums ${isLoaded
-                                      ? 'text-yellow-400'
-                                      : isHistorical
-                                        ? 'text-neutral-500 italic'
+                                    className={`text-right text-[9px] tabular-nums ${vramUsage !== '—'
+                                        ? 'text-white font-medium'
                                         : 'text-neutral-600'
                                       }`}
                                     title={
@@ -1183,10 +1317,49 @@ export default function StatusPage({ statsHistory, settings, queueStatus, onPaus
                                   <div className={`text-right text-[10px] tabular-nums ${unloadCount > 0 ? 'text-blue-400 font-semibold' : 'text-neutral-600'}`}>
                                     {unloadCount}
                                   </div>
+
+                                  {/* Status / Error */}
+                                  <div className="text-[10px] min-w-0 truncate">
+                                    {testRes?.status === 'loading' && <span className="text-yellow-400 font-medium">Loading</span>}
+                                    {testRes?.status === 'success' && (
+                                      isLoaded
+                                        ? <span className="text-green-400 font-medium">Loaded</span>
+                                        : <span className="text-neutral-500">Unloaded</span>
+                                    )}
+                                    {testRes?.status === 'error' && <span className="text-red-400 font-medium" title={testRes.error}>{testRes.error || 'Error'}</span>}
+                                    {!testRes && (
+                                      isLoaded
+                                        ? <span className="text-green-400 font-medium">Loaded</span>
+                                        : <span className="text-neutral-500">—</span>
+                                    )}
+                                  </div>
                                 </div>
                               );
                             })}
                         </div>
+
+                        {/* Generated Images Display */}
+                        {generatedImages.length > 0 && (
+                          <div className="mt-4 pt-4 border-t border-white/10">
+                            <div className="text-xs font-semibold text-neutral-400 mb-3">
+                              Generated Test Images ({generatedImages.length})
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                              {generatedImages.map((img, idx) => (
+                                <div key={idx} className="relative group">
+                                  <img
+                                    src={img.imageData}
+                                    alt={`Generated by ${img.modelName}`}
+                                    className="w-full h-auto rounded-lg border border-white/10 hover:border-blue-500/50 transition-all"
+                                  />
+                                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2 rounded-b-lg">
+                                    <div className="text-[10px] text-white font-medium truncate">{img.modelName}</div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                     </div>

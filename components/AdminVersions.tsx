@@ -25,6 +25,7 @@ const TRACKED_PACKAGES = [
 export const AdminVersions: React.FC = () => {
     const [packages, setPackages] = useState<PackageInfo[]>([]);
     const [lastChecked, setLastChecked] = useState<Date | null>(null);
+    const [isUpdating, setIsUpdating] = useState(false);
 
     const fetchVersions = async () => {
         const deps = { ...packageJson.dependencies, ...packageJson.devDependencies } as Record<string, string>;
@@ -70,6 +71,35 @@ export const AdminVersions: React.FC = () => {
 
     const outdatedPackages = packages.filter(p => p.status === 'outdated');
 
+
+    const handleUpdatePackages = async () => {
+        if (outdatedPackages.length === 0) return;
+
+        setIsUpdating(true);
+        try {
+            const packageNames = outdatedPackages.map(p => p.name);
+            const response = await fetch('http://localhost:2020/v1/system/update-packages', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ packages: packageNames })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                alert(`Success: ${data.message || 'Packages updated.'}`);
+                // Refresh versions
+                fetchVersions();
+            } else {
+                throw new Error(data.message || 'Update failed');
+            }
+        } catch (error: any) {
+            console.error('Update failed:', error);
+            alert(`Update Error: ${error.message}`);
+        } finally {
+            setIsUpdating(false);
+        }
+    };
 
     const copyUpdateCommand = () => {
         const packagesToUpdate = outdatedPackages.map(p => `${p.name}@latest`).join(' ');
@@ -155,12 +185,16 @@ export const AdminVersions: React.FC = () => {
                     <div className="flex gap-2">
                         {outdatedPackages.length > 0 && (
                             <button
-                                onClick={copyUpdateCommand}
-                                className="flex items-center gap-2 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-white text-sm font-medium transition-colors animate-pulse"
-                                title="Copy npm install command"
+                                onClick={handleUpdatePackages}
+                                disabled={isUpdating}
+                                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-white text-sm font-medium transition-colors ${isUpdating
+                                        ? 'bg-indigo-400 cursor-not-allowed'
+                                        : 'bg-indigo-600 hover:bg-indigo-700 animate-pulse'
+                                    }`}
+                                title="Update packages on server"
                             >
-                                <RefreshCw className="w-4 h-4" />
-                                Update {outdatedPackages.length} Packages
+                                <RefreshCw className={`w-4 h-4 ${isUpdating ? 'animate-spin' : ''}`} />
+                                {isUpdating ? 'Updating...' : `Update ${outdatedPackages.length} Packages`}
                             </button>
                         )}
                         <button
@@ -233,7 +267,7 @@ export const AdminVersions: React.FC = () => {
                         <div>
                             <h4 className="text-sm font-semibold text-indigo-300">Updates Required</h4>
                             <p className="text-xs text-gray-400 mt-1 mb-2">
-                                Use the "Update Packages" button above to copy the install command, then run it in your server terminal.
+                                Click the button above to auto-update, or run this command manually:
                             </p>
                             <code className="block bg-black/30 p-2 rounded text-xs font-mono text-gray-300 break-all select-all">
                                 npm install {outdatedPackages.map(p => `${p.name}@latest`).join(' ')}

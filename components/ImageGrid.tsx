@@ -445,6 +445,8 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, analyzingId
     setSelectionBox({ startX: x, startY: y, currentX: x, currentY: y });
   };
 
+  const rafRef = useRef<number | null>(null);
+
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!isDragging.current || !containerRef.current || !onSelectionChange) return;
 
@@ -452,40 +454,53 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, analyzingId
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    setSelectionBox(prev => prev ? { ...prev, currentX: x, currentY: y } : null);
-
-    // Simple box accumulation logic if strictly needed, but might be tricky with Virtualization.
-    // For now, let's keep the box UI but the selection logic might need to be "select visible currently"
-    const boxLeft = Math.min(dragStartPos.current.x, x);
-    const boxTop = Math.min(dragStartPos.current.y, y);
-    const boxRight = Math.max(dragStartPos.current.x, x);
-    const boxBottom = Math.max(dragStartPos.current.y, y);
-
-    // We stick to DOM query since react-window renders visible items.
-    const items = containerRef.current.querySelectorAll('[data-id]');
-    const idsInBox = new Set<string>();
-
-    items.forEach(item => {
-      const itemRect = item.getBoundingClientRect();
-      const containerRect = containerRef.current!.getBoundingClientRect();
-
-      const itemLeft = itemRect.left - containerRect.left;
-      const itemTop = itemRect.top - containerRect.top;
-      const itemRight = itemLeft + itemRect.width;
-      const itemBottom = itemTop + itemRect.height;
-
-      if (boxLeft < itemRight && boxRight > itemLeft && boxTop < itemBottom && boxBottom > itemTop) {
-        const id = item.getAttribute('data-id');
-        if (id) idsInBox.add(id);
-      }
+    // Direct UI update (checking state ensures we don't spam if unchanged)
+    setSelectionBox(prev => {
+      if (!prev) return null;
+      if (prev.currentX === x && prev.currentY === y) return prev;
+      return { ...prev, currentX: x, currentY: y };
     });
 
-    onSelectionChange(idsInBox);
+    if (rafRef.current) return; // Skip if already pending
+
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+
+      const boxLeft = Math.min(dragStartPos.current.x, x);
+      const boxTop = Math.min(dragStartPos.current.y, y);
+      const boxRight = Math.max(dragStartPos.current.x, x);
+      const boxBottom = Math.max(dragStartPos.current.y, y);
+
+      const items = containerRef.current!.querySelectorAll('[data-id]');
+      const idsInBox = new Set<string>();
+
+      // This query and loop is still O(N) but only runs ~60fps max now
+      items.forEach(item => {
+        const itemRect = item.getBoundingClientRect();
+        const containerRect = containerRef.current!.getBoundingClientRect();
+
+        const itemLeft = itemRect.left - containerRect.left;
+        const itemTop = itemRect.top - containerRect.top;
+        const itemRight = itemLeft + itemRect.width;
+        const itemBottom = itemTop + itemRect.height;
+
+        if (boxLeft < itemRight && boxRight > itemLeft && boxTop < itemBottom && boxBottom > itemTop) {
+          const id = item.getAttribute('data-id');
+          if (id) idsInBox.add(id);
+        }
+      });
+
+      onSelectionChange(idsInBox);
+    });
   };
 
   const handleMouseUp = () => {
     isDragging.current = false;
     setSelectionBox(null);
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
   };
 
   React.useEffect(() => {
@@ -493,6 +508,10 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, analyzingId
       if (isDragging.current) {
         isDragging.current = false;
         setSelectionBox(null);
+        if (rafRef.current) {
+          cancelAnimationFrame(rafRef.current);
+          rafRef.current = null;
+        }
       }
     };
     window.addEventListener('mouseup', handleGlobalMouseUp);

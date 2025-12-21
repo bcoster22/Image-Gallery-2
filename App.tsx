@@ -33,6 +33,7 @@ import UserProfilePage from './components/UserProfilePage';
 import NavigationBenchmark from './components/NavigationBenchmark';
 import LogViewer from './components/LogViewer';
 import DuplicatesPage from './components/DuplicatesPage';
+import PerformanceOverview from './components/PerformanceOverview';
 
 const SETTINGS_STORAGE_KEY = 'ai_gallery_settings_v2'; // Updated key for new structure
 const OLD_SETTINGS_STORAGE_KEY = 'ai_gallery_settings'; // Old key for migration
@@ -275,6 +276,7 @@ const App: React.FC = () => {
 
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [showHealthDashboard, setShowHealthDashboard] = useState(false);
+  const [showPerformanceOverview, setShowPerformanceOverview] = useState(false);
   const [statsHistory, setStatsHistory] = useState<any[]>(() => {
     const saved = localStorage.getItem('moondream_stats');
     return saved ? JSON.parse(saved) : [];
@@ -2381,7 +2383,12 @@ const App: React.FC = () => {
                 />
               )}
 
-              {galleryView === 'status' ? (
+              {showPerformanceOverview ? (
+                <PerformanceOverview
+                  settings={settings}
+                  onBack={() => setShowPerformanceOverview(false)}
+                />
+              ) : galleryView === 'status' ? (
                 <StatusPage
                   statsHistory={statsHistory}
                   settings={settings}
@@ -2389,6 +2396,7 @@ const App: React.FC = () => {
                   onPauseQueue={handlePauseQueue}
                   onClearQueue={handleClearQueue}
                   onRemoveFromQueue={handleRemoveFromQueue}
+                  onShowPerformance={() => setShowPerformanceOverview(true)}
                 />
               ) : galleryView === 'profile-settings' && currentUser ? (
                 <UserProfilePage

@@ -55,16 +55,75 @@ class SDXLBackend:
             }
             
             # Check if we have a local checkpoint file
+            # Robust Finder: Look recursively for the file
             checkpoint_file = model_checkpoint_map.get(self.model_id)
             checkpoint_path = None
             
+            # Roots to search
+            # 1. checkpoints_dir: Flat files
+            # 2. sdxl_models_dir: Custom SDXL structures
+            # 3. self._models_dir/models: Standard HF cache (models--Author--Name)
+            sdxl_models_dir = os.path.join(self._models_dir, "sdxl-models")
+            hf_cache_dir = os.path.join(self._models_dir, "models") 
+            
+            search_roots = [checkpoints_dir, sdxl_models_dir, hf_cache_dir]
+            self.logger.info(f"Searching for model assets in: {search_roots}")
+
             if checkpoint_file:
-                potential_path = os.path.join(checkpoints_dir, checkpoint_file)
-                if os.path.exists(potential_path):
-                    checkpoint_path = potential_path
-                    self.logger.info(f"Using local checkpoint: {checkpoint_path}")
+                # STRATEGY A: Find specific .safetensors file (single file load)
+                # 1. Direct check
+                p1 = os.path.join(checkpoints_dir, checkpoint_file)
+                if os.path.exists(p1):
+                    checkpoint_path = p1
                 else:
-                    self.logger.warning(f"Checkpoint not found: {potential_path}")
+                    # Recursive walk for exact filename match
+                    for root_dir in search_roots:
+                        if not os.path.exists(root_dir): continue
+                        for root, dirs, files in os.walk(root_dir):
+                            if checkpoint_file in files:
+                                checkpoint_path = os.path.join(root, checkpoint_file)
+                                break
+                        if checkpoint_path: break
+            
+            # STRATEGY B: Fuzzy match for 'diffusion_pytorch_model.safetensors' inside a relevant folder
+            if not checkpoint_path:
+                model_name_parts = self.model_id.lower().split("/")
+                author = model_name_parts[0] if len(model_name_parts) > 1 else ""
+                name = model_name_parts[-1]
+                
+                # We look for a folder that contains both Author and Name, or just Name
+                # And inside that folder, we look for 'unet/diffusion_pytorch_model.safetensors' (diffusers format)
+                # OR just 'diffusion_pytorch_model.safetensors' (single weight, rare for directories)
+                
+                for root_dir in search_roots:
+                    if not os.path.exists(root_dir): continue
+                    for root, dirs, files in os.walk(root_dir):
+                        # Optimization: Skip 'blobs' directory in cache
+                        if "blobs" in root: continue
+                        
+                        lower_root = root.lower()
+                        # Check if this folder looks like our model
+                        # e.g. models--Lykon--dreamshaper-xl-lightning
+                        if name in lower_root: 
+                            # If author exists, require it too (loosely)
+                            if author and author not in lower_root:
+                                continue
+                                
+                            # Found a matching directory, now look for weights
+                            # Preference 1: Single file weights (if any, usually 'model.safetensors' in root or similar)
+                            # Preference 2: Diffusers directory structure (we found the root, so we rely on from_pretrained finding the index)
+                            
+                            # If we see 'model_index.json', we found a Diffusers root!
+                            if "model_index.json" in files:
+                                checkpoint_path = root
+                                self.logger.info(f"Found Diffusers model root at: {checkpoint_path}")
+                                break
+                    if checkpoint_path: break
+
+            if checkpoint_path:
+                self.logger.info(f"Resolved model path: {checkpoint_path}")
+            else:
+                self.logger.warning(f"Could not find local file/folder for {self.model_id}. Will attempt download/cache load.")
             
             # Load from single checkpoint file if available
             if checkpoint_path:
@@ -536,3 +595,48 @@ def unload_backend():
         if BACKEND.img2img_pipeline:
             del BACKEND.img2img_pipeline
         BACKEND = None
+
+def is_model_downloaded(model_id):
+    """
+    Check if a model is downloaded locally.
+    Reuses the robust logic from SDXLBackend.initialize but returns boolean.
+    """
+    models_dir = os.environ.get("MOONDREAM_MODELS_DIR", os.path.expanduser("~/.moondream-station/models"))
+    checkpoints_dir = os.path.join(models_dir, "sdxl-checkpoints")
+    sdxl_models_dir = os.path.join(models_dir, "sdxl-models")
+    
+    # Map HuggingFace model IDs to local checkpoint files (Need to keep this in sync with SDXLBackend)
+    model_checkpoint_map = {
+        "RunDiffusion/Juggernaut-XL-Lightning": "juggernaut-xl-lightning.safetensors",
+        "SG161222/RealVisXL_V5.0": "realvisxl-v5.safetensors",
+        "cyberdelia/CyberRealisticXL": "cyberrealistic-xl-v80.safetensors",
+        "cyberdelia/CyberRealisticPony": "cyberrealistic-pony.safetensors",
+        "Lykon/dreamshaper-xl-1-0": "dreamshaper-xl.safetensors",
+        "dataautogpt3/ProteusV0.4": "proteus-xl.safetensors",
+        "cagliostrolab/animagine-xl-3.1": "animagine-xl.safetensors",
+        "imagepipeline/NightVisionXL": "nightvision-xl.safetensors",
+        "stablediffusionapi/epicrealism-xl-v5": "epicrealism-xl-purefix.safetensors",
+        "stablediffusionapi/epicella-xl": "epicella-xl.safetensors",
+    }
+
+    checkpoint_file = model_checkpoint_map.get(model_id)
+    if not checkpoint_file:
+        return False
+        
+    # 1. Direct check
+    if os.path.exists(os.path.join(checkpoints_dir, checkpoint_file)):
+        return True
+        
+    # 2. Recursive check
+    search_roots = [checkpoints_dir, sdxl_models_dir]
+    for root_dir in search_roots:
+        if not os.path.exists(root_dir): continue
+        for root, dirs, files in os.walk(root_dir):
+            if checkpoint_file in files:
+                return True
+            if "diffusion_pytorch_model.safetensors" in files:
+                # Check parent folder match
+                 if any(part.lower() in root.lower() for part in model_id.split("/")):
+                    return True
+    
+    return False
