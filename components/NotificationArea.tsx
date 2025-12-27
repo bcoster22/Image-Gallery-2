@@ -1,8 +1,12 @@
-
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Notification } from '../types';
-import { CheckCircleIcon, XCircleIcon, CloseIcon, SparklesIcon } from './icons';
+import { CheckCircleIcon, XCircleIcon, XMarkIcon as CloseIcon, SparklesIcon } from '@heroicons/react/24/outline';
 import Spinner from './Spinner';
+import {
+  NOTIFICATION_DURATION_ERROR_MS,
+  NOTIFICATION_DURATION_DEFAULT_MS,
+  NOTIFICATION_EXIT_ANIMATION_MS
+} from '../constants/timings';
 
 interface NotificationItemProps {
   notification: Notification;
@@ -12,32 +16,43 @@ interface NotificationItemProps {
 const NotificationItem: React.FC<NotificationItemProps> = ({ notification, onDismiss }) => {
   const [isExiting, setIsExiting] = useState(false);
 
+  // Refs for proper timer cleanup
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const exitTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   useEffect(() => {
     // Auto-dismiss all notifications, but give errors more time to be read
-    const duration = notification.status === 'error' ? 10000 : 5000;
+    const duration = notification.status === 'error'
+      ? NOTIFICATION_DURATION_ERROR_MS
+      : NOTIFICATION_DURATION_DEFAULT_MS;
 
-    const timer = setTimeout(() => {
+    timerRef.current = setTimeout(() => {
       setIsExiting(true);
-      setTimeout(() => onDismiss(notification.id), 300);
+      exitTimerRef.current = setTimeout(() => onDismiss(notification.id), NOTIFICATION_EXIT_ANIMATION_MS);
     }, duration);
 
-    return () => clearTimeout(timer);
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      if (exitTimerRef.current) clearTimeout(exitTimerRef.current);
+    };
   }, [notification.id, notification.status, onDismiss]);
 
   const handleDismiss = () => {
     setIsExiting(true);
-    setTimeout(() => onDismiss(notification.id), 300);
+    setTimeout(() => onDismiss(notification.id), NOTIFICATION_EXIT_ANIMATION_MS);
   };
 
   const isSuccess = notification.status === 'success';
   const isProcessing = notification.status === 'processing';
   const isInfo = notification.status === 'info';
+  const isWarning = notification.status === 'warning';
   const isError = notification.status === 'error';
 
   const getBorderColor = () => {
     if (isProcessing) return 'border-blue-500';
     if (isSuccess) return 'border-green-500';
     if (isInfo) return 'border-indigo-500';
+    if (isWarning) return 'border-yellow-500';
     if (isError) return 'border-red-500';
     return 'border-gray-500';
   };
@@ -46,6 +61,7 @@ const NotificationItem: React.FC<NotificationItemProps> = ({ notification, onDis
     if (isProcessing) return <Spinner className="h-6 w-6 text-blue-400" />;
     if (isSuccess) return <CheckCircleIcon className="h-6 w-6 text-green-500" />;
     if (isInfo) return <SparklesIcon className="h-6 w-6 text-indigo-400" />;
+    if (isWarning) return <SparklesIcon className="h-6 w-6 text-yellow-500" />; // Fallback icon or Import ExclamationIcon if available
     return <XCircleIcon className="h-6 w-6 text-red-500" />;
   };
 
@@ -53,6 +69,7 @@ const NotificationItem: React.FC<NotificationItemProps> = ({ notification, onDis
     if (isProcessing) return 'Processing';
     if (isSuccess) return 'Success';
     if (isInfo) return 'Info';
+    if (isWarning) return 'Warning';
     return 'Error';
   }
 
@@ -60,6 +77,7 @@ const NotificationItem: React.FC<NotificationItemProps> = ({ notification, onDis
     if (isProcessing) return 'text-blue-200';
     if (isSuccess) return 'text-green-200';
     if (isInfo) return 'text-indigo-200';
+    if (isWarning) return 'text-yellow-200';
     return 'text-red-200';
   }
 

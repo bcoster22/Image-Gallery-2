@@ -1,5 +1,7 @@
 import React from 'react';
-import { CloseIcon, GoogleIcon, GithubIcon } from './icons';
+import Modal from './Modal';
+import { XMarkIcon as CloseIcon } from '@heroicons/react/24/outline';
+import { GoogleIcon, GithubIcon } from './BrandIcons';
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -11,24 +13,23 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin }) => 
   if (!isOpen) return null;
 
   return (
-    <div 
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
-      onClick={onClose}
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      maxWidth="max-w-sm"
+      showCloseButton={false}
     >
-      <div 
-        className="bg-gray-800 rounded-lg shadow-xl w-full max-w-sm m-4 p-6 border border-gray-700 relative animate-fade-in text-center"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="text-center relative">
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors"
+          className="absolute -top-2 -right-2 text-gray-400 hover:text-white transition-colors"
         >
           <CloseIcon className="w-6 h-6" />
         </button>
 
         <h2 className="text-2xl font-bold text-white mb-2">Welcome Back</h2>
         <p className="text-gray-400 mb-6">Sign in to manage your gallery and generate images.</p>
-        
+
         <div className="space-y-4">
           <button
             onClick={() => onLogin('google')}
@@ -49,16 +50,7 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin }) => 
           This is a demonstration. Clicking a provider will sign you in with a mock user account.
         </p>
       </div>
-      <style>{`
-          @keyframes fade-in {
-            from { opacity: 0; transform: scale(0.95); }
-            to { opacity: 1; transform: scale(1); }
-          }
-          .animate-fade-in {
-            animation: fade-in 0.2s ease-out forwards;
-          }
-      `}</style>
-    </div>
+    </Modal>
   );
 };
 

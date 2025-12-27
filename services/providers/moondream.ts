@@ -312,6 +312,40 @@ export class MoondreamLocalProvider extends BaseProvider {
     return !!settings.providers.moondream_local.endpoint;
   }
 
+  async getModels(settings: AdminSettings): Promise<{ id: string; name: string }[]> {
+    const providerConfig = settings?.providers?.moondream_local || {};
+    const { endpoint } = providerConfig as any;
+    let usedEndpoint = endpoint || 'http://127.0.0.1:2020/v1';
+    if (usedEndpoint.includes('localhost')) usedEndpoint = usedEndpoint.replace('localhost', '127.0.0.1');
+    const baseUrl = normalizeEndpoint(usedEndpoint);
+
+    try {
+      const response = await fetch(`${baseUrl}/v1/models`);
+      if (!response.ok) throw new Error("Failed to fetch models");
+      const data = await response.json();
+
+      // Standard OpenAI format: { data: [{ id: '...', ... }] }
+      // Or local backend format: { models: [...] }
+      const modelsList = data.data || data.models;
+      if (modelsList && Array.isArray(modelsList)) {
+        return modelsList.map((m: any) => ({
+          id: m.id,
+          name: m.name || m.id
+        }));
+      }
+      return [];
+    } catch (e) {
+      console.warn("[MoondreamLocal] Failed to list models:", e);
+      // Fallback to static list if offline or old backend
+      return [
+        { id: 'sdxl-realism', name: 'SDXL Realism (Lightning)' },
+        { id: 'sdxl-anime', name: 'SDXL Anime (Pony)' },
+        { id: 'sdxl-surreal', name: 'SDXL Surreal (DreamShaper)' },
+        { id: 'moondream-2', name: 'Moondream 2 (Vision)' }
+      ];
+    }
+  }
+
   // ... (testConnection remains same)
 
   async captionImage(image: ImageInfo, settings: AdminSettings): Promise<string> {
@@ -685,7 +719,7 @@ export class MoondreamLocalProvider extends BaseProvider {
     const cleanBaseUrl = baseUrl.replace(/\/v1\/?$/, '');
 
     if (capability === 'vision') {
-      const apiUrl = `${baseUrl}/v1/chat/completions`;
+      const apiUrl = `${cleanBaseUrl}/v1/chat/completions`;
       const body = {
         model: "moondream-2", // Always test vision with a vision model
         messages: [{ role: "user", content: [{ type: "text", text: "test" }, { type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=" } }] }],
@@ -707,6 +741,40 @@ export class MoondreamLocalProvider extends BaseProvider {
         body: JSON.stringify(body)
       });
       if (!response.ok) throw new Error("Generation test failed");
+    } else if (capability === 'captioning') {
+      // Captioning test: Simple describe request
+      const apiUrl = `${cleanBaseUrl}/v1/chat/completions`;
+      const body = {
+        model: "moondream-2",
+        messages: [{ role: "user", content: [{ type: "text", text: "Describe this" }, { type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=" } }] }],
+        max_tokens: 10
+      };
+      await callMoondreamApi(apiUrl, "", body, false);
+
+    } else if (capability === 'tagging') {
+      // Tagging test: Check configured tagging model type
+      const taggingModel = (providerConfig as any).taggingModel || "";
+      const isWd14 = taggingModel.includes('wd14') || taggingModel.includes('tagger') || taggingModel.includes('vit');
+
+      if (isWd14) {
+        // Test WD14 classification endpoint
+        const apiUrl = `${cleanBaseUrl}/v1/classify`;
+        const body = {
+          model: taggingModel || "wd14-vit-v2",
+          image_url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        };
+        // Use standard call but expect it might be a classifier response
+        await callMoondreamApi(apiUrl, "", body, false);
+      } else {
+        // Fallback to chat completion for generic tagging
+        const apiUrl = `${cleanBaseUrl}/v1/chat/completions`;
+        const body = {
+          model: "moondream-2",
+          messages: [{ role: "user", content: [{ type: "text", text: "Tags for this" }, { type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=" } }] }],
+          max_tokens: 10
+        };
+        await callMoondreamApi(apiUrl, "", body, false);
+      }
     } else {
       throw new Error("Capability not supported for testing");
     }

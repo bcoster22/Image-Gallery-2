@@ -128,3 +128,22 @@ This document provides a comprehensive overview of the **Image Gallery 2** proje
 *   **"Silent Failures"**: Historically, some buttons didn't provide feedback on auth failure. We are actively moving to explicit `addNotification` calls (e.g., in `App.tsx` generation handlers).
 *   **Routing**: It's not a true Router (like React Router). Use `setActiveView` in `App.tsx` to navigate.
 *   **Selection Mode**: The `SelectionActionBar` only appears when `selectionMode` is true. `Ctrl+Click` on an image usually toggles this.
+
+---
+
+## 8. Standard Components & Libraries
+
+### `components/Modal.tsx`
+*   **Role**: The standard, accessible modal wrapper for the application.
+*   **Library**: Built on `@headlessui/react`.
+*   **Usage**: Wraps content in a standard Dialog. Supports `maxWidth`, `title`, and custom styling via `panelClassName`.
+*   **Refactoring Rule**: Always use this component instead of creating custom `div` overlays or `z-50` layers.
+
+### Icons
+*   **Library**: `@heroicons/react`.
+*   **Usage**: Import directly from `@heroicons/react/24/outline` (or `24/solid`).
+*   **Refactoring Rule**: Do not use inline SVGs or legacy `d="..."` paths. If a custom brand icon is needed, place it in `components/BrandIcons.tsx`.
+
+### `presetManager.ts`
+*   **Role**: Manages generation presets (Generation vs Upscale).
+*   **Usage**: Use `loadPresets()`, `createPreset()`, etc. Note: `createPreset` uses strict structural typing (`cfg_scale` vs `targetMegapixels`) to differentiate preset types.

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CloseIcon, SparklesIcon, DownloadIcon } from './icons';
+import { XMarkIcon as CloseIcon, SparklesIcon, ArrowDownTrayIcon as DownloadIcon } from '@heroicons/react/24/outline';
 import Spinner from './Spinner';
 
 interface GeneratedImageViewerProps {
@@ -83,50 +83,50 @@ const GeneratedImageViewer: React.FC<GeneratedImageViewerProps> = ({
             />
           )}
         </main>
-        
+
         {prompt && (
-            <footer className="p-4 border-t border-gray-700 bg-gray-800/50 flex justify-between items-center flex-wrap gap-4">
-                <div className='flex-grow'>
-                    <h4 className="text-xs font-semibold uppercase text-gray-400 mb-2">
-                    Prompt Used {aspectRatio && `(Aspect Ratio: ${aspectRatio})`}
-                    </h4>
-                    <p className="text-sm text-gray-300 max-h-20 overflow-y-auto pr-4">{prompt}</p>
-                </div>
-                {generatedImage && !isLoading && (
-                    <div className="flex items-center space-x-3 ml-auto flex-shrink-0">
-                        {isLoggedIn && (
-                             <div className="flex items-center mr-2">
-                                <input
-                                    type="checkbox"
-                                    id="share-publicly"
-                                    checked={isPublic}
-                                    onChange={(e) => setIsPublic(e.target.checked)}
-                                    className="h-4 w-4 rounded border-gray-500 bg-gray-700 text-indigo-600 focus:ring-indigo-500"
-                                />
-                                <label htmlFor="share-publicly" className="ml-2 text-sm text-gray-300">
-                                    Share Publicly
-                                </label>
-                            </div>
-                        )}
-                        <button
-                            onClick={handleDownload}
-                            className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-300 flex items-center"
-                            title="Download Image"
-                        >
-                            <DownloadIcon className="w-5 h-5 mr-2"/>
-                            Download
-                        </button>
-                        {isLoggedIn && (
-                            <button
-                                onClick={() => onSave(generatedImage, isPublic)}
-                                className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-300"
-                            >
-                                Save to Gallery
-                            </button>
-                        )}
-                    </div>
+          <footer className="p-4 border-t border-gray-700 bg-gray-800/50 flex justify-between items-center flex-wrap gap-4">
+            <div className='flex-grow'>
+              <h4 className="text-xs font-semibold uppercase text-gray-400 mb-2">
+                Prompt Used {aspectRatio && `(Aspect Ratio: ${aspectRatio})`}
+              </h4>
+              <p className="text-sm text-gray-300 max-h-20 overflow-y-auto pr-4">{prompt}</p>
+            </div>
+            {generatedImage && !isLoading && (
+              <div className="flex items-center space-x-3 ml-auto flex-shrink-0">
+                {isLoggedIn && (
+                  <div className="flex items-center mr-2">
+                    <input
+                      type="checkbox"
+                      id="share-publicly"
+                      checked={isPublic}
+                      onChange={(e) => setIsPublic(e.target.checked)}
+                      className="h-4 w-4 rounded border-gray-500 bg-gray-700 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <label htmlFor="share-publicly" className="ml-2 text-sm text-gray-300">
+                      Share Publicly
+                    </label>
+                  </div>
                 )}
-            </footer>
+                <button
+                  onClick={handleDownload}
+                  className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-300 flex items-center"
+                  title="Download Image"
+                >
+                  <DownloadIcon className="w-5 h-5 mr-2" />
+                  Download
+                </button>
+                {isLoggedIn && (
+                  <button
+                    onClick={() => onSave(generatedImage, isPublic)}
+                    className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-300"
+                  >
+                    Save to Gallery
+                  </button>
+                )}
+              </div>
+            )}
+          </footer>
         )}
       </div>
       <style>{`

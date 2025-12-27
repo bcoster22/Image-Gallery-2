@@ -65,3 +65,13 @@ npx vite
   pkill -f "python3.*moondream"
   pkill -f "uvicorn"
   ```
+
+## 4. Configure Auto Fix (Optional)
+
+To enable the "Auto Fix" feature in System Diagnostics (which can automatically resolve GPU persistence issues):
+
+1. Go to **System Diagnostics** in the web UI.
+2. Click **Setup Auto Fix**.
+3. Enter your sudo password in the secure prompt.
+   - This runs a one-time setup to allow the backend to execute specific repair scripts without a password in the future.
+   - *Security Note*: Your password is only used for this setup and is not stored.

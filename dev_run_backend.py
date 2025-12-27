@@ -68,9 +68,12 @@ def main():
             signal.signal(signal.SIGINT, signal_handler)
             signal.signal(signal.SIGTERM, signal_handler)
             
-            # Keep alive
+            # Keep alive and monitor server status
             while True:
                 time.sleep(1)
+                if not server.is_running():
+                    logger.error("Server thread stopped unexpectedly. Exiting...")
+                    sys.exit(1)
         else:
             logger.error("Failed to start server")
             sys.exit(1)

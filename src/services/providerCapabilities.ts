@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { AiProvider, Capability, ProviderCapabilities } from "../types";
-import { SparklesIcon, VideoCameraIcon, WandIcon, SearchIcon } from '../../components/icons';
+import { SparklesIcon, VideoCameraIcon, SparklesIcon as WandIcon, MagnifyingGlassIcon as SearchIcon } from '@heroicons/react/24/outline';
 
 export const providerCapabilities: Record<AiProvider, ProviderCapabilities> = {
   gemini: {

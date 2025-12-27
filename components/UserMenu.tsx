@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { User } from '../types';
-import { UserIcon, LogoutIcon, ShieldCheckIcon } from './icons';
+import { UserIcon, ArrowRightOnRectangleIcon as LogoutIcon, ShieldCheckIcon } from '@heroicons/react/24/outline';
 
 interface UserMenuProps {
   user: User;

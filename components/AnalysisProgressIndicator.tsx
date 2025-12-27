@@ -1,6 +1,6 @@
 import React from 'react';
 import { AnalysisProgress } from '../types';
-import { SparklesIcon } from './icons';
+import { SparklesIcon } from '@heroicons/react/24/outline';
 
 interface AnalysisProgressIndicatorProps {
   progress: AnalysisProgress | null;

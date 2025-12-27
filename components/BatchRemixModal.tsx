@@ -1,6 +1,7 @@
 
 import React, { useState } from 'react';
-import { CloseIcon, WandIcon } from './icons';
+import Modal from './Modal';
+import { XMarkIcon as CloseIcon, SparklesIcon as WandIcon } from '@heroicons/react/24/outline';
 
 interface BatchRemixModalProps {
     isOpen: boolean;
@@ -24,17 +25,16 @@ const BatchRemixModal: React.FC<BatchRemixModalProps> = ({ isOpen, onClose, onCo
     };
     //...
     return (
-        <div
-            className="fixed inset-0 z-[130] flex items-center justify-center bg-black/80 backdrop-blur-sm"
-            onClick={onClose}
+        <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            maxWidth="max-w-md"
+            showCloseButton={false}
         >
-            <div
-                className="bg-gray-800 rounded-lg shadow-xl w-full max-w-md m-4 border border-gray-700 relative animate-fade-in p-6"
-                onClick={(e) => e.stopPropagation()}
-            >
+            <div className="relative p-2">
                 <button
                     onClick={onClose}
-                    className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors"
+                    className="absolute -top-4 -right-4 text-gray-400 hover:text-white transition-colors"
                 >
                     <CloseIcon className="w-6 h-6" />
                 </button>
@@ -110,16 +110,7 @@ const BatchRemixModal: React.FC<BatchRemixModalProps> = ({ isOpen, onClose, onCo
                     </div>
                 </form>
             </div >
-            <style>{`
-                  @keyframes fade-in {
-                    from { opacity: 0; transform: scale(0.95); }
-                    to { opacity: 1; transform: scale(1); }
-                  }
-                  .animate-fade-in {
-                    animation: fade-in 0.2s ease-out forwards;
-                  }
-              `}</style>
-        </div >
+        </Modal>
     );
 };
 

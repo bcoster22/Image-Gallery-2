@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { User, AdminSettings, ImageInfo } from '../types';
 import { Upload, Sliders, Image as ImageIcon, Camera, RefreshCw, Check, X, Move, Layout, Film } from 'lucide-react';
-import { ViewfinderIcon } from './icons';
+import { ViewfinderCircleIcon as ViewfinderIcon } from '@heroicons/react/24/outline';
 import { fileToDataUrl } from '../utils/fileUtils';
 import { generateImageFromPrompt } from '../services/aiService';
 

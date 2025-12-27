@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { AdminSettings, PromptStrategy, PromptStep, AiProvider } from '../types';
-import { PlusIcon, TrashIcon, CheckCircleIcon, XCircleIcon, EditIcon, SaveIcon, ArrowUpIcon, ArrowDownIcon, SearchIcon, GripVerticalIcon, ChevronLeftIcon } from './icons';
+import { PlusIcon, TrashIcon, CheckCircleIcon, XCircleIcon, PencilSquareIcon as EditIcon, ArrowUpIcon, ArrowDownIcon, MagnifyingGlassIcon as SearchIcon, Bars3Icon as GripVerticalIcon, ChevronLeftIcon } from '@heroicons/react/24/outline';
 import { providerCapabilities, capabilityDetails } from '../services/providerCapabilities';
 import {
     DndContext,

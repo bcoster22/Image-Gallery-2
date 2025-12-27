@@ -2,7 +2,7 @@
 import React, { useRef } from 'react';
 import { ImageInfo } from '../types';
 import Spinner from './Spinner';
-import { WarningIcon, PlayIcon, CheckCircleIcon, VideoCameraIcon, HeartIcon, ChatBubbleIcon, MoreOptionsIcon } from './icons';
+import { ExclamationTriangleIcon as WarningIcon, PlayIcon, CheckCircleIcon, VideoCameraIcon, HeartIcon, ChatBubbleLeftIcon as ChatBubbleIcon, EllipsisVerticalIcon as MoreOptionsIcon } from '@heroicons/react/24/outline';
 
 interface ImageGridProps {
   images: ImageInfo[];

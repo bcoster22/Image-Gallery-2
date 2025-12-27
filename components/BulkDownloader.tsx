@@ -4,16 +4,17 @@ import { saveAs } from 'file-saver';
 import { Loader2, XCircle, CheckCircle } from 'lucide-react';
 import { ImageInfo } from '../types';
 import { dataUrlToBlob } from '../utils/fileUtils';
-import { DownloadIcon } from './icons';
+import { ArrowDownTrayIcon as DownloadIcon } from '@heroicons/react/24/outline';
 
 interface BulkDownloaderProps {
     selectedImages: ImageInfo[];
     onSuccess?: () => void;
     className?: string; // To match toolbar styling
     triggerDownload?: boolean; // External trigger for drag-to-desktop
+    showIconOnly?: boolean;
 }
 
-const BulkDownloader: React.FC<BulkDownloaderProps> = ({ selectedImages = [], onSuccess, className, triggerDownload }) => {
+const BulkDownloader: React.FC<BulkDownloaderProps> = ({ selectedImages = [], onSuccess, className, triggerDownload, showIconOnly }) => {
     const [status, setStatus] = useState<'idle' | 'downloading' | 'success' | 'error' | 'cancelled'>('idle');
     const [progress, setProgress] = useState({ current: 0, total: 0 });
     const [logs, setLogs] = useState<string[]>([]);
@@ -236,7 +237,7 @@ const BulkDownloader: React.FC<BulkDownloaderProps> = ({ selectedImages = [], on
                 title="Download Selected"
             >
                 <DownloadIcon className="w-4 h-4" />
-                <span className="hidden sm:inline">Download</span>
+                {!showIconOnly && <span className="hidden sm:inline">Download</span>}
             </button>
         );
     }

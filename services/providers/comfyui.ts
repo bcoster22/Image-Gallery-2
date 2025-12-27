@@ -70,7 +70,9 @@ export class ComfyUIProvider extends BaseProvider {
     generation: true,
     animation: false,
     editing: false,
-    textGeneration: false
+    textGeneration: false,
+    captioning: false,
+    tagging: false
   };
 
   validateConfig(settings: AdminSettings): boolean {

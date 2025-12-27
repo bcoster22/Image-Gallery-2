@@ -55,6 +55,17 @@ export const isAnyProviderConfiguredFor = (
     return providers.some(p => isProviderConfiguredFor(settings, capability, p.id));
 };
 
+export const getProviderModels = async (
+    providerId: AiProvider,
+    settings: AdminSettings
+): Promise<{ id: string; name: string }[]> => {
+    const provider = registry.getProvider(providerId);
+    if (provider && provider.getModels) {
+        return await provider.getModels(settings);
+    }
+    return [];
+};
+
 export const testProviderConnection = async (
     providerId: AiProvider,
     settings: AdminSettings

@@ -1,4 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { MainLayout } from './components/layout/MainLayout';
+import { NavBar } from './components/layout/NavBar';
 // FIX: Added AppSettings to import for settings migration.
 import { ImageInfo, AdminSettings, User, GenerationTask, Notification, AspectRatio, GalleryView, AiProvider, UploadProgress, AppSettings, AnalysisProgress, QueueStatus, ActiveJob, GenerationResult, GenerationSettings, UpscaleSettings, QueueItem } from './types';
 import { analyzeImage, animateImage, editImage, generateImageFromPrompt, adaptPromptToTheme, FallbackChainError, detectSubject, testProviderConnection } from './services/aiService';
@@ -9,7 +11,8 @@ import { DEFAULT_NEGATIVE_PROMPTS } from './constants/prompts';
 import ImageGrid from './components/ImageGrid';
 import ImageViewer from './components/ImageViewer';
 import UploadArea from './components/UploadArea';
-import AdminSettingsPage from './components/AdminSettingsPage';
+import { getFriendlyErrorMessage } from './utils/errorUtils';
+import { AdminSettingsPage } from './components/AdminSettingsPage';
 import LoginModal from './components/LoginModal';
 import UserMenu from './components/UserMenu';
 import BottomNav from './components/BottomNav';
@@ -17,12 +20,18 @@ import NotificationArea from './components/NotificationArea';
 import VeoKeySelectionModal from './components/VeoKeySelectionModal';
 import CreationsPage from './components/CreationsPage';
 import IdleSlideshow from './components/IdleSlideshow';
-import { SearchIcon, SettingsIcon, CloseIcon, WarningIcon, PlayIcon, StopIcon } from './components/icons';
+import { Search as SearchIcon, Settings as SettingsIcon, X as CloseIcon, AlertTriangle as WarningIcon, Play as PlayIcon, Square as StopIcon, Activity } from 'lucide-react';
 import PromptHistoryPage from './components/PromptHistoryPage';
 import SelectionActionBar from './components/SelectionActionBar';
-import { Activity } from 'lucide-react';
+
 import ConfirmationModal from './components/ConfirmationModal';
-import PromptSubmissionModal, { PromptModalConfig } from './components/PromptSubmissionModal';
+import { useSelection } from './hooks/useSelection';
+import { useGalleryData } from './hooks/useGalleryData';
+import { useGenerationQueue } from './hooks/useGenerationQueue';
+import { useImageActions } from './hooks/useImageActions';
+import { useBatchOperations } from './hooks/useBatchOperations';
+import PromptSubmissionModal from './components/PromptSubmissionModal';
+import { PromptModalConfig } from './components/PromptModal/types';
 import BatchRemixModal from './components/BatchRemixModal';
 import Spinner from './components/Spinner';
 import StatusPage from './components/StatusPage';
@@ -34,6 +43,8 @@ import NavigationBenchmark from './components/NavigationBenchmark';
 import LogViewer from './components/LogViewer';
 import DuplicatesPage from './components/DuplicatesPage';
 import PerformanceOverview from './components/PerformanceOverview';
+import DiagnosticsPage from './components/Diagnostics';
+import { useLogWatcher } from './hooks/useLogWatcher';
 
 const SETTINGS_STORAGE_KEY = 'ai_gallery_settings_v2'; // Updated key for new structure
 const OLD_SETTINGS_STORAGE_KEY = 'ai_gallery_settings'; // Old key for migration
@@ -221,22 +232,7 @@ const NoSettingsPrompt: React.FC<{ onSettingsClick: () => void }> = ({ onSetting
   </div>
 );
 
-const getFriendlyErrorMessage = (error: any): string => {
-  const message = (typeof error === 'object' && error !== null && 'message' in error) ? String(error.message) : 'An unknown error occurred.';
-  const lowerCaseMessage = message.toLowerCase();
 
-  if (lowerCaseMessage.includes('api key') || lowerCaseMessage.includes('401') || lowerCaseMessage.includes('403') || lowerCaseMessage.includes('requested entity was not found')) {
-    return 'API Key Invalid or Missing. Please check your settings and ensure the key is correct and has the necessary permissions.';
-  }
-  if (lowerCaseMessage.includes('quota') || lowerCaseMessage.includes('rate limit') || lowerCaseMessage.includes('resource_exhausted') || lowerCaseMessage.includes('429')) {
-    return 'Rate Limit or Quota Exceeded. The AI provider\'s limit has been reached. Please wait or check your plan details.';
-  }
-  if (lowerCaseMessage.includes('safety')) {
-    const reason = message.split(/safety|:|due to/i).pop()?.trim().replace(/\.$/, '') || 'Unknown';
-    return `Content Policy Violation. The request was blocked for safety reasons (${reason}).`;
-  }
-  return message; // Return original message if no specific pattern is matched
-};
 
 
 const App: React.FC = () => {
@@ -268,13 +264,21 @@ const App: React.FC = () => {
   const [slideshowNeedsSlowdown, setSlideshowNeedsSlowdown] = useState(false);
   const [triggerBulkDownload, setTriggerBulkDownload] = useState(false);
   const idleTimerRef = useRef<number | null>(null);
-  const [promptHistory, setPromptHistory] = useState<string[]>([]);
+  const [promptHistory, setPromptHistory] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(PROMPTS_STORAGE_KEY);
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      console.error("Failed to load prompt history", e);
+      return [];
+    }
+  });
   // Use object array for IDB items, but simplistic array for UI props usually?
   // We'll map to strings for UI where needed, or update UI to accept objects.
   // For now, let's keep simplistic state:
   const [negativePromptHistory, setNegativePromptHistory] = useState<NegativePrompt[]>([]);
 
-  const [isSelectionMode, setIsSelectionMode] = useState(false);
+
   const [showHealthDashboard, setShowHealthDashboard] = useState(false);
   const [showPerformanceOverview, setShowPerformanceOverview] = useState(false);
   const [statsHistory, setStatsHistory] = useState<any[]>(() => {
@@ -285,9 +289,16 @@ const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('moondream_stats', JSON.stringify(statsHistory));
   }, [statsHistory]);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [isBatchRemixModalOpen, setIsBatchRemixModalOpen] = useState(false);
+  const {
+    selectedIds,
+    isSelectionMode,
+    toggleSelectionMode,
+    toggleSelection,
+    selectAll,
+    clearSelection,
+    setSelection: setSelectedIds
+  } = useSelection();
+
   const [activeTags, setActiveTags] = useState<Set<string>>(new Set());
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
   const [analysisProgress, setAnalysisProgress] = useState<AnalysisProgress | null>(null);
@@ -312,6 +323,31 @@ const App: React.FC = () => {
   const updateNotification = useCallback((id: string, updates: Partial<Omit<Notification, 'id'>>) => {
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, ...updates } : n));
   }, []);
+
+  // --- Log Watcher for System Events ---
+  useLogWatcher(addNotification);
+
+  // --- Image Actions Hook ---
+  const {
+    isDeleteModalOpen,
+    setIsDeleteModalOpen,
+    handleDeleteSelected,
+    handleConfirmDelete,
+    handleCancelDelete,
+    handleToggleImagePublicStatus,
+    handleBatchMakePublic,
+    handleBatchMakePrivate
+  } = useImageActions({
+    images,
+    setImages,
+    selectedIds,
+    setSelectedIds,
+    currentUser,
+    addNotification,
+    toggleSelectionMode,
+    setSelectedImage,
+    setSimilarImages
+  });
 
   // Adaptive Concurrency State
   const queueRef = useRef<QueueItem[]>([]);
@@ -1193,7 +1229,10 @@ const App: React.FC = () => {
     if (safePrompt) addPromptToHistory(safePrompt);
 
     const dataUrl = base64Image.startsWith('data:') ? base64Image : `data:image/png;base64,${base64Image}`;
-    saveImageToGallery(dataUrl, false, safePrompt, 'generated', currentUser?.autoSaveToGallery, metadata);
+    // User Update: Prefer session-based autoSave setting (metadata.autoSaveToGallery) over user profile default
+    // Default fallback to optional chaining if undefined.
+    const shouldSaveToGallery = metadata?.autoSaveToGallery ?? currentUser?.autoSaveToGallery;
+    saveImageToGallery(dataUrl, false, safePrompt, 'generated', shouldSaveToGallery, metadata);
   }, [addPromptToHistory, saveImageToGallery, currentUser]);
 
   const handleRegenerateCaption = useCallback(async (imageId: string) => {
@@ -1420,7 +1459,8 @@ const App: React.FC = () => {
     taskType: 'image' | 'enhance',
     aspectRatio: AspectRatio,
     providerOverride?: AiProvider,
-    generationSettings?: GenerationSettings | UpscaleSettings
+    generationSettings?: GenerationSettings | UpscaleSettings,
+    autoSaveToGallery?: boolean
   ) => {
     if (!currentUser) {
       addNotification({ status: 'error', message: 'Please sign in to generate images.' });
@@ -1512,8 +1552,8 @@ const App: React.FC = () => {
   }, [settings, currentUser, addNotification, addPromptToHistory, handleSaveGeneratedImage, handleSaveEnhancedImage]);
 
   const handleSelectAll = () => {
-    const allIds = new Set(filteredImages.map(img => img.id));
-    setSelectedIds(allIds);
+    const allIds = filteredImages.map(img => img.id);
+    selectAll(allIds);
   };
 
   const handleVeoRetry = async () => {
@@ -1538,266 +1578,30 @@ const App: React.FC = () => {
     });
   };
 
-  const handleToggleImagePublicStatus = (imageId: string) => {
-    // Find the image from the master list to determine its new status
-    const originalImage = images.find(img => img.id === imageId);
-    if (!originalImage) {
-      console.warn(`Could not find image with id ${imageId} to toggle public status.`);
-      return;
-    };
 
-    const updatedImage = { ...originalImage, isPublic: !originalImage.isPublic };
-
-    // Save the change to the database
-    saveImage(updatedImage).catch(e => console.error(`Failed to update public status for ${imageId} in DB`, e));
-
-    // Update all relevant state variables to ensure the UI updates instantly
-    setImages(prev => prev.map(img => (img.id === imageId ? updatedImage : img)));
-    setSelectedImage(prev => (prev && prev.id === imageId ? updatedImage : prev));
-    setSimilarImages(prev => prev.map(img => (img.id === imageId ? updatedImage : img)));
-  };
-
-  const toggleSelectionMode = () => {
-    setIsSelectionMode(prev => {
-      const newMode = !prev;
-      if (newMode) {
-        // Explicitly disable slideshow when entering selection mode to prevent overlay issues
-        setIsSlideshowActive(false);
-        if (idleTimerRef.current) {
-          clearTimeout(idleTimerRef.current);
-        }
-      }
-      return newMode;
-    });
-    setSelectedIds(new Set()); // Always clear selection when toggling mode
-  };
-
-  const handleToggleSelection = (imageId: string) => {
-    setSelectedIds(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(imageId)) {
-        newSet.delete(imageId);
-      } else {
-        newSet.add(imageId);
-      }
-      return newSet;
-    });
-  };
-
-  const handleDeleteSelected = () => {
-    if (selectedIds.size === 0) return;
-
-    const ownedIds = Array.from(selectedIds).filter(id => {
-      const img = images.find(i => i.id === id);
-      return img && img.ownerId === currentUser?.id;
-    });
-
-    if (ownedIds.length === 0) {
-      addNotification({ status: 'error', message: "You can only delete images you own." });
-      return;
-    }
-
-    if (ownedIds.length < selectedIds.size) {
-      // We are only deleting a subset
-      setSelectedIds(new Set(ownedIds));
-    }
-
-    setIsDeleteModalOpen(true);
-  };
-
-  const handleBatchMakePublic = () => {
-    const ids = Array.from(selectedIds);
-    const ownedIds = ids.filter(id => {
-      const img = images.find(i => i.id === id);
-      return img && img.ownerId === currentUser?.id;
-    });
-
-    if (ownedIds.length === 0) {
-      addNotification({ status: 'error', message: "You can only change visibility of images you own." });
-      return;
-    }
-
-    const updatedImages = images.map(img => {
-      if (ownedIds.includes(img.id)) {
-        return { ...img, isPublic: true };
-      }
-      return img;
-    });
-
-    setImages(updatedImages);
-    // Batch save logic ideal, but iterative for now
-    ownedIds.forEach(id => {
-      const img = updatedImages.find(i => i.id === id);
-      if (img) saveImage(img);
-    });
-
-    addNotification({ status: 'success', message: `${ownedIds.length} images made public.` });
-    setIsSelectionMode(false);
-    setSelectedIds(new Set());
-  };
-
-  const handleBatchMakePrivate = () => {
-    const ids = Array.from(selectedIds);
-    const ownedIds = ids.filter(id => {
-      const img = images.find(i => i.id === id);
-      return img && img.ownerId === currentUser?.id;
-    });
-
-    if (ownedIds.length === 0) {
-      addNotification({ status: 'error', message: "You can only change visibility of images you own." });
-      return;
-    }
-
-    const updatedImages = images.map(img => {
-      if (ownedIds.includes(img.id)) {
-        return { ...img, isPublic: false };
-      }
-      return img;
-    });
-
-    setImages(updatedImages);
-    ownedIds.forEach(id => {
-      const img = updatedImages.find(i => i.id === id);
-      if (img) saveImage(img);
-    });
-
-    addNotification({ status: 'success', message: `${ownedIds.length} images made private.` });
-    setIsSelectionMode(false);
-    setSelectedIds(new Set());
-  };
-
-  const handleBatchRegenerate = () => {
-    const ids = Array.from(selectedIds);
-    if (ids.length === 0) return;
-
-    addNotification({ status: 'success', message: `Starting caption regeneration for ${ids.length} images...` });
-    setIsSelectionMode(false);
-    setSelectedIds(new Set());
-
-    ids.forEach(id => {
-      handleRegenerateCaption(id);
-    });
-  };
-
-  const handleBatchRemixClick = () => {
-    if (selectedIds.size === 0) return;
-    setIsBatchRemixModalOpen(true);
-  };
-  // ...
-
-
-  const handleConfirmBatchRemix = (theme: string) => {
-    if (!settings || !currentUser) return;
-    setIsBatchRemixModalOpen(false);
-
-    const ids = Array.from(selectedIds);
-    const imagesToRemix = images.filter(img => ids.includes(img.id));
-
-    if (imagesToRemix.length === 0) return;
-
-    addNotification({ status: 'success', message: `Starting remix for ${imagesToRemix.length} images...` });
-    setIsSelectionMode(false);
-    setSelectedIds(new Set());
-
-    // Iterate and launch tasks
-    imagesToRemix.forEach(sourceImage => {
-      const taskId = self.crypto.randomUUID();
-      const newTask: GenerationTask = {
-        id: taskId,
-        type: 'image',
-        status: 'processing',
-        sourceImageId: sourceImage.id,
-        sourceImageName: sourceImage.fileName,
-        prompt: `Remix: ${theme}`,
-      };
-      setGenerationTasks(prev => [...prev, newTask]);
-
-      (async () => {
-        try {
-          let prompt = sourceImage.recreationPrompt;
-
-          if (!prompt) {
-            addNotification({ id: `${taskId}-analyze`, status: 'processing', message: `Analyzing ${sourceImage.fileName} for remix...` });
-            const analysis = await analyzeImage(sourceImage, settings);
-
-            if (analysis.stats) {
-              const newStat = {
-                timestamp: Date.now(),
-                tokensPerSec: analysis.stats.tokensPerSec,
-                device: analysis.stats.device
-              };
-              setStatsHistory(prev => [...prev, newStat]);
-            }
-
-            prompt = analysis.recreationPrompt;
-
-            // Save analysis result
-            const updatedImage = { ...sourceImage, ...analysis, analysisFailed: false };
-            setImages(prev => prev.map(img => img.id === sourceImage.id ? updatedImage : img));
-            saveImage(updatedImage);
-          }
-
-          // Step 1: Adapt prompt
-          const adaptedPrompt = await adaptPromptToTheme(prompt!, theme, settings);
-
-          // Step 2: Generate Image
-          const aspectRatio = sourceImage.aspectRatio ? getClosestSupportedAspectRatio(sourceImage.aspectRatio) : '1:1';
-          const result = await generateImageFromPrompt(adaptedPrompt, settings, aspectRatio);
-
-          if (!result || !result.image) throw new Error("Generation returned no image data");
-
-          // Step 3: Save
-          await handleSaveGeneratedImage(result.image, adaptedPrompt, { ...result.metadata, source: 'remix', originalId: sourceImage.id });
-
-          setGenerationTasks(prev => prev.filter(t => t.id !== taskId));
-        } catch (error: any) {
-          console.error(`Remix task failed for ${sourceImage.fileName}:`, error);
-          const friendlyMessage = getFriendlyErrorMessage(error);
-          setGenerationTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: 'failed', error: friendlyMessage } : t));
-          addNotification({ status: 'error', message: `Remix for "${sourceImage.fileName}" failed.` });
-        }
-      })();
-    });
-  };
-
-  const handleConfirmDelete = () => {
-    const idsToDelete = Array.from(selectedIds);
-    setImages(prev => {
-      const imagesToDeleteSet = new Set(idsToDelete);
-      // Revoke any existing blob URLs to prevent memory leaks
-      prev.forEach(img => {
-        if (imagesToDeleteSet.has(img.id) && img.videoUrl) {
-          URL.revokeObjectURL(img.videoUrl);
-        }
-      });
-      return prev.filter(img => !imagesToDeleteSet.has(img.id));
-    });
-
-    deleteImages(idsToDelete as string[]).catch(e => {
-      console.error("Failed to delete images from DB", e);
-      addNotification({ status: 'error', message: 'Failed to delete some items.' });
-    });
-
-
-    setIsDeleteModalOpen(false);
-    setIsSelectionMode(false);
-    setSelectedIds(new Set());
-  };
-
-  const handleCancelDelete = () => {
-    setIsDeleteModalOpen(false);
-  };
 
   const handleGridItemClick = (image: ImageInfo, event: React.MouseEvent) => {
     if (isSelectionMode || event.ctrlKey || event.metaKey) {
       if (!isSelectionMode && (event.ctrlKey || event.metaKey)) {
-        setIsSelectionMode(true);
+        toggleSelectionMode(true);
       }
-      handleToggleSelection(image.id);
+      toggleSelection(image.id);
     } else {
       handleImageSelect(image);
     }
   };
+
+
+
+
+
+
+
+
+
+
+
+
 
   const handleToggleTag = useCallback((tag: string) => {
     setActiveTags(prev => {
@@ -1994,7 +1798,7 @@ const App: React.FC = () => {
 
     if (pendingIds.length === 0) {
       addNotification({ status: 'info', message: "All selected images already have Smart Crop." });
-      setIsSelectionMode(false);
+      toggleSelectionMode(false);
       setSelectedIds(new Set());
       return;
     }
@@ -2009,7 +1813,7 @@ const App: React.FC = () => {
       }
     }
 
-    setIsSelectionMode(false);
+    toggleSelectionMode(false);
     setSelectedIds(new Set());
   };
 
@@ -2097,7 +1901,7 @@ const App: React.FC = () => {
   useEffect(() => {
     // Automatically exit selection mode if the user logs out.
     if (isSelectionMode && !currentUser) {
-      setIsSelectionMode(false);
+      toggleSelectionMode(false);
       setSelectedIds(new Set());
     }
   }, [currentUser, isSelectionMode]);
@@ -2183,278 +1987,179 @@ const App: React.FC = () => {
     setSelectedIds(newSelectedIds);
   };
 
+  const {
+    isBatchRemixModalOpen,
+    setIsBatchRemixModalOpen,
+    handleBatchRegenerate,
+    handleBatchRemixClick,
+    handleConfirmBatchRemix,
+    handleBatchEnhance,
+    handleBatchAnimate
+  } = useBatchOperations({
+    images,
+    setImages,
+    selectedIds,
+    setSelectedIds,
+    toggleSelectionMode,
+    addNotification,
+    handleRegenerateCaption, // defined at ~1220 calling processQueue
+    settings,
+    currentUser,
+    setGenerationTasks,
+    setStatsHistory,
+    handleSaveGeneratedImage, // defined at ~1199
+    handleGenerationSubmit,
+    handleStartAnimation
+  });
+
+  const handleOpenEnhanceStudio = useCallback(() => {
+    if (selectedIds.size === 0) return;
+
+    // Batch Logic
+    const selectedImagesList = images.filter(img => selectedIds.has(img.id));
+    if (selectedImagesList.length === 0) return;
+
+    // First image is still the "primary" context for initial load
+    const firstImage = selectedImagesList[0];
+
+    setPromptModalConfig({
+      taskType: 'enhance',
+      image: firstImage,
+      batchImages: selectedImagesList,
+      initialPrompt: firstImage.recreationPrompt || "Enhance this image"
+    });
+  }, [selectedIds, images]);
+
   return (
-    <div className="h-screen bg-gray-900 text-gray-100 font-sans selection:bg-indigo-500/30 relative overflow-x-hidden overflow-y-auto scrollbar-none">
-      {/* Global Background Banner */}
-      {currentUser?.bannerUrl && (
-        <div className="fixed inset-0 z-0 pointer-events-none">
-          <div
-            className="absolute inset-0 opacity-40 transition-all duration-700 ease-in-out"
-            style={{
-              backgroundImage: 'url(' + currentUser.bannerUrl + ')',
-              backgroundPosition: (currentUser.bannerPosition?.x || 50) + '% ' + (currentUser.bannerPosition?.y || 50) + '%',
-              backgroundSize: 'cover',
-              transform: 'scale(' + (currentUser.bannerPosition?.scale || 1) + ')',
-              transformOrigin: (currentUser.bannerPosition?.x || 50) + '% ' + (currentUser.bannerPosition?.y || 50) + '%',
-            }}
-          />
-          {/* Gradient overlay to ensure text readability */}
-          <div className="absolute inset-0 bg-gradient-to-t from-gray-900 via-gray-900/80 to-gray-900/60" />
-        </div>
-      )}
+    <MainLayout
+      onSetView={setGalleryView}
+      onShowLogs={() => setShowSystemLogs(true)}
+      isSlideshowEnabled={isSlideshowEnabled}
+      onToggleSlideshow={setIsSlideshowEnabled}
+      setIsSlideshowActive={setIsSlideshowActive}
+      currentView={galleryView}
+      currentUser={currentUser}
+      onLogout={handleLogout}
+      onLogin={() => setIsLoginModalOpen(true)}
+      settings={settings}
+      onToggleNsfwBlur={handleToggleNsfwBlur}
+    >
       {/* <NavigationBenchmark /> */}
 
-      {/* Main Content Wrapper - Ensure z-index is above banner */}
-      <div className="relative z-10 min-h-screen flex flex-col pb-20 md:pb-0">
-        <header className="hidden md:flex p-4 sm:p-6 border-b border-gray-700/50 justify-between items-center bg-gray-900/40 backdrop-blur-md sticky top-0 z-50">
-          <div className="text-left">
-            <h1 className="text-2xl sm:text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-indigo-500">
-              Gemini Vision Gallery
-            </h1>
+      {isDbLoading ? (
+        <div className="flex items-center justify-center h-[60vh]">
+          <div className="text-center">
+            <Spinner />
+            <p className="mt-4 text-gray-400">Loading your gallery...</p>
           </div>
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={() => setGalleryView('admin-settings')}
-              className="p-2 rounded-full text-gray-400 hover:text-white hover:bg-gray-700 transition-colors"
-              aria-label="Settings"
-            >
-              <SettingsIcon className="w-6 h-6" />
-            </button>
-            <button
-              onClick={() => setShowSystemLogs(true)}
-              className="p-2 rounded-lg transition-colors text-gray-400 hover:text-white hover:bg-gray-800"
-              title="System Logs"
-              aria-label="System Logs"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-            </button>
-            {/* Slideshow Toggle Slider */}
-            <div
-              onClick={(e) => {
-                e.stopPropagation();
-                // Toggle the ENABLED state
-                const newState = !isSlideshowEnabled;
-                setIsSlideshowEnabled(newState);
+        </div>
+      ) : galleryView === 'admin-settings' ? (
+        <AdminSettingsPage currentSettings={settings} onSave={handleSaveSettings} onCancel={() => setGalleryView('public')} />
+      ) : !hasValidSettings(settings) ? (
+        <NoSettingsPrompt onSettingsClick={() => setGalleryView('admin-settings')} />
+      ) : (
+        <div>
+          <NavBar
+            currentView={galleryView}
+            onSetView={setGalleryView}
+            currentUser={currentUser}
+            generationTasks={generationTasks}
+            queueStatus={queueStatus}
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            onShowDuplicates={() => setShowDuplicates(true)}
+            onShowCreations={() => setGalleryView('creations')}
+            hasImages={filteredImages.length > 0}
+            isSelectionMode={isSelectionMode}
+            onToggleSelectionMode={toggleSelectionMode}
+            failedAnalysisCount={failedAnalysisCount}
+            onRetryAnalysis={handleRetryAnalysis}
+            onFilesSelected={handleFilesChange}
+          />
 
-                // If turning off, immediately stop any running slideshow
-                if (!newState) {
-                  setIsSlideshowActive(false);
-                }
+          {(galleryView === 'public' || galleryView === 'my-gallery' || galleryView === 'creations') && (
+            <TagFilterBar
+              allTags={allTags}
+              activeTags={activeTags}
+              onToggleTag={handleToggleTag}
+              onClear={handleClearTags}
+            />
+          )}
+
+          {showPerformanceOverview ? (
+            <PerformanceOverview
+              settings={settings}
+              onBack={() => setShowPerformanceOverview(false)}
+            />
+          ) : galleryView === 'status' ? (
+            <StatusPage
+              statsHistory={statsHistory}
+              settings={settings}
+              queueStatus={queueStatus}
+              onPauseQueue={handlePauseQueue}
+              onClearQueue={handleClearQueue}
+              onRemoveFromQueue={handleRemoveFromQueue}
+              onShowPerformance={() => setShowPerformanceOverview(true)}
+              onShowDiagnostics={() => setShowHealthDashboard(true)}
+            />
+          ) : galleryView === 'profile-settings' && currentUser ? (
+            <UserProfilePage
+              user={currentUser}
+              onUpdateUser={(updatedUser) => {
+                setCurrentUser(updatedUser);
+                localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(updatedUser));
               }}
-              className="flex items-center gap-2 cursor-pointer group"
-              title={isSlideshowEnabled ? "Slideshow Auto-Start On" : "Slideshow Auto-Start Off"}
-            >
-              <div className="relative">
-                <div className={`w-11 h-6 rounded-full transition-colors ${isSlideshowEnabled ? 'bg-indigo-600' : 'bg-gray-700'} relative`}>
-                  <div className={`absolute top-[2px] left-[2px] bg-white rounded-full h-5 w-5 transition-transform ${isSlideshowEnabled ? 'translate-x-full' : 'translate-x-0'}`}></div>
-                </div>
-              </div>
-              <span className="text-xs text-gray-400 group-hover:text-white transition-colors hidden sm:inline">{isSlideshowEnabled ? 'Auto' : 'Off'}</span>
-            </div>
-            <button
-              onClick={() => setGalleryView('status')}
-              className={'p-2 rounded-full transition-colors ' + (galleryView === 'status' ? 'text-white bg-gray-700' : 'text-gray-400 hover:text-white hover:bg-gray-700')}
-              title="System Status"
-            >
-              <Activity className="w-6 h-6" />
-            </button>
-            {currentUser ? (
-              <UserMenu
-                user={currentUser}
-                onLogout={handleLogout}
-                onSetView={setGalleryView}
-                nsfwBlurEnabled={settings?.contentSafety?.blurNsfw ?? false}
-                onToggleNsfwBlur={handleToggleNsfwBlur}
-              />
-            ) : (
-              <button
-                onClick={() => setIsLoginModalOpen(true)}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors text-sm"
-              >
-                Sign In
-              </button>
-            )}
-          </div>
-        </header>
-
-        <main className="p-4 sm:p-6 lg:p-8">
-          {isDbLoading ? (
-            <div className="flex items-center justify-center h-[60vh]">
-              <div className="text-center">
-                <Spinner />
-                <p className="mt-4 text-gray-400">Loading your gallery...</p>
-              </div>
-            </div>
-          ) : galleryView === 'admin-settings' ? (
-            <AdminSettingsPage currentSettings={settings} onSave={handleSaveSettings} onCancel={() => setGalleryView('public')} />
-          ) : !hasValidSettings(settings) ? (
-            <NoSettingsPrompt onSettingsClick={() => setGalleryView('admin-settings')} />
+              galleryImages={images}
+              settings={settings}
+              addNotification={addNotification}
+              onClose={() => setGalleryView('my-gallery')}
+            />
+          ) : galleryView === 'creations' && currentUser ? (
+            <CreationsPage
+              tasks={generationTasks}
+              completedCreations={filteredImages} // Use filtered images for search/tags support
+              onImageClick={handleGridItemClick}
+              analyzingIds={analyzingIds}
+              generatingIds={generatingSourceIds}
+              disabled={isSearchingSimilar}
+              onClearFailedTasks={handleClearFailedTasks}
+              isSelectionMode={isSelectionMode}
+              selectedIds={selectedIds}
+              onSelectionChange={handleSelectionChange}
+            />
+          ) : galleryView === 'prompt-history' && currentUser ? (
+            <PromptHistoryPage
+              promptHistory={promptHistory}
+              images={images}
+              onGenerateFromPrompt={handleGenerateFromPromptHistory}
+            />
+          ) : showUploadArea ? (
+            <UploadArea onFilesChange={handleFilesChange} />
+          ) : filteredImages.length > 0 ? (
+            <ImageGrid
+              images={filteredImages}
+              onImageClick={handleGridItemClick}
+              analyzingIds={analyzingIds}
+              generatingIds={generatingSourceIds}
+              isSelectionMode={isSelectionMode}
+              selectedIds={selectedIds}
+              onSelectionChange={handleSelectionChange}
+              blurNsfw={settings?.contentSafety?.blurNsfw}
+              layout={currentUser?.galleryLayout || 'masonry'}
+              onDragEnd={handleDragEnd}
+            />
           ) : (
-            <div>
-              <div className="sticky top-0 z-40 bg-gray-900/95 backdrop-blur-xl -mx-4 px-4 py-3 mb-6 border-b border-gray-800 shadow-lg md:shadow-none md:static md:bg-transparent md:mx-0 md:px-0 md:py-0 md:border-none flex flex-col sm:flex-row justify-between items-center gap-4 transition-all duration-300">
-                <div className="flex items-center bg-gray-800 p-1 rounded-lg">
-                  <button onClick={() => setGalleryView('public')} className={'px-4 py-1.5 text-sm font-medium rounded-md transition-colors ' + (galleryView === 'public' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700')}>
-                    Public Gallery
-                  </button>
-                  <button onClick={() => setGalleryView('my-gallery')} disabled={!currentUser} className={'px-4 py-1.5 text-sm font-medium rounded-md transition-colors ' + (galleryView === 'my-gallery' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700') + ' disabled:text-gray-500 disabled:cursor-not-allowed disabled:hover:bg-transparent'}>
-                    My Gallery
-                  </button>
-                  <button onClick={() => setGalleryView('creations')} disabled={!currentUser} className={'px-4 py-1.5 text-sm font-medium rounded-md transition-colors ' + (galleryView === 'creations' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700') + ' disabled:text-gray-500 disabled:cursor-not-allowed disabled:hover:bg-transparent'}>
-                    Creations Gallery
-                  </button>
-                  <button onClick={() => setGalleryView('prompt-history')} disabled={!currentUser} className={'px-4 py-1.5 text-sm font-medium rounded-md transition-colors ' + (galleryView === 'prompt-history' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700') + ' disabled:text-gray-500 disabled:cursor-not-allowed disabled:hover:bg-transparent'}>
-                    Prompt History
-                  </button>
-                  <button onClick={() => setGalleryView('status')} className={'px-4 py-1.5 text-sm font-medium rounded-md transition-colors ' + (galleryView === 'status' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700')}>
-                    Status
-                  </button>
-                </div>
-                <div className="flex items-center gap-4 w-full sm:w-auto">
-                  <GenerationStatusIndicator
-                    tasks={generationTasks}
-                    onStatusClick={() => setGalleryView('creations')}
-                  />
-                  {currentUser && filteredImages.length > 0 && (
-                    <button
-                      onClick={toggleSelectionMode}
-                      className={'text-sm font-medium py-2 px-4 rounded-lg transition-colors duration-300 whitespace-nowrap ' + (isSelectionMode ? 'bg-gray-600 hover:bg-gray-500 text-white' : 'bg-gray-700 hover:bg-gray-600 text-gray-200')}
-                    >
-                      {isSelectionMode ? 'Cancel Selection' : 'Select Items'}
-                    </button>
-                  )}
-                  {galleryView === 'my-gallery' && failedAnalysisCount > 0 && (
-                    <button
-                      onClick={() => handleRetryAnalysis()}
-                      className="bg-yellow-600/80 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-300 text-sm whitespace-nowrap flex items-center gap-2"
-                      title="Retry analysis for all failed items"
-                    >
-                      <WarningIcon className="w-4 h-4" />
-                      Retry Failed ({failedAnalysisCount})
-                    </button>
-                  )}
-                  {currentUser && galleryView === 'my-gallery' && !isSelectionMode && (
-                    <label className="cursor-pointer bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-300 text-sm whitespace-nowrap">
-                      Add Images
-                      <input type="file" multiple accept="image/*" className="hidden" onChange={handleFilesChange} />
-                    </label>
-                  )}
-                  <div className="relative w-full sm:w-auto sm:min-w-[300px]">
-                    <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                    <input
-                      type="text"
-                      placeholder="Search by keyword..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full bg-gray-800 border border-gray-700 rounded-lg py-2 pl-10 pr-10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    />
-                    {searchQuery && (
-                      <button
-                        onClick={() => setSearchQuery('')}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-red-400 transition-colors"
-                        aria-label="Clear search"
-                      >
-                        <CloseIcon className="h-5 w-5" />
-                      </button>
-                    )}
-                    {currentUser && galleryView === 'my-gallery' && (
-                      <button
-                        onClick={() => setShowDuplicates(true)}
-                        className="absolute right-12 top-1/2 -translate-y-1/2 text-gray-400 hover:text-yellow-400 transition-colors"
-                        title="Find Duplicates"
-                        aria-label="Find duplicate images"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                        </svg>
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {(galleryView === 'public' || galleryView === 'my-gallery' || galleryView === 'creations') && (
-                <TagFilterBar
-                  allTags={allTags}
-                  activeTags={activeTags}
-                  onToggleTag={handleToggleTag}
-                  onClear={handleClearTags}
-                />
-              )}
-
-              {showPerformanceOverview ? (
-                <PerformanceOverview
-                  settings={settings}
-                  onBack={() => setShowPerformanceOverview(false)}
-                />
-              ) : galleryView === 'status' ? (
-                <StatusPage
-                  statsHistory={statsHistory}
-                  settings={settings}
-                  queueStatus={queueStatus}
-                  onPauseQueue={handlePauseQueue}
-                  onClearQueue={handleClearQueue}
-                  onRemoveFromQueue={handleRemoveFromQueue}
-                  onShowPerformance={() => setShowPerformanceOverview(true)}
-                />
-              ) : galleryView === 'profile-settings' && currentUser ? (
-                <UserProfilePage
-                  user={currentUser}
-                  onUpdateUser={(updatedUser) => {
-                    setCurrentUser(updatedUser);
-                    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(updatedUser));
-                  }}
-                  galleryImages={images}
-                  settings={settings}
-                  addNotification={addNotification}
-                  onClose={() => setGalleryView('my-gallery')}
-                />
-              ) : galleryView === 'creations' && currentUser ? (
-                <CreationsPage
-                  tasks={generationTasks}
-                  completedCreations={filteredImages} // Use filtered images for search/tags support
-                  onImageClick={handleGridItemClick}
-                  analyzingIds={analyzingIds}
-                  generatingIds={generatingSourceIds}
-                  disabled={isSearchingSimilar}
-                  onClearFailedTasks={handleClearFailedTasks}
-                  isSelectionMode={isSelectionMode}
-                  selectedIds={selectedIds}
-                  onSelectionChange={handleSelectionChange}
-                />
-              ) : galleryView === 'prompt-history' && currentUser ? (
-                <PromptHistoryPage
-                  promptHistory={promptHistory}
-                  images={images}
-                  onGenerateFromPrompt={handleGenerateFromPromptHistory}
-                />
-              ) : showUploadArea ? (
-                <UploadArea onFilesChange={handleFilesChange} />
-              ) : filteredImages.length > 0 ? (
-                <ImageGrid
-                  images={filteredImages}
-                  onImageClick={handleGridItemClick}
-                  analyzingIds={analyzingIds}
-                  generatingIds={generatingSourceIds}
-                  isSelectionMode={isSelectionMode}
-                  selectedIds={selectedIds}
-                  onSelectionChange={handleSelectionChange}
-                  blurNsfw={settings?.contentSafety?.blurNsfw}
-                  layout={currentUser?.galleryLayout || 'masonry'}
-                  onDragEnd={handleDragEnd}
-                />
-              ) : (
-                <div className="text-center py-16 text-gray-500">
-                  <p>{galleryView === 'public' ? 'No featured images yet.' : galleryView === 'my-gallery' ? 'Your gallery is empty.' : 'No items found.'}</p>
-                  <p className="text-sm mt-1">{!currentUser ? 'Sign in to upload and manage your items.' : (activeTags.size > 0 || searchQuery) ? 'Try adjusting your filters.' : galleryView === 'my-gallery' ? 'Upload some images to get started.' : ''}</p>
-                </div>
-              )}
+            <div className="text-center py-16 text-gray-500">
+              <p>{galleryView === 'public' ? 'No featured images yet.' : galleryView === 'my-gallery' ? 'Your gallery is empty.' : 'No items found.'}</p>
+              <p className="text-sm mt-1">{!currentUser ? 'Sign in to upload and manage your items.' : (activeTags.size > 0 || searchQuery) ? 'Try adjusting your filters.' : galleryView === 'my-gallery' ? 'Upload some images to get started.' : ''}</p>
             </div>
           )}
-        </main>
+        </div>
+      )}
 
-        {selectedImage && (
+
+      {
+        selectedImage && (
           <ImageViewer
             initialImage={selectedImage}
             contextImages={filteredImages}
@@ -2476,13 +2181,15 @@ const App: React.FC = () => {
             onSmartCrop={(img) => performSmartCrop(img, false)}
             processingSmartCropIds={processingSmartCropIds}
           />
-        )}
+        )
+      }
 
-        <UploadProgressIndicator progress={uploadProgress} onCancel={handleCancelUpload} />
-        <AnalysisProgressIndicator progress={analysisProgress} />
-        <NotificationArea notifications={notifications} onDismiss={removeNotification} />
+      <UploadProgressIndicator progress={uploadProgress} onCancel={handleCancelUpload} />
+      <AnalysisProgressIndicator progress={analysisProgress} />
+      <NotificationArea notifications={notifications} onDismiss={removeNotification} />
 
-        {isSelectionMode && (
+      {
+        isSelectionMode && (
           <SelectionActionBar
             count={selectedIds.size}
             selectedImages={images.filter(img => selectedIds.has(img.id))}
@@ -2494,39 +2201,43 @@ const App: React.FC = () => {
             onRegenerate={handleBatchRegenerate}
             onSelectAll={handleSelectAll}
             onSmartCrop={handleSmartCrop}
+            onEnhance={handleOpenEnhanceStudio}
+            onAnimate={handleBatchAnimate}
             triggerDownload={triggerBulkDownload}
           />
-        )}
+        )
+      }
 
-        <ConfirmationModal
-          isOpen={isDeleteModalOpen}
-          onClose={handleCancelDelete}
-          onConfirm={handleConfirmDelete}
-          title="Confirm Deletion"
-          message={'Are you sure you want to delete ' + selectedIds.size + ' item' + (selectedIds.size === 1 ? '' : 's') + '? This action cannot be undone.'}
-          confirmText="Delete"
-          confirmButtonVariant="danger"
-        />
+      <ConfirmationModal
+        isOpen={isDeleteModalOpen}
+        onClose={handleCancelDelete}
+        onConfirm={handleConfirmDelete}
+        title="Confirm Deletion"
+        message={'Are you sure you want to delete ' + selectedIds.size + ' item' + (selectedIds.size === 1 ? '' : 's') + '? This action cannot be undone.'}
+        confirmText="Delete"
+        confirmButtonVariant="danger"
+      />
 
-        <BatchRemixModal
-          isOpen={isBatchRemixModalOpen}
-          onClose={() => setIsBatchRemixModalOpen(false)}
-          onConfirm={handleConfirmBatchRemix}
-          count={selectedIds.size}
-        />
+      <BatchRemixModal
+        isOpen={isBatchRemixModalOpen}
+        onClose={() => setIsBatchRemixModalOpen(false)}
+        onConfirm={handleConfirmBatchRemix}
+        count={selectedIds.size}
+      />
 
-        <LoginModal
-          isOpen={isLoginModalOpen}
-          onClose={() => setIsLoginModalOpen(false)}
-          onLogin={handleLogin}
-        />
-        <VeoKeySelectionModal
-          isOpen={!!veoRetryState}
-          onClose={() => setVeoRetryState(null)}
-          onSelectKey={handleVeoRetry}
-          isRetry={true}
-        />
-        {promptModalConfig && (
+      <LoginModal
+        isOpen={isLoginModalOpen}
+        onClose={() => setIsLoginModalOpen(false)}
+        onLogin={handleLogin}
+      />
+      <VeoKeySelectionModal
+        isOpen={!!veoRetryState}
+        onClose={() => setVeoRetryState(null)}
+        onSelectKey={handleVeoRetry}
+        isRetry={true}
+      />
+      {
+        promptModalConfig && (
           <PromptSubmissionModal
             isOpen={!!promptModalConfig}
             onClose={() => {
@@ -2558,9 +2269,9 @@ const App: React.FC = () => {
                   id: '', file: new File([], ''), fileName: 'prompt-history.png',
                   dataUrl: '', ownerId: currentUser!.id, isPublic: false
                 };
-                handleGenerationSubmit(dummyImage, prompt, 'image', aspectRatio, providerId, options.generationSettings);
+                handleGenerationSubmit(dummyImage, prompt, 'image', aspectRatio, providerId, options.generationSettings, options.autoSaveToGallery);
               } else if (promptModalConfig.taskType === 'enhance' && image) {
-                handleGenerationSubmit(image, prompt, 'enhance', aspectRatio, providerId, options.generationSettings);
+                handleGenerationSubmit(image, prompt, 'enhance', aspectRatio, providerId, options.generationSettings, options.autoSaveToGallery);
               } else if (promptModalConfig.taskType === 'video') {
                 const sourceImage = useSourceImage ? image : null;
                 // TODO: Support Video Provider Override
@@ -2570,29 +2281,31 @@ const App: React.FC = () => {
               setPromptModalConfig(null);
             }}
           />
-        )}
-        <IdleSlideshow
-          images={filteredImages}
-          isActive={isSlideshowActive}
-          onClose={() => setIsSlideshowActive(false)}
-          transition={currentUser?.slideshowTransition || 'fade'}
-          useSmartCrop={!!currentUser?.slideshowSmartCrop}
-          useAdaptivePan={!!currentUser?.slideshowAdaptivePan}
-          interval={slideshowNeedsSlowdown ? Math.max((currentUser?.slideshowInterval || 5000) * 2, 8000) : currentUser?.slideshowInterval}
-          animationDuration={currentUser?.slideshowAnimationDuration}
-          enableBounce={!!currentUser?.slideshowBounce}
-          randomOrder={currentUser?.slideshowRandomOrder}
-          processingSmartCropIds={processingSmartCropIds}
-          onRequestSlowdown={setSlideshowNeedsSlowdown}
-        />
-        <BottomNav
-          currentView={galleryView}
-          onViewChange={setGalleryView}
-          onFilesSelected={handleFilesChange}
-        />
+        )
+      }
+      <IdleSlideshow
+        images={filteredImages}
+        isActive={isSlideshowActive}
+        onClose={() => setIsSlideshowActive(false)}
+        transition={currentUser?.slideshowTransition || 'fade'}
+        useSmartCrop={!!currentUser?.slideshowSmartCrop}
+        useAdaptivePan={!!currentUser?.slideshowAdaptivePan}
+        interval={slideshowNeedsSlowdown ? Math.max((currentUser?.slideshowInterval || 5000) * 2, 8000) : currentUser?.slideshowInterval}
+        animationDuration={currentUser?.slideshowAnimationDuration}
+        enableBounce={!!currentUser?.slideshowBounce}
+        randomOrder={currentUser?.slideshowRandomOrder}
+        processingSmartCropIds={processingSmartCropIds}
+        onRequestSlowdown={setSlideshowNeedsSlowdown}
+      />
+      <BottomNav
+        currentView={galleryView}
+        onViewChange={setGalleryView}
+        onFilesSelected={handleFilesChange}
+      />
 
-        {showSystemLogs && <LogViewer onClose={() => setShowSystemLogs(false)} />}
-        {showDuplicates && (
+      {showSystemLogs && <LogViewer onClose={() => setShowSystemLogs(false)} />}
+      {
+        showDuplicates && (
           <DuplicatesPage
             images={images.filter(img => img.ownerId === currentUser?.id)}
             onDeleteImages={(ids) => {
@@ -2601,9 +2314,15 @@ const App: React.FC = () => {
             }}
             onClose={() => setShowDuplicates(false)}
           />
-        )}
-      </div>
-    </div>
+        )
+      }
+      {showHealthDashboard && (
+        <DiagnosticsPage
+          onClose={() => setShowHealthDashboard(false)}
+          onClose={() => setShowHealthDashboard(false)}
+        />
+      )}
+    </MainLayout>
   );
 };
 

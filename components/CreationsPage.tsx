@@ -3,7 +3,7 @@ import React from 'react';
 import { GenerationTask, ImageInfo } from '../types';
 import ImageGrid from './ImageGrid';
 import Spinner from './Spinner';
-import { WarningIcon, CheckCircleIcon, TrashIcon } from './icons';
+import { ExclamationTriangleIcon as WarningIcon, CheckCircleIcon, TrashIcon } from '@heroicons/react/24/outline';
 
 interface CreationsPageProps {
   tasks: GenerationTask[];

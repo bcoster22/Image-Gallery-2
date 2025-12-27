@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { HarmBlockThreshold } from '@google/genai';
 import { AdminSettings, AiProvider, Capability } from '../types';
 import { providerCapabilities, capabilityDetails } from '../services/providerCapabilities';
-import { SettingsIcon, CheckCircleIcon, XCircleIcon, ZapIcon } from '../../components/icons';
+import { Cog6ToothIcon as SettingsIcon, CheckCircleIcon, XCircleIcon, BoltIcon as ZapIcon } from '@heroicons/react/24/outline';
 import { testProviderConnection } from '../services/aiService';
 
 interface AdminSettingsPageProps {

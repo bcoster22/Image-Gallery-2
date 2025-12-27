@@ -1,5 +1,5 @@
 import React from 'react';
-import { HomeIcon, SearchIcon, PlusIcon, SparklesIcon, UserIcon } from './icons';
+import { HomeIcon, MagnifyingGlassIcon as SearchIcon, PlusIcon, SparklesIcon, UserIcon } from '@heroicons/react/24/outline';
 import { GalleryView } from '../types';
 
 interface BottomNavProps {

@@ -147,6 +147,11 @@ export interface IAiProvider {
     theme: string,
     settings: AdminSettings
   ): Promise<string>;
+
+  /**
+   * Fetches the list of available models from the provider.
+   */
+  getModels?(settings: AdminSettings): Promise<{ id: string; name: string }[]>;
 }
 
 export interface User {
@@ -339,7 +344,7 @@ export interface GenerationTask {
 
 export interface Notification {
   id: string;
-  status: 'processing' | 'success' | 'error';
+  status: 'processing' | 'success' | 'error' | 'info' | 'warning';
   message: string;
 }
 
@@ -469,7 +474,7 @@ export interface GenerationPreset {
 }
 
 // Queue Types
-export type JobTaskType = 'analysis' | 'smart-crop' | 'generate' | 'upload' | 'video' | 'other';
+export type JobTaskType = 'analysis' | 'smart-crop' | 'generate' | 'upload' | 'video' | 'enhance' | 'remix' | 'other';
 
 export interface ActiveJob {
   id: string;

@@ -1,0 +1,178 @@
+# AI Assistant Rules for Image Gallery 2
+
+## CRITICAL: Read Before Making Changes
+
+Before modifying any code in this repository, you MUST:
+
+1. **Read the Framework**: [docs/AI_MAINTAINABILITY_FRAMEWORK.md](docs/AI_MAINTAINABILITY_FRAMEWORK.md)
+2. **Follow Guidelines**: [CONTRIBUTING.md](CONTRIBUTING.md)
+3. **Use Workflows**: Check `.agent/workflows/` for task-specific guidance
+
+## Core Rules (Never Violate)
+
+### 🔢 The 50-Line Rule
+**ALL functions must be under 50 lines of code.**
+
+If you're writing a function over 50 lines:
+- STOP
+- Break it into smaller, focused functions
+- Each function = one clear responsibility
+
+### 🎯 Single Responsibility
+Each function does ONE thing. If you're using "and" to describe what a function does, it needs to be split.
+
+### 🔤 Named Constants
+**NO magic numbers or strings in code.**
+
+Extract ALL constants to the top of the file:
+```typescript
+const MAX_RETRIES = 3;  // ✅ GOOD
+not: if (count > 3)     // ❌ BAD
+```
+
+### 📝 Type Everything
+Use TypeScript interfaces for all data structures. No `any` types unless absolutely necessary.
+
+### 🚫 Max Nesting
+Maximum 3 levels of nesting. Deeper nesting = refactor needed.
+
+## Automated Enforcement
+
+This project has ESLint rules that will BLOCK commits if violations are detected:
+
+- `max-lines-per-function`: 50 lines
+- `max-depth`: 3 levels
+- `complexity`: 10 max
+- `no-magic-numbers`: warns on magic numbers
+- Plus TypeScript rules
+
+**Pre-commit hooks run automatically**. Your changes will be rejected if they violate rules.
+
+## Development Workflow
+
+### When Adding Features
+Use `/add-feature` workflow or:
+1. Plan implementation (keep functions small)
+2. Write code following framework
+3. Run `npm run lint` 
+4. Run `npm run type-check`
+5. Test manually
+6. Commit (hooks run automatically)
+
+### When Refactoring
+Use `/refactor-code` workflow or:
+1. Identify problem (long functions? magic numbers?)
+2. Apply framework principles
+3. Verify with lint/type-check
+4. Ensure no regressions
+
+### When Fixing Bugs
+Use `/fix-bug` workflow or:
+1. Find root cause
+2. Fix properly (don't just patch)
+3. Follow framework while fixing
+4. Test thoroughly
+
+## Quality Checks
+
+Before committing, always run:
+```bash
+npm run lint        # Catch violations
+npm run type-check  # Verify types
+npm run lint:fix    # Auto-fix some issues
+```
+
+## File Organization
+
+### Max File Sizes
+- Components: 200 lines
+- Services/Utils: 150 lines
+- Hooks: 100 lines
+
+**If file exceeds limit**: Create subdirectory and split by feature
+
+Example:
+```
+components/StatusPage.tsx (1705 lines) ❌
+→ Split into:
+components/StatusPage.tsx (400 lines) ✅
+components/status/ModelLoadTestPanel.tsx (200 lines) ✅
+components/status/GPUMetricsPanel.tsx (150 lines) ✅
+```
+
+## Naming Conventions
+
+### Functions
+- Use verbs: `get`, `set`, `fetch`, `validate`, `calculate`, `handle`
+- Be specific: `getUserById` not `getUser`
+- No abbreviations: `calculateScore` not `calcScr`
+
+### Variables
+- Booleans: `isLoading`, `hasPermission`, `shouldRender`
+- Constants: `SCREAMING_SNAKE_CASE`
+- Objects: `PascalCase` for configs
+
+### Types
+- Interfaces: `PascalCase` (e.g., `UserData`, `TestResult`)
+- Type aliases: `PascalCase`
+- Generics: Single letter or descriptive (e.g., `T` or `TData`)
+
+## Error Handling
+
+Use structured error handling with context:
+```typescript
+// ❌ BAD
+try { await fetch(url); } catch (e) { console.log(e); }
+
+// ✅ GOOD
+try {
+  const response = await fetch(url);
+  if (!response.ok) {
+    return { success: false, error: 'HTTP error', status: response.status };
+  }
+} catch (error) {
+  return { success: false, error: error.message, context: { url } };
+}
+```
+
+## Performance
+
+For React components:
+- Use `useCallback` for event handlers
+- Use `useMemo` for expensive computations
+- Extract business logic from components into hooks or services
+
+## Documentation
+
+Add comments for:
+- Complex algorithms (step-by-step)
+- Non-obvious decisions
+- Workarounds or gotchas
+
+DON'T comment:
+- Obvious code
+- What the code does (code shows that)
+- Instead, explain WHY
+
+## Framework Evolution
+
+If you discover a better pattern while working:
+1. Complete your current task first
+2. Use `/improve-framework` workflow
+3. Propose the improvement to the user
+4. Only update framework after approval
+
+## Summary
+
+**Think before coding:**
+- Will this function be under 50 lines?
+- Is each function focused on one thing?
+- Have I extracted all magic numbers?
+- Are types defined?
+- Would another AI (or human) easily understand this?
+
+**The goal: Code that AI assistants can confidently maintain and modify.**
+
+---
+
+**Last Updated**: December 21, 2025

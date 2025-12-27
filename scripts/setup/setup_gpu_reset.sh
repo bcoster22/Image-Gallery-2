@@ -7,8 +7,13 @@ SUDOERS_FILE="/etc/sudoers.d/moondream-gpu-reset"
 echo "Configuring passwordless sudo for nvidia-smi..."
 echo "User: $CURRENT_USER"
 
+# Get the directory of this script
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+# Assuming script is in scripts/setup/ and we want scripts/apply_system_fixes.py
+FIX_SCRIPT_PATH="$(dirname "$SCRIPT_DIR")/apply_system_fixes.py"
+
 # Create the sudoers entry
-ENTRY="$CURRENT_USER ALL=(ALL) NOPASSWD: /usr/bin/nvidia-smi"
+ENTRY="$CURRENT_USER ALL=(ALL) NOPASSWD: /usr/bin/nvidia-smi, /usr/bin/python3 $FIX_SCRIPT_PATH"
 
 # Use a temporary file to validate syntax before applying
 TMP_FILE=$(mktemp)

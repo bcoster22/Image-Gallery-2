@@ -37,5 +37,12 @@ npm run dev
 -   **Model Downloads**: Users must ensure SDXL checkpoints are present in `~/.moondream-station/models/sdxl-checkpoints` (or mapped equivalent) for them to be selectable in the UI.
 
 ## Recent Changes
--   Fixed `App.tsx`: Added `overrides` argument to `generateImageFromPrompt` call.
 -   Updated `rest_server_temp_5.py`: Added main execution block, fixed imports (`moondream_station.core.config.ConfigManager`), and added fail-safe logic for `InferenceService.start()`.
+
+## System Diagnostics & Auto Fix
+A new comprehensive diagnostics module has been verified.
+- **Frontend Checks**: Browser storage, WebGL, Database integrity, API Keys.
+- **Backend Checks**: Model file integrity, GPU Persistence, Ghost VRAM.
+- **Auto Fix**: Automated repair for common issues (e.g. enabling Nvidia Persistence Mode).
+    - **Setup**: One-click configuration via Diagnostics UI (requires sudo password once).
+    - **Security**: Uses a restricted wrapper script (`apply_system_fixes.py`) with specific sudoers permissions.

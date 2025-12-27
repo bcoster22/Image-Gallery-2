@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { UploadIcon } from './icons';
+import { CloudArrowUpIcon as UploadIcon } from '@heroicons/react/24/outline';
 
 interface UploadAreaProps {
   onFilesChange: (event: React.ChangeEvent<HTMLInputElement>) => void;

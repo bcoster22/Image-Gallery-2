@@ -20,6 +20,15 @@
 
 A modern, AI-powered image gallery application with **local GPU acceleration** for image generation, enhancement, and analysis. Built with React, Vite, and integrated AI models (SDXL, Moondream) for privacy-focused creative workflows.
 
+> **📢 For AI Assistants (Claude, Gemini, Cursor, etc.)**  
+> Before making changes to this codebase:
+> 1. Read [AI-Maintainability Framework](docs/AI_MAINTAINABILITY_FRAMEWORK.md)  
+> 2. Check [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines  
+> 3. Use workflows in `.agent/workflows/` for common tasks  
+> 4. Run `npm run lint` before committing  
+>
+> **Key Rules:** Functions under 50 lines | Extract magic numbers to constants | Add TypeScript types | Test before commit
+
 ![Main Gallery](docs/images/main-gallery.png)
 
 ## ✨ Features
@@ -589,6 +598,9 @@ git push origin feature/amazing-feature
 - Use conventional commits
 
 See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#-contributing) for detailed guidelines.
+
+### System Updates & Maintenance
+For information on keeping your AI models and backend dependencies secure and up-to-date, please read the [System Update Guide](./docs/SYSTEM_UPDATES.md).
 
 ---
 

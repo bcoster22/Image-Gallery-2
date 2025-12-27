@@ -1,6 +1,24 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ImageInfo } from '../types';
-import { CloseIcon } from './icons';
+import { XMarkIcon as CloseIcon } from '@heroicons/react/24/outline';
+import {
+  DEFAULT_SLIDESHOW_INTERVAL_MS,
+  DEFAULT_ANIMATION_DURATION_MS,
+  SLIDESHOW_WARMUP_DELAY_MS,
+  SLIDESHOW_FEEDBACK_DURATION_MS,
+  SLIDESHOW_MIN_INTERVAL_MS,
+  SLIDESHOW_MAX_INTERVAL_MS,
+  SLIDESHOW_INTERVAL_STEP_MS,
+  PAN_MIN_DURATION_MS,
+  PAN_FADE_DURATION_MS
+} from '../constants/timings';
+import {
+  WHEEL_SCROLL_THRESHOLD,
+  TAP_MAX_DURATION_MS,
+  TAP_MAX_MOVEMENT_PX,
+  SWIPE_MIN_DISTANCE_PX,
+  LANDSCAPE_ASPECT_RATIO_THRESHOLD
+} from '../constants/thresholds';
 
 interface IdleSlideshowProps {
   images: ImageInfo[];
@@ -23,8 +41,8 @@ const IdleSlideshow: React.FC<IdleSlideshowProps> = ({
   useSmartCrop = false,
   useAdaptivePan = false,
   processingSmartCropIds,
-  interval = 4000,
-  animationDuration = 1500,
+  interval = DEFAULT_SLIDESHOW_INTERVAL_MS,
+  animationDuration = DEFAULT_ANIMATION_DURATION_MS,
   enableBounce = false,
   randomOrder = false,
   onRequestSlowdown
@@ -86,7 +104,7 @@ const IdleSlideshow: React.FC<IdleSlideshowProps> = ({
   const showFeedback = (text: string) => {
     if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
     setFeedback({ text });
-    feedbackTimerRef.current = window.setTimeout(() => setFeedback(null), 1500);
+    feedbackTimerRef.current = window.setTimeout(() => setFeedback(null), SLIDESHOW_FEEDBACK_DURATION_MS);
   };
 
   // Update internal state if props change (unless user manually overrode them)
@@ -148,7 +166,7 @@ const IdleSlideshow: React.FC<IdleSlideshowProps> = ({
     // Select Effect
     let effect = transition;
     let isPan = false;
-    if (useAdaptivePan && isPortrait && nextImg && nextImg.width && nextImg.height && nextImg.width > nextImg.height * 1.2) {
+    if (useAdaptivePan && isPortrait && nextImg && nextImg.width && nextImg.height && nextImg.width > nextImg.height * LANDSCAPE_ASPECT_RATIO_THRESHOLD) {
       isPan = true;
     }
 
@@ -162,7 +180,7 @@ const IdleSlideshow: React.FC<IdleSlideshowProps> = ({
       }
     }
 
-    const panDur = Math.max(8000, currentDuration);
+    const panDur = Math.max(PAN_MIN_DURATION_MS, currentDuration);
     const duration = isPan ? panDur : ((effect === 'slide' || effect === 'stack') ? Math.min(800, currentDuration) : currentDuration);
 
     setNextIndex(nextIdx);
@@ -210,7 +228,7 @@ const IdleSlideshow: React.FC<IdleSlideshowProps> = ({
       setIsWarmingUp(true);
       const timer = setTimeout(() => {
         setIsWarmingUp(false);
-      }, 2000);
+      }, SLIDESHOW_WARMUP_DELAY_MS);
       return () => clearTimeout(timer);
     } else {
       // If stopped/paused, reset warmup state
@@ -259,7 +277,7 @@ const IdleSlideshow: React.FC<IdleSlideshowProps> = ({
     let touchStartTime = 0;
 
     const handleWheel = (e: WheelEvent) => {
-      if (Math.abs(e.deltaY) > 30) {
+      if (Math.abs(e.deltaY) > WHEEL_SCROLL_THRESHOLD) {
         e.preventDefault();
         if (e.deltaY > 0) triggerSlide(1);
         else triggerSlide(-1);
@@ -280,12 +298,12 @@ const IdleSlideshow: React.FC<IdleSlideshowProps> = ({
       const diffX = touchEndX - touchStartX;
       const diffY = touchEndY - touchStartY;
 
-      if (timeDiff < 300 && Math.abs(diffX) < 10 && Math.abs(diffY) < 10) {
+      if (timeDiff < TAP_MAX_DURATION_MS && Math.abs(diffX) < TAP_MAX_MOVEMENT_PX && Math.abs(diffY) < TAP_MAX_MOVEMENT_PX) {
         onClose();
         return;
       }
 
-      if (Math.abs(diffX) > 50 || Math.abs(diffY) > 50) {
+      if (Math.abs(diffX) > SWIPE_MIN_DISTANCE_PX || Math.abs(diffY) > SWIPE_MIN_DISTANCE_PX) {
         if (Math.abs(diffX) > Math.abs(diffY)) {
           if (diffX > 0) triggerSlide(-1);
           else triggerSlide(1);
@@ -323,7 +341,7 @@ const IdleSlideshow: React.FC<IdleSlideshowProps> = ({
         case '+':
         case '=': // Speed Up (Reduce Interval)
           setCurrentInterval(prev => {
-            const next = Math.max(1000, prev - 500);
+            const next = Math.max(SLIDESHOW_MIN_INTERVAL_MS, prev - SLIDESHOW_INTERVAL_STEP_MS);
             showFeedback(`Speed Up (${(next / 1000).toFixed(1)}s)`);
             return next;
           });
@@ -331,7 +349,7 @@ const IdleSlideshow: React.FC<IdleSlideshowProps> = ({
         case '-':
         case '_': // Slow Down (Increase Interval)
           setCurrentInterval(prev => {
-            const next = Math.min(20000, prev + 500);
+            const next = Math.min(SLIDESHOW_MAX_INTERVAL_MS, prev + SLIDESHOW_INTERVAL_STEP_MS);
             showFeedback(`Slow Down (${(next / 1000).toFixed(1)}s)`);
             return next;
           });
@@ -475,7 +493,7 @@ const IdleSlideshow: React.FC<IdleSlideshowProps> = ({
 
   const getFinalStyles = () => {
     const getAdaptiveMeta = (img: ImageInfo | null, index: number) => {
-      if (useAdaptivePan && isPortrait && img && img.width && img.height && img.width > img.height * 1.2) {
+      if (useAdaptivePan && isPortrait && img && img.width && img.height && img.width > img.height * LANDSCAPE_ASPECT_RATIO_THRESHOLD) {
         const direction = index % 2 === 0 ? 'left-to-right' : 'right-to-left';
         const endTransform = direction === 'left-to-right' ? 'translateX(0)' : 'translateX(calc(100vw - 100%))';
         const animName = direction === 'left-to-right' ? 'panRight' : 'panLeft';
@@ -503,7 +521,7 @@ const IdleSlideshow: React.FC<IdleSlideshowProps> = ({
         if (nextImg) {
           styles.activeAnim = {
             ...baseStyle,
-            animation: `fadeOut ${Math.min(1500, animationDuration) + 'ms'} forwards`
+            animation: `fadeOut ${Math.min(PAN_FADE_DURATION_MS, animationDuration) + 'ms'} forwards`
           };
         } else {
           styles.activeAnim = baseStyle;
@@ -516,7 +534,7 @@ const IdleSlideshow: React.FC<IdleSlideshowProps> = ({
       if (meta.isPan) {
         styles.container = "w-full h-full relative overflow-hidden bg-black";
         const slideLifetime = interval + animationDuration;
-        const panDurMs = Math.max(8000, animationDuration);
+        const panDurMs = Math.max(PAN_MIN_DURATION_MS, animationDuration);
 
         const effectiveDur = enableBounce ? slideLifetime / 2 : panDurMs;
         const direction = enableBounce ? 'alternate' : 'normal';
@@ -530,7 +548,7 @@ const IdleSlideshow: React.FC<IdleSlideshowProps> = ({
           maxWidth: 'none',
           position: 'absolute',
           top: 0,
-          animation: `fadeIn ${Math.min(1500, animationDuration) + 'ms'} ease-in, ${meta.animName} ${effectiveDur}ms linear ${direction} ${iteration} ${fillMode}`
+          animation: `fadeIn ${Math.min(PAN_FADE_DURATION_MS, animationDuration) + 'ms'} ease-in, ${meta.animName} ${effectiveDur}ms linear ${direction} ${iteration} ${fillMode}`
         };
       }
     }
@@ -542,7 +560,7 @@ const IdleSlideshow: React.FC<IdleSlideshowProps> = ({
   const useSmartCropStyles = useSmartCrop;
 
   const isPanImage = (img: ImageInfo | null) => {
-    return useAdaptivePan && isPortrait && img && img.width && img.height && img.width > img.height * 1.2;
+    return useAdaptivePan && isPortrait && img && img.width && img.height && img.width > img.height * LANDSCAPE_ASPECT_RATIO_THRESHOLD;
   };
 
   const getImageStyle = (img: ImageInfo | null) => {

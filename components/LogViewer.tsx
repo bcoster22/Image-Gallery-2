@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { CloseIcon, RefreshIcon, WarningIcon } from './icons';
+import { XMarkIcon as CloseIcon, ArrowPathIcon as RefreshIcon, ExclamationTriangleIcon as WarningIcon } from '@heroicons/react/24/outline';
 
 interface LogEntry {
     timestamp: string;

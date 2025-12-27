@@ -1,0 +1,94 @@
+{
+    "checks": [
+        {
+            "id": "nvidia_drm_modeset",
+            "category": "system",
+            "severity": "critical",
+            "name": "Nvidia DRM Modesetting",
+            "description": "Checks if the 'nvidia-drm.modeset=1' kernel parameter is enabled. This is required to prevent system freezes and display issues with Nvidia 560+ drivers on Linux.",
+            "fix_command": "sudo sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=\"/GRUB_CMDLINE_LINUX_DEFAULT=\"nvidia-drm.modeset=1 /' /etc/default/grub && sudo update-grub",
+            "documentation_url": "docs/NVIDIA_FIX.md"
+        },
+        {
+            "id": "secure_boot",
+            "category": "system",
+            "severity": "warning",
+            "name": "Secure Boot Status",
+            "description": "Checks if Secure Boot is enabled. Secure Boot can prevent proprietary Nvidia drivers from loading correctly unless they are signed.",
+            "fix_command": "sudo mokutil --disable-validation",
+            "documentation_url": "https://wiki.ubuntu.com/UEFI/SecureBoot/Disable"
+        },
+        {
+            "id": "gpu_thermal",
+            "category": "hardware",
+            "severity": "warning",
+            "name": "GPU Thermal Health",
+            "description": "Monitors GPU temperature to detect thermal throttling. High temperatures (>85°C) can reduce performance and cause instability.",
+            "fix_command": "Check system airflow and fan curves.",
+            "documentation_url": ""
+        },
+        {
+            "id": "gpu_persistence",
+            "category": "system",
+            "severity": "info",
+            "name": "Nvidia Persistence Mode",
+            "description": "Checks if Nvidia Persistence Mode is enabled. This keeps the driver loaded even when no apps are using the GPU, improving startup latency.",
+            "fix_command": "sudo nvidia-smi -pm 1",
+            "documentation_url": "https://docs.nvidia.com/deploy/driver-persistence/index.html"
+        },
+        {
+            "id": "disk_io_speed",
+            "category": "performance",
+            "severity": "warning",
+            "name": "Model Storage Speed",
+            "description": "Benchmarks the read speed of the models directory. Speeds below 200MB/s (HDD) can cause slow model loading and stuttering.",
+            "fix_command": "Move models directory to an NVMe or SSD drive and update config.",
+            "documentation_url": ""
+        },
+        {
+            "id": "network_huggingface",
+            "category": "connectivity",
+            "severity": "warning",
+            "name": "HuggingFace Reachability",
+            "description": "Checks connectivity and latency to HuggingFace Hub. High latency or failures will prevent model downloading.",
+            "fix_command": "Check internet connection and firewall settings.",
+            "documentation_url": "https://status.huggingface.co/"
+        },
+        {
+            "id": "python_torch_cuda",
+            "category": "environment",
+            "severity": "critical",
+            "name": "PyTorch CUDA Mismatch",
+            "description": "Verifies that the installed PyTorch version was compiled for a CUDA version compatible with the installed Nvidia driver.",
+            "fix_command": "pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121",
+            "documentation_url": "https://pytorch.org/get-started/locally/"
+        },
+        {
+            "id": "vram_ghosting",
+            "category": "memory",
+            "severity": "warning",
+            "name": "Ghost VRAM Detection",
+            "description": "Detects if crashed processes are holding onto VRAM ('Zombie Models'), preventing new models from loading.",
+            "fix_command": "sudo kill -9 $(fuser -v /dev/nvidia0) && python3 scripts/gpu_reset.py",
+            "documentation_url": ""
+        },
+        {
+            "id": "system_memory",
+            "category": "memory",
+            "severity": "warning",
+            "name": "System RAM Health",
+            "description": "Checks available System RAM. Low RAM (<1GB) can cause swapping and server instability.",
+            "fix_command": "Close background applications or increase swap.",
+            "documentation_url": ""
+        },
+        {
+            "id": "model_integrity",
+            "category": "system",
+            "severity": "critical",
+            "name": "Model Integrity",
+            "description": "Verifies that model checkpoints exist and are valid (size check). Prevents generation failures due to missing or corrupted downloads.",
+            "fix_command": "Run model download scripts.",
+            "documentation_url": "scripts/download_final_2_models.py"
+        }
+    ]
+}

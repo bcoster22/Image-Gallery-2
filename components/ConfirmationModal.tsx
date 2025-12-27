@@ -1,5 +1,6 @@
 import React from 'react';
-import { CloseIcon, WarningIcon } from './icons';
+import Modal from './Modal';
+import { XMarkIcon as CloseIcon, ExclamationTriangleIcon as WarningIcon } from '@heroicons/react/24/outline';
 
 interface ConfirmationModalProps {
   isOpen: boolean;
@@ -34,54 +35,44 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
   };
 
   return (
-    <div 
-      className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 backdrop-blur-sm"
-      onClick={onClose}
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      maxWidth="max-w-md"
+      showCloseButton={false}
     >
-      <div 
-        className="bg-gray-800 rounded-lg shadow-xl w-full max-w-md m-4 p-6 border border-gray-700 relative animate-fade-in text-center"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="text-center relative">
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors"
+          className="absolute -top-2 -right-2 text-gray-400 hover:text-white transition-colors"
         >
           <CloseIcon className="w-6 h-6" />
         </button>
 
         <div className="flex flex-col items-center">
-            <div className="bg-red-900/50 rounded-full p-3 mb-4">
-                <WarningIcon className="w-8 h-8 text-red-400" />
-            </div>
-            <h2 className="text-2xl font-bold text-white mb-3">{title}</h2>
-            <p className="text-gray-300 mb-6">{message}</p>
-            
-            <div className="flex justify-center gap-4 w-full">
-                <button
-                    onClick={onClose}
-                    className="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-2.5 px-4 rounded-lg transition-colors duration-300"
-                >
-                    {cancelText}
-                </button>
-                 <button
-                    onClick={handleConfirm}
-                    className={`w-full text-white font-bold py-2.5 px-4 rounded-lg transition-colors duration-300 ${confirmButtonClasses[confirmButtonVariant]}`}
-                >
-                    {confirmText}
-                </button>
-            </div>
+          <div className="bg-red-900/50 rounded-full p-3 mb-4">
+            <WarningIcon className="w-8 h-8 text-red-400" />
+          </div>
+          <h2 className="text-2xl font-bold text-white mb-3">{title}</h2>
+          <p className="text-gray-300 mb-6">{message}</p>
+
+          <div className="flex justify-center gap-4 w-full">
+            <button
+              onClick={onClose}
+              className="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-2.5 px-4 rounded-lg transition-colors duration-300"
+            >
+              {cancelText}
+            </button>
+            <button
+              onClick={handleConfirm}
+              className={`w-full text-white font-bold py-2.5 px-4 rounded-lg transition-colors duration-300 ${confirmButtonClasses[confirmButtonVariant]}`}
+            >
+              {confirmText}
+            </button>
+          </div>
         </div>
       </div>
-      <style>{`
-          @keyframes fade-in {
-            from { opacity: 0; transform: scale(0.95); }
-            to { opacity: 1; transform: scale(1); }
-          }
-          .animate-fade-in {
-            animation: fade-in 0.2s ease-out forwards;
-          }
-      `}</style>
-    </div>
+    </Modal>
   );
 };
 

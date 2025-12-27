@@ -16,11 +16,14 @@ interface EnhancePlayerProps {
     aiSettings?: AIModelSettings;
     onAiSettingsChange?: (settings: AIModelSettings) => void;
 
-    onNavigate?: (direction: 'prev' | 'next') => void;
-    onPreviewGenerate?: (settings: AIModelSettings) => Promise<string | null>;
+    onNavigate?: (direction: 'next' | 'prev') => void;
+    onPreviewGenerate: (settings: AIModelSettings, autoSave?: boolean) => Promise<string | null>;
     hasNext?: boolean;
     hasPrev?: boolean;
     availableProviders?: { id: string; name: string }[];
+    resultImage?: string | null;
+    isBatchProcessing?: boolean;
+    promptHistory?: string[];
 }
 
 const EnhancePlayer: React.FC<EnhancePlayerProps> = ({
@@ -33,12 +36,21 @@ const EnhancePlayer: React.FC<EnhancePlayerProps> = ({
     hasNext = false,
     hasPrev = false,
     availableProviders,
+    resultImage,
+    isBatchProcessing = false,
+    promptHistory
 }) => {
     // Processing State
     const [isProcessing, setIsProcessing] = useState(false);
     const [processingStages, setProcessingStages] = useState<ProcessingStage[]>([]);
-    const [previewImage, setPreviewImage] = useState<string | null>(null);
+    const [previewImage, setPreviewImage] = useState<string | null>(resultImage || null);
     const [activeStageIndex, setActiveStageIndex] = useState<number>(-1);
+    const [autoSave, setAutoSave] = useState(true);
+
+    // Sync prop to state
+    useEffect(() => {
+        if (resultImage !== undefined) setPreviewImage(resultImage);
+    }, [resultImage]);
 
     // View State
     const [viewMode, setViewMode] = useState<'single' | 'sidebyside' | 'split' | 'overlay'>('single');
@@ -59,7 +71,8 @@ const EnhancePlayer: React.FC<EnhancePlayerProps> = ({
 
     // Initialize/Reset State on image change
     useEffect(() => {
-        setPreviewImage(null);
+        // Only reset if no resultImage passed
+        if (resultImage === undefined) setPreviewImage(null);
         setProcessingStages([]);
         setZoom('fit');
         setPan({ x: 0, y: 0 });
@@ -112,7 +125,7 @@ const EnhancePlayer: React.FC<EnhancePlayerProps> = ({
                     });
                 }, 500);
 
-                const resultUrl = await onPreviewGenerate(aiSettings);
+                const resultUrl = await onPreviewGenerate(aiSettings, autoSave);
 
                 clearInterval(progressInterval);
 
@@ -167,10 +180,6 @@ const EnhancePlayer: React.FC<EnhancePlayerProps> = ({
     const handleMouseDown = (e: React.MouseEvent) => {
         // Only pan if middle click or spacebar held (video editor style) or just standard drag if fit mode logic requires it
         // For this UI, let's treat left drag as Pan unless interactive split
-        if (viewMode === 'split' && isCursorOnSplitter(e)) {
-            setIsDraggingSplit(true);
-            return;
-        }
 
         // Compare Logic (Click and Hold)
         if (viewMode === 'single' && previewImage) {
@@ -182,10 +191,18 @@ const EnhancePlayer: React.FC<EnhancePlayerProps> = ({
     };
 
     const handleMouseMove = (e: React.MouseEvent) => {
-        if (isDraggingSplit && containerRef.current) {
-            const rect = containerRef.current.getBoundingClientRect();
+        // Use contentRef for split dragging to match the image dimensions
+        const targetRef = contentRef.current ? contentRef : containerRef;
+
+        if (isDraggingSplit && targetRef.current) {
+            e.preventDefault();
+            const rect = targetRef.current.getBoundingClientRect();
+
+            // Calculate relative to the specific container bounds (image for split view)
             const x = e.clientX - rect.left;
-            setSplitPosition(Math.max(0, Math.min(100, (x / rect.width) * 100)));
+            const percentage = (x / rect.width) * 100;
+
+            setSplitPosition(Math.max(0, Math.min(100, percentage)));
             return;
         }
 
@@ -204,9 +221,7 @@ const EnhancePlayer: React.FC<EnhancePlayerProps> = ({
     };
 
     const isCursorOnSplitter = (e: React.MouseEvent) => {
-        if (!contentRef.current || viewMode !== 'split') return false;
-        // Simple heuristic or actual hit test
-        return false; // Delegated to specific splitter element events
+        return false; // Deprecated
     };
 
     // Helper to render the image content based on mode
@@ -246,16 +261,49 @@ const EnhancePlayer: React.FC<EnhancePlayerProps> = ({
 
         if (viewMode === 'split' && previewImage) {
             return (
-                <div className="relative w-full h-full flex items-center justify-center" style={viewportStyle}>
-                    {/* Split View ignores Fit mostly to allow precise pixel peeping, but we can default to fit container if isFit */}
-                    <div className={isFit ? "relative inline-block h-full" : "relative inline-block"}>
-                        <img src={sourceImage.dataUrl} alt="Original" draggable={false} className={isFit ? "h-full object-contain block select-none" : "block select-none"} />
+                <div className="relative w-full h-full flex items-center justify-center">
+                    {/* Split View Container - Applies Zoom/Pan */}
+                    <div
+                        ref={contentRef}
+                        className="relative inline-block"
+                        style={isFit ? { height: '100%' } : { transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: 'center' }}
+                    >
+
+                        {/* 1. Underlying: Enhanced Image (Sets Dimensions) */}
+                        <img
+                            src={previewImage}
+                            alt="Enhanced"
+                            className={isFit ? "h-full object-contain block select-none pointer-events-none" : "block select-none pointer-events-none"}
+                        />
+
+                        {/* 2. Overlay: Original Image (Scaled to match Enhanced) */}
+                        <img
+                            src={sourceImage.dataUrl}
+                            alt="Original"
+                            className={isFit ? "absolute top-0 left-0 h-full w-full object-contain block select-none pointer-events-none" : "absolute top-0 left-0 w-full h-full block select-none pointer-events-none"}
+                            style={{
+                                clipPath: `inset(0 ${100 - splitPosition}% 0 0)`
+                            }}
+                        />
+
+                        {/* 3. Drag Handle */}
                         <div
-                            className="absolute inset-0 overflow-hidden border-r-2 border-white pointer-events-none select-none"
-                            style={{ width: `${splitPosition}%` }}
+                            className="absolute top-0 bottom-0 w-4 cursor-col-resize z-20 hover:bg-white/10 group flex items-center justify-center"
+                            style={{ left: `${splitPosition}%`, transform: 'translateX(-50%)' }}
+                            onMouseDown={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                setIsDraggingSplit(true);
+                            }}
                         >
-                            <img src={previewImage} alt="Enhanced" draggable={false} className="w-full h-full object-cover" />
+                            {/* Visual Line */}
+                            <div className="w-0.5 h-full bg-white shadow-[0_0_10px_rgba(0,0,0,0.5)]"></div>
+                            {/* Handle Icon */}
+                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 bg-white rounded-full shadow-xl flex items-center justify-center text-black">
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l4-4 4 4m0 6l-4 4-4-4" transform="rotate(90 12 12)" /></svg>
+                            </div>
                         </div>
+
                     </div>
                 </div>
             );
@@ -267,7 +315,8 @@ const EnhancePlayer: React.FC<EnhancePlayerProps> = ({
 
     // View Controls Overlay (Left Vertical Floating Bar matching User Screenshot)
     const renderViewControls = () => (
-        <div className="absolute top-1/2 left-4 transform -translate-y-1/2 flex flex-col gap-3 bg-[#0a0a0a] p-2 rounded-2xl border border-gray-800 shadow-2xl z-30">
+        <div className="absolute top-1/2 left-4 transform -translate-y-1/2 flex flex-col gap-3 bg-[#0a0a0a] p-2 rounded-2xl border border-gray-800 shadow-2xl z-30"
+            onMouseDown={(e) => e.stopPropagation()}>
             {/* Square (Single View - Fit) */}
             <button
                 onClick={() => { setViewMode('single'); setZoom('fit'); setPan({ x: 0, y: 0 }); }}
@@ -355,6 +404,29 @@ const EnhancePlayer: React.FC<EnhancePlayerProps> = ({
         </div>
     );
 
+    // Dimensions State
+    const [previewDimensions, setPreviewDimensions] = useState<{ width: number, height: number } | null>(null);
+
+    // Reset dimensions when image changes
+    useEffect(() => {
+        setPreviewDimensions(null);
+
+        // Pre-calculate expected dimensions based on settings if available
+        if (sourceImage && (aiSettings?.target_megapixels || upscaleSettings?.targetMegapixels)) {
+            const targetMp = aiSettings?.target_megapixels || upscaleSettings?.targetMegapixels;
+            if (targetMp) {
+                const sourceMp = (sourceImage.width || 0) * (sourceImage.height || 0) / 1000000;
+                if (sourceMp > 0) {
+                    const scaleFactor = Math.sqrt(targetMp / sourceMp);
+                    setPreviewDimensions({
+                        width: Math.round((sourceImage.width || 0) * scaleFactor),
+                        height: Math.round((sourceImage.height || 0) * scaleFactor)
+                    });
+                }
+            }
+        }
+    }, [sourceImage.id, previewImage, aiSettings?.target_megapixels, upscaleSettings?.targetMegapixels]); // Update when settings change
+
     return (
         <div className="flex flex-col h-full bg-black select-none text-sans">
             {/* Top Menu Bar */}
@@ -364,20 +436,25 @@ const EnhancePlayer: React.FC<EnhancePlayerProps> = ({
                     <div className="h-4 w-px bg-gray-700 mx-2"></div>
                     <button className="text-xs text-gray-400 hover:text-white uppercase tracking-wide">View</button>
                     <button className="text-xs text-gray-400 hover:text-white uppercase tracking-wide">Export</button>
+                    {isBatchProcessing && <span className="text-xs text-purple-400 font-bold animate-pulse">BATCH MODE</span>}
                 </div>
                 <div className="flex items-center gap-4 text-xs font-mono text-gray-400">
                     <span>{sourceImage.width}x{sourceImage.height}</span>
+                    <span className="text-gray-600">→</span>
+                    <span className={previewDimensions ? "text-indigo-400" : "text-gray-600"}>
+                        {previewDimensions ? `${previewDimensions.width}x${previewDimensions.height}` : '???'}
+                    </span>
                     <span className="text-indigo-400">{zoom === 'fit' ? 'FIT' : Math.round(zoom * 100) + '%'}</span>
                 </div>
             </div>
 
             {/* Main Workspace */}
-            <div className="flex-grow flex relative overflow-hidden">
+            <div className="flex-grow flex relative overflow-hidden bg-[#0f0f0f]">
 
                 {/* Viewport (Center Stage) */}
                 <div
                     ref={containerRef}
-                    className="flex-grow bg-[#0f0f0f] relative overflow-hidden flex items-center justify-center"
+                    className="flex-grow relative overflow-hidden flex items-center justify-center cursor-default"
                     onWheel={handleWheel}
                     onMouseDown={handleMouseDown}
                     onMouseMove={handleMouseMove}
@@ -410,6 +487,22 @@ const EnhancePlayer: React.FC<EnhancePlayerProps> = ({
                     )}
                 </div>
 
+                {/* Hidden Measure Image */}
+                {previewImage && !previewDimensions && (
+                    <img
+                        src={previewImage}
+                        alt="Measure"
+                        className="absolute top-0 left-0 opacity-0 pointer-events-none -z-50"
+                        style={{ width: '1px', height: '1px' }}
+                        onLoad={(e) => {
+                            const img = e.currentTarget;
+                            if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+                                setPreviewDimensions({ width: img.naturalWidth, height: img.naturalHeight });
+                            }
+                        }}
+                    />
+                )}
+
                 {/* Right Sidebar (Control Panel) */}
                 <div className="w-80 bg-[#141414] border-l border-[#2a2a2a] flex flex-col z-20 overflow-hidden shadow-xl">
                     <div className="p-4 border-b border-[#2a2a2a]">
@@ -440,6 +533,9 @@ const EnhancePlayer: React.FC<EnhancePlayerProps> = ({
                                     onChange={onAiSettingsChange}
                                     preset="standard"
                                     availableProviders={availableProviders}
+                                    promptHistory={promptHistory}
+                                    autoSave={autoSave}
+                                    onAutoSaveChange={setAutoSave}
                                 />
                             ) : (
                                 <div className="text-center text-gray-500 text-sm py-4">No AI Settings Available</div>
@@ -451,10 +547,8 @@ const EnhancePlayer: React.FC<EnhancePlayerProps> = ({
 
             {/* Bottom Bar (Timeline & Transport) */}
             <div className="bg-[#141414] border-t border-[#2a2a2a] px-4 py-2 z-20 flex flex-col gap-2">
-
                 {/* Timeline Visualization */}
                 <div className="w-full flex h-8 items-stretch bg-black rounded-md overflow-hidden border border-gray-800 relative">
-                    {/* Background Stages */}
                     {processingStages.length > 0 ? processingStages.map((stage, idx) => (
                         <div key={idx} className="flex-1 border-r border-gray-900 bg-[#111] relative group flex items-center justify-center">
                             {/* Progress Fill */}
@@ -477,8 +571,8 @@ const EnhancePlayer: React.FC<EnhancePlayerProps> = ({
                 {/* Transport Controls */}
                 <div className="flex items-center justify-between">
                     {/* Left - Time/Status */}
-                    <div className="w-1/3 text-xs text-gray-500 font-mono">
-                        {isProcessing ? `PROCESSING > STAGE ${activeStageIndex + 1}/${processingStages.length}` : 'IDLE'}
+                    <div className="w-1/3 text-xs text-gray-500 font-mono flex items-center gap-2">
+                        <span>{isProcessing ? `PROCESSING > STAGE ${activeStageIndex + 1}/${processingStages.length}` : 'IDLE'}</span>
                     </div>
 
                     {/* Center - Buttons */}
@@ -486,22 +580,34 @@ const EnhancePlayer: React.FC<EnhancePlayerProps> = ({
                         <button className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded transition-colors" title="Jump to Start">
                             <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" /></svg>
                         </button>
-                        <button className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded transition-colors" title="Step Back">
+                        <button
+                            onClick={() => onNavigate && onNavigate('prev')}
+                            disabled={!hasPrev}
+                            className={`p-2 rounded transition-colors ${hasPrev ? 'text-gray-400 hover:text-white hover:bg-white/10' : 'text-gray-700 cursor-not-allowed'}`}
+                            title="Step Back"
+                        >
                             <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M11 19V5l-7 7 7 7zm1-14v14l7-7-7-7z" /></svg>
                         </button>
 
-                        <button
-                            onClick={simulateProcessing}
-                            className={`mx-2 w-10 h-10 flex items-center justify-center rounded-full transition-all shadow-lg ${isProcessing ? 'bg-red-900/50 text-red-500 border border-red-500/50' : 'bg-indigo-600 text-white hover:bg-indigo-500 hover:scale-105'}`}
-                        >
-                            {isProcessing ? (
-                                <svg className="w-5 h-5 animate-pulse" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
-                            ) : (
-                                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
-                            )}
-                        </button>
+                        <div className="flex flex-col items-center">
+                            <button
+                                onClick={simulateProcessing}
+                                className={`mx-2 w-10 h-10 flex items-center justify-center rounded-full transition-all shadow-lg ${isProcessing ? 'bg-red-900/50 text-red-500 border border-red-500/50' : 'bg-indigo-600 text-white hover:bg-indigo-500 hover:scale-105'}`}
+                            >
+                                {isProcessing ? (
+                                    <svg className="w-5 h-5 animate-pulse" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
+                                ) : (
+                                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+                                )}
+                            </button>
+                        </div>
 
-                        <button className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded transition-colors" title="Step Forward">
+                        <button
+                            onClick={() => onNavigate && onNavigate('next')}
+                            disabled={!hasNext}
+                            className={`p-2 rounded transition-colors ${hasNext ? 'text-gray-400 hover:text-white hover:bg-white/10' : 'text-gray-700 cursor-not-allowed'}`}
+                            title="Step Forward"
+                        >
                             <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M4 19l7-7-7-7v14zm9-14v14l7-7-7-7z" /></svg>
                         </button>
                         <button className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded transition-colors" title="Jump to End">
@@ -510,13 +616,15 @@ const EnhancePlayer: React.FC<EnhancePlayerProps> = ({
                     </div>
 
                     {/* Right - Meta */}
-                    <div className="w-1/3 flex justify-end text-xs text-gray-500">
-                        {activeStageIndex > -1 ? Math.round(processingStages[activeStageIndex]?.progress || 0) + '%' : 'READY'}
+                    <div className="w-1/3 flex justify-end text-xs text-gray-500 items-center gap-4">
+
+                        <span>{activeStageIndex > -1 ? Math.round(processingStages[activeStageIndex]?.progress || 0) + '%' : 'READY'}</span>
                     </div>
                 </div>
             </div>
         </div>
     );
 };
+
 
 export default EnhancePlayer;

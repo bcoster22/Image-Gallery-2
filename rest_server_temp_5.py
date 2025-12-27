@@ -36,6 +36,7 @@ import sys
 import subprocess
 import urllib.request
 from threading import Thread
+import gc
 try:
     import pynvml
 except ImportError:
@@ -66,9 +67,11 @@ class AdvancedModelService:
                 from base64 import b64decode
                 header, encoded = url.split(",", 1)
                 data = b64decode(encoded)
-                return Image.open(io.BytesIO(data)).convert("RGB")
+                with io.BytesIO(data) as buffer:
+                    return Image.open(buffer).convert("RGB").copy()  # .copy() to detach from buffer
             elif url.startswith("http"):
-                 return Image.open(requests.get(url, stream=True).raw).convert("RGB")
+                with requests.get(url, stream=True) as response:
+                    return Image.open(response.raw).convert("RGB").copy()
         except Exception as e:
             print(f"Error downloading image: {e}")
         return None
@@ -77,19 +80,63 @@ class AdvancedModelService:
         if self.current_model_id == model_id and self.model is not None:
              return True
              
-        # Unload
-        if self.model:
+        # Proper Unload with CPU offload
+        if self.model is not None:
+             try:
+                 # Move to CPU first to release VRAM
+                 if hasattr(self.model, 'cpu'):
+                     self.model.cpu()
+             except: pass
+             
+             # Delete references in order
+             if hasattr(self, 'processor') and self.processor is not None:
+                 del self.processor
+                 self.processor = None
+                 
+             if hasattr(self, 'tokenizer') and self.tokenizer is not None:
+                 del self.tokenizer
+                 self.tokenizer = None
+                 
+             if hasattr(self, 'labels') and self.labels is not None:
+                 del self.labels
+                 self.labels = None
+             
              del self.model
-             del self.processor
-             del self.tokenizer
-             torch.cuda.empty_cache()
              self.model = None
-             self.labels = None
+             
+             # Aggressive cleanup
+             import gc
+             gc.collect()
+             gc.collect() # Double collect
+             
+             if torch.cuda.is_available():
+                 torch.cuda.empty_cache()
+                 torch.cuda.ipc_collect()
+                 torch.cuda.synchronize()  # Ensure all CUDA operations complete
+             
+             # TRACKER UPDATE: Record manual unload
+             if 'model_memory_tracker' in globals() and self.current_model_id:
+                 try:
+                     model_memory_tracker.track_model_unload(self.current_model_id)
+                 except: pass
+
+             # Broadcast unload event
+             try:
+                 requests.post("http://localhost:3001/log", json={
+                     "level": "INFO", 
+                     "message": f"[Backend] Unloaded model to free VRAM.",
+                     "source": "AdvancedModelService"
+                 }, timeout=1)
+             except: pass
         
         print(f"[Advanced] Loading {model_id}...")
         
+        # Clean up old quantization config if it exists
+        if hasattr(self, 'bnb_config'):
+            del self.bnb_config
+            
         # 4-Bit Config
-        bnb_config = BitsAndBytesConfig(
+        self.bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_compute_dtype=torch.bfloat16,
             bnb_4bit_quant_type="nf4",
@@ -132,6 +179,13 @@ class AdvancedModelService:
                 
             self.current_model_id = model_id
             print(f"[Advanced] Loaded {model_id} successfully.")
+            try:
+                 requests.post("http://localhost:3001/log", json={
+                     "level": "INFO", 
+                     "message": f"Successfully loaded model: {model_id}",
+                     "source": "AdvancedModelService"
+                 }, timeout=1)
+            except: pass
             
             if 'model_memory_tracker' in globals():
                 model_memory_tracker.track_model_load(model_id, model_id)
@@ -139,61 +193,76 @@ class AdvancedModelService:
             return True
         except Exception as e:
             print(f"[Advanced] Failed to load {model_id}: {e}")
+            try:
+                 requests.post("http://localhost:3001/log", json={
+                     "level": "ERROR", 
+                     "message": f"Failed to load model {model_id}: {str(e)}",
+                     "source": "AdvancedModelService"
+                 }, timeout=1)
+            except: pass
             return False
 
     def run(self, model_id, prompt, image_url):
         image = self.download_image(image_url)
         if not image: raise Exception("Failed to load image")
         
-        if "wd-vit-tagger-v3" in model_id:
-            # WD14 Logic - Extract Tags AND Scores
-            inputs = self.processor(images=image, return_tensors="pt").to("cuda")
-            with torch.no_grad():
-                outputs = self.model(**inputs)
-            
-            logits = outputs.logits[0]
-            probs = torch.sigmoid(logits).cpu().numpy()
-            
-            # Format results
-            results = { "tags": [], "scores": {} }
-            
-            # Extract
-            for i, score in enumerate(probs):
-                label = self.labels[i]
+        try:
+            if "wd-vit-tagger-v3" in model_id:
+                # WD14 Logic - Extract Tags AND Scores
+                inputs = self.processor(images=image, return_tensors="pt").to("cuda")
+                with torch.no_grad():
+                    outputs = self.model(**inputs)
                 
-                # Check for Rating tags
-                if label.startswith("rating:"):
-                    # rating:general, rating:explicit, etc.
-                    clean_name = label.replace("rating:", "")
-                    results["scores"][clean_name] = float(score)
+                logits = outputs.logits[0]
+                probs = torch.sigmoid(logits).cpu().numpy()
                 
-                # Standard tags (threshold 0.35)
-                elif score > 0.35:
-                     # Escape special chars if needed
-                     results["tags"].append(label)
-                     
-            return json.dumps(results)
+                # Format results
+                results = { "tags": [], "scores": {} }
+                
+                # Extract
+                for i, score in enumerate(probs):
+                    label = self.labels[i]
+                    
+                    # Check for Rating tags
+                    if label.startswith("rating:"):
+                        # rating:general, rating:explicit, etc.
+                        clean_name = label.replace("rating:", "")
+                        results["scores"][clean_name] = float(score)
+                    
+                    # Standard tags (threshold 0.35)
+                    elif score > 0.35:
+                         # Escape special chars if needed
+                         results["tags"].append(label)
+                         
+                return json.dumps(results)
 
-        elif "moondream" in model_id:
-            enc_image = self.model.encode_image(image)
-            return self.model.answer_question(enc_image, prompt, self.tokenizer)
+            elif "moondream" in model_id:
+                enc_image = self.model.encode_image(image)
+                return self.model.answer_question(enc_image, prompt, self.tokenizer)
 
-        elif "florence" in model_id:
-             task_prompt = "<MORE_DETAILED_CAPTION>"
-             if "tag" in prompt.lower(): task_prompt = "<OD>" 
-             inputs = self.processor(text=task_prompt, images=image, return_tensors="pt").to("cuda")
-             generated_ids = self.model.generate(
-                  input_ids=inputs["input_ids"],
-                  pixel_values=inputs["pixel_values"],
-                  max_new_tokens=1024,
-                  do_sample=False,
-                  num_beams=3
-             )
-             generated_text = self.processor.batch_decode(generated_ids, skip_special_tokens=False)[0]
-             parsed = self.processor.post_process_generation(generated_text, task=task_prompt, image_size=(image.width, image.height))
-             return parsed.get(task_prompt, str(parsed))
-             
-        return "Model not supported"
+            elif "florence" in model_id:
+                 task_prompt = "<MORE_DETAILED_CAPTION>"
+                 if "tag" in prompt.lower(): task_prompt = "<OD>" 
+                 inputs = self.processor(text=task_prompt, images=image, return_tensors="pt").to("cuda")
+                 generated_ids = self.model.generate(
+                      input_ids=inputs["input_ids"],
+                      pixel_values=inputs["pixel_values"],
+                      max_new_tokens=1024,
+                      do_sample=False,
+                      num_beams=3
+                 )
+                 generated_text = self.processor.batch_decode(generated_ids, skip_special_tokens=False)[0]
+                 parsed = self.processor.post_process_generation(generated_text, task=task_prompt, image_size=(image.width, image.height))
+                 return parsed.get(task_prompt, str(parsed))
+                 
+            return "Model not supported"
+        finally:
+            # CRITICAL: Close PIL image to free RAM
+            if image:
+                try:
+                    image.close()
+                except:
+                    pass
 
 class HardwareMonitor:
     def __init__(self):
@@ -373,7 +442,15 @@ class ModelMemoryTracker:
             if variance > 1500: # Threshold 1.5GB
                 self.ghost_vram_mb = int(variance)
                 self.zombie_detected = True
-                print(f"[Tracker] ZOMBIE DETECTED! Expected: {expected_total_vram}MB, Actual: {effective_vram:.0f}MB, Ghost: {variance:.0f}MB")
+                msg = f"[Tracker] ZOMBIE DETECTED! Expected: {expected_total_vram}MB, Actual: {effective_vram:.0f}MB, Ghost: {variance:.0f}MB"
+                print(msg)
+                try:
+                     requests.post("http://localhost:3001/log", json={
+                         "level": "ERROR", 
+                         "message": msg,
+                         "source": "ModelMemoryTracker"
+                     }, timeout=1)
+                except: pass
             else:
                 self.ghost_vram_mb = 0
                 self.zombie_detected = False
@@ -420,6 +497,12 @@ class ModelMemoryTracker:
 # Global tracker instance
 model_memory_tracker = ModelMemoryTracker()
 model_memory_tracker.record_baseline()
+
+# Initialize Diagnostician (Refactored)
+from moondream_station.core.system_diagnostics import SystemDiagnostician
+# Config root is relative to this file
+_config_root = os.path.dirname(__file__)
+system_diagnostician = SystemDiagnostician(_config_root)
 
 
 from threading import Thread
@@ -648,34 +731,164 @@ class RestServer:
         )
         self.server = None
         self.server_thread = None
+
+        # Zombie Killer Init
+        self.zombie_killer_enabled = False 
+        self.zombie_check_interval = 30
+        Thread(target=self._zombie_monitor_loop, daemon=True).start()
+
         self._setup_routes()
+
+    def _zombie_monitor_loop(self):
+        print("[System] Zombie Killer Monitor Thread Started")
+        while True:
+            try:
+                if self.zombie_killer_enabled:
+                    self._check_zombies()
+            except Exception as e:
+                print(f"[System] Zombie Monitor Error: {e}")
+            
+            # Sleep for interval (min 5s)
+            time.sleep(max(5, self.zombie_check_interval))
+
+    def _check_zombies(self):
+        if not self.zombie_killer_enabled: return
+
+        # Check if Tracker detects zombie
+        # We access the global model_memory_tracker
+        if model_memory_tracker.zombie_detected:
+             print(f"[ZombieKiller] 🧟 ZOMBIE DETECTED! (Ghost: {model_memory_tracker.last_ghost_size_mb:.1f}MB). Terminating...")
+             
+             # 1. Unload everything
+             try:
+                 if hasattr(self, "inference_service") and self.inference_service:
+                     self.inference_service.unload_model()
+             except: pass
+                 
+             try:
+                 if sdxl_backend_new:
+                     sdxl_backend_new.unload_backend()
+             except: pass
+                 
+             # 2. Reset Tracker
+             model_memory_tracker.loaded_models.clear()
+             model_memory_tracker.zombie_detected = False
+             model_memory_tracker.update_memory_usage()
+             
+             # 3. Force GC
+             gc.collect()
+             if torch.cuda.is_available():
+                 torch.cuda.empty_cache()
+                 
+             print("[ZombieKiller] 🔫 Headshot! Zombie memory cleared.")
 
     def _sse_event_generator(self, raw_generator):
         # ... (remains same)
         token_count = 0
         start_time = time.time()
 
-        for token in raw_generator:
-            token_count += 1
-            yield f"data: {json.dumps({'chunk': token})}\n\n"
+        try:
+            for token in raw_generator:
+                token_count += 1
+                yield f"data: {json.dumps({'chunk': token})}\\n\\n"
 
-        # Send final stats
-        duration = time.time() - start_time
-        if duration > 0 and token_count > 0:
-            tokens_per_sec = round(token_count / duration, 1)
-            stats = {
-                "tokens": token_count,
-                "duration": round(duration, 2),
-                "tokens_per_sec": tokens_per_sec,
-            }
-            yield f"data: {json.dumps({'stats': stats})}\n\n"
+            # Send final stats
+            duration = time.time() - start_time
+            if duration > 0 and token_count > 0:
+                tokens_per_sec = round(token_count / duration, 1)
+                stats = {
+                    "tokens": token_count,
+                    "duration": round(duration, 2),
+                    "tokens_per_sec": tokens_per_sec,
+                }
+                yield f"data: {json.dumps({'stats': stats})}\\n\\n"
 
-        yield f"data: {json.dumps({'completed': True})}\n\n"
+            yield f"data: {json.dumps({'completed': True})}\\n\\n"
+        except GeneratorExit:
+            # Client disconnected - cleanup
+            print("[SSE] Client disconnected, cleaning up generator")
+            try:
+                raw_generator.close()
+            except:
+                pass
+        finally:
+            # Ensure generator is closed
+            if hasattr(raw_generator, 'close'):
+                try:
+                    raw_generator.close()
+                except:
+                    pass
 
     def _setup_routes(self):
         @self.app.get("/health")
+        @self.app.get("/v1/health")
         async def health():
             return {"status": "ok", "server": "moondream-station"}
+
+        @self.app.get("/diagnostics/scan")
+        async def run_diagnostics():
+            """Run all system diagnostics checks"""
+            # Pass strict dependency logic, including memory tracker for Ghost VRAM detection
+            return system_diagnostician.run_all_checks(
+                nvidia_available=hw_monitor.nvidia_available,
+                memory_tracker=model_memory_tracker
+            )
+
+        @self.app.post("/diagnostics/fix/{fix_id}")
+        async def fix_diagnostic(fix_id: str):
+            """Execute a fix for a specific diagnostic issue"""
+            result = system_diagnostician.apply_fix(fix_id)
+            if not result["success"]:
+                 raise HTTPException(status_code=500, detail=result["message"])
+            return result
+
+        @self.app.post("/diagnostics/setup-autofix")
+        async def setup_autofix(request: Request):
+            """
+            Run the Auto Fix setup script with sudo password.
+            This configures passwordless sudo for the fix wrapper script.
+            """
+            import subprocess
+            
+            try:
+                body = await request.json()
+                password = body.get("password", "")
+                
+                if not password:
+                    raise HTTPException(status_code=400, detail="Password required")
+                
+                # Path to setup script
+                script_path = os.path.join(_config_root, "scripts", "setup", "setup_gpu_reset.sh")
+                
+                if not os.path.exists(script_path):
+                    raise HTTPException(status_code=500, detail=f"Setup script not found: {script_path}")
+                
+                # Execute with sudo -S (read password from stdin)
+                process = subprocess.Popen(
+                    ["sudo", "-S", "bash", script_path],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                
+                stdout, stderr = process.communicate(input=password + "\n", timeout=30)
+                
+                if process.returncode == 0:
+                    return {"success": True, "message": "Auto Fix setup completed successfully"}
+                else:
+                    # Check for auth failure
+                    if "Sorry, try again" in stderr or "authentication failure" in stderr.lower():
+                        raise HTTPException(status_code=401, detail="Incorrect password")
+                    raise HTTPException(status_code=500, detail=f"Setup failed: {stderr}")
+                    
+            except subprocess.TimeoutExpired:
+                raise HTTPException(status_code=504, detail="Setup script timed out")
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
 
         @self.app.get("/metrics")
         async def metrics():
@@ -685,6 +898,13 @@ class RestServer:
                 memory = psutil.virtual_memory().percent
                 gpus = hw_monitor.get_gpus()
                 env = hw_monitor.get_environment_status()
+                
+                # Add Process Memory
+                try:
+                    proc = psutil.Process()
+                    env["process_memory_mb"] = proc.memory_info().rss / (1024 * 1024)
+                except:
+                    env["process_memory_mb"] = 0
                 
                 # Determine primary device
                 device = "CPU"
@@ -760,23 +980,8 @@ class RestServer:
                 from fastapi import HTTPException
                 raise HTTPException(status_code=500, detail=str(e))
 
-        @self.app.post("/v1/system/unload")
-        async def unload_model():
-            """Force unload the current model from memory"""
-            try:
-                # Unload Moondream
-                if hasattr(self, "inference_service") and self.inference_service:
-                    self.inference_service.unload_model()
-                
-                # Unload SDXL
-                if sdxl_backend_new:
-                 sdxl_backend_new.unload_backend()
+        # Unload route moved to end of file to support updated logic
 
-                return {"status": "success", "message": "All models unloaded and VRAM cleared"}
-            except Exception as e:
-                import traceback
-                traceback.print_exc()
-                return {"status": "error", "message": str(e)}
 
         
         @self.app.post("/v1/system/update-packages")
@@ -808,34 +1013,203 @@ class RestServer:
 
                 # Construct command: npm install pkg1@latest pkg2@latest ...
                 # We assume we are in the project root where package.json exists.
-                # The server is started from project root, so cwd should be correct.
-                # We verify package.json exists just in case.
-                if not os.path.exists("package.json"):
-                     return JSONResponse(status_code=500, content={"status": "error", "message": "package.json not found in server root"})
-
-                cmd = ["npm", "install"] + [f"{p}@latest" for p in safe_packages]
-                print(f"Executing: {' '.join(cmd)}")
+                cmd = ["npm", "install"] + [f"{pkg}@latest" for pkg in safe_packages]
                 
-                # Execute
+                print(f"[System] Updating frontend packages: {' '.join(cmd)}")
+                
                 process = subprocess.run(
                     cmd,
                     capture_output=True,
                     text=True,
-                    timeout=300 # 5 minutes max for install
+                    timeout=300 # 5 minutes
                 )
                 
                 if process.returncode == 0:
-                    return {"status": "success", "message": f"Updated {len(safe_packages)} packages.", "output": process.stdout}
+                    return {"status": "success", "message": f"Successfully updated: {', '.join(safe_packages)}"}
                 else:
-                    print(f"Update failed: {process.stderr}")
-                    return JSONResponse(status_code=500, content={"status": "error", "message": "Update failed", "details": process.stderr})
-
-            except subprocess.TimeoutExpired:
-                 return JSONResponse(status_code=504, content={"status": "error", "message": "Update timed out"})
+                    return JSONResponse(status_code=500, content={
+                        "status": "error", 
+                        "message": "Update failed", 
+                        "details": process.stderr
+                    })
+                    
             except Exception as e:
-                import traceback
-                traceback.print_exc()
                 return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+        @self.app.get("/v1/system/backend-version")
+        async def get_backend_versions():
+            """
+            Get versions of key backend libraries and check for critical updates.
+            """
+            import importlib.metadata
+            import torch
+            from packaging import version
+            import sys
+            
+            libs = ['torch', 'torchvision', 'torchaudio', 'diffusers', 'transformers', 'accelerate', 'moondream']
+            versions = {}
+            for lib in libs:
+                try:
+                    versions[lib] = importlib.metadata.version(lib)
+                except importlib.metadata.PackageNotFoundError:
+                    versions[lib] = "Not Installed"
+
+            # Check for critical vulnerability CVE-2025-32434
+            current_torch = versions.get('torch', '0.0.0').split('+')[0]
+            has_critical_update = False
+            critical_message = ""
+            
+            try:
+                if version.parse(current_torch) < version.parse("2.6.0"):
+                    has_critical_update = True
+                    critical_message = "CRITICAL: Torch version < 2.6.0 detected. Vulnerability CVE-2025-32434 present. Upgrade immediately."
+            except:
+                pass
+
+            return {
+                "versions": versions,
+                "has_critical_update": has_critical_update,
+                "critical_message": critical_message,
+                "python_version": sys.version.split(' ')[0],
+                "platform": sys.platform
+            }
+
+        @self.app.post("/v1/system/upgrade-backend")
+        async def upgrade_backend():
+            """
+            Upgrade backend dependencies to fix security vulnerabilities.
+            Specifically targets torch 2.6.0+ and compatible libraries.
+            """
+            import subprocess
+            import sys
+            from fastapi.responses import JSONResponse
+            
+            # Command to upgrade torch, torchvision, torchaudio to 2.6.0+ for CUDA 12.4 (compatible with 12.6)
+            # We use --no-cache-dir to ensure we get fresh wheels
+            # We explicitly target the index url for compatibility
+            pip_cmd = [
+                sys.executable, "-m", "pip", "install", 
+                "torch>=2.6.0", "torchvision>=0.21.0", "torchaudio>=2.6.0", 
+                "diffusers>=0.36.0", "transformers>=4.48.0", "accelerate>=1.3.0",
+                "--index-url", "https://download.pytorch.org/whl/cu124", 
+                "--upgrade", "--no-cache-dir"
+            ]
+            
+            print(f"[System] Upgrading backend: {' '.join(pip_cmd)}")
+            
+            try:
+                process = subprocess.run(
+                    pip_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=600 # 10 minutes for big downloads
+                )
+                
+                if process.returncode == 0:
+                    return {"status": "success", "message": "Backend upgraded successfully. Please restart the backend server."}
+                else:
+                    return JSONResponse(status_code=500, content={
+                        "status": "error", 
+                        "message": "Upgrade failed", 
+                        "details": process.stderr[-1000:] # Last 1000 chars
+                    })
+            except subprocess.TimeoutExpired:
+                 return JSONResponse(status_code=504, content={"status": "error", "message": "Upgrade timed out (download taking too long). Check server logs."})
+            except Exception as e:
+                return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+        @self.app.get("/v1/system/verify-backend")
+        async def verify_backend():
+            """
+            Run comprehensive system health checks.
+            """
+            import torch
+            import shutil
+            import subprocess
+            import time
+            import requests
+            from packaging import version
+            import importlib.metadata
+            import sys
+            from fastapi.responses import JSONResponse
+            
+            checks = []
+            all_passed = True
+            
+            def add_result(name, passed, message):
+                nonlocal all_passed
+                if not passed: all_passed = False
+                checks.append({"name": name, "passed": passed, "message": message})
+
+            # 1. Framework Versions
+            try:
+                torch_ver = importlib.metadata.version('torch')
+                if version.parse(torch_ver) >= version.parse("2.6.0"):
+                    add_result("PyTorch Version", True, f"v{torch_ver} (Secure)")
+                else:
+                    add_result("PyTorch Version", False, f"v{torch_ver} (Insecure - CVE-2025-32434)")
+            except:
+                add_result("PyTorch Version", False, "Not Installed")
+
+            # 2. CUDA Availability
+            if torch.cuda.is_available():
+                device_name = torch.cuda.get_device_name(0)
+                add_result("CUDA GPU", True, f"Available: {device_name}")
+            else:
+                add_result("CUDA GPU", False, "Not available (Running on CPU)")
+
+            # 3. VRAM Check
+            try:
+                if torch.cuda.is_available():
+                    free_mem = torch.cuda.mem_get_info()[0] / 1024**3
+                    total_mem = torch.cuda.mem_get_info()[1] / 1024**3
+                    add_result("VRAM", True, f"{free_mem:.1f}GB free / {total_mem:.1f}GB total")
+                else:
+                    add_result("VRAM", True, "N/A (CPU Mode)")
+            except Exception as e:
+                add_result("VRAM", False, f"Error checking VRAM: {str(e)}")
+
+            # 4. Disk Space (Check current directory volume)
+            try:
+                total, used, free = shutil.disk_usage(".")
+                free_gb = free / 1024**3
+                if free_gb > 10:
+                    add_result("Disk Space", True, f"{free_gb:.1f} GB available")
+                elif free_gb > 2:
+                    add_result("Disk Space", True, f"Low space: {free_gb:.1f} GB available (Warning)")
+                else:
+                    add_result("Disk Space", False, f"Critical low space: {free_gb:.1f} GB")
+                    
+            except Exception as e:
+                add_result("Disk Space", False, f"Error: {str(e)}")
+
+            # 5. Network Connectivity (HuggingFace)
+            try:
+                start = time.time()
+                requests.head("https://huggingface.co", timeout=3)
+                latency = (time.time() - start) * 1000
+                add_result("Network (HuggingFace)", True, f"Reachable ({latency:.0f}ms)")
+            except:
+                add_result("Network (HuggingFace)", False, "Unreachable - Models cannot download")
+
+            # 6. FFmpeg Check
+            if shutil.which("ffmpeg"):
+                add_result("FFmpeg", True, "Installed (Video generation ready)")
+            else:
+                add_result("FFmpeg", False, "Not found (Video/Audio generation will fail)")
+                
+            # 7. Functional Test (Tensor Op)
+            try:
+                if torch.cuda.is_available():
+                    x = torch.rand(5, 5).cuda()
+                    y = x * x
+                    add_result("GPU Tensor Op", True, "Pass")
+                else:
+                     add_result("GPU Tensor Op", True, "Skipped (CPU Mode)")
+            except Exception as e:
+                add_result("GPU Tensor Op", False, f"Failed: {str(e)}")
+
+            return {"checks": checks, "overallStatus": "ok" if all_passed else "failed"}
 
         @self.app.get("/v1/system/prime-profile")
         async def get_prime_profile():
@@ -977,6 +1351,16 @@ class RestServer:
                     else:
                         raise gen_err
 
+                # Parse Result (Dict or List)
+                generated_images = []
+                stats = {}
+                
+                if isinstance(result, dict) and "images" in result:
+                    generated_images = result["images"]
+                    stats = result.get("stats", {})
+                else:
+                    generated_images = result # Legacy list support
+                    
                 # Low VRAM Cleanup
                 if vram_mode == "low":
                     print("[VRAM] Low mode: Unloading SDXL after generation.")
@@ -985,7 +1369,13 @@ class RestServer:
                         model_memory_tracker.track_model_unload(requested_model)
                     except: pass
 
-                return {"created": int(time.time()), "data": [{"b64_json": img} for img in result], "images": result, "image": result[0] if result else None}
+                return {
+                    "created": int(time.time()), 
+                    "data": [{"b64_json": img} for img in generated_images], 
+                    "images": generated_images, 
+                    "image": generated_images[0] if generated_images else None,
+                    "stats": stats
+                }
 
             except Exception as e:
                 import traceback
@@ -1042,29 +1432,159 @@ class RestServer:
                     
                     all_models.append(m)
 
-                # 2. Add SDXL Models
+                # 2. Add SDXL Models (with format detection)
                 for model_id, model_info in SDXL_MODELS.items():
                      # Check availability
                      is_downloaded = False
                      try:
-                         if hasattr(self.sdxl_backend, "is_model_downloaded"):
-                             is_downloaded = self.sdxl_backend.is_model_downloaded(model_info.get("hf_id"))
+                         if sdxl_backend_new and hasattr(sdxl_backend_new, "is_model_downloaded"):
+                             is_downloaded = sdxl_backend_new.is_model_downloaded(model_info.get("hf_id"))
                          else:
                              pass
                      except Exception as ex:
                          print(f"Error checking download status for {model_id}: {ex}")
 
+                     # Get file size and detect format
+                     size_bytes = 0
+                     detected_format = None
+                     try:
+                         if sdxl_backend_new and hasattr(sdxl_backend_new, "get_model_file_details"):
+                             file_path, size_bytes = sdxl_backend_new.get_model_file_details(model_info.get("hf_id"))
+                             
+                             # Detect format based on file path
+                             if file_path:
+                                 if os.path.isdir(file_path):
+                                     # Check if it's a Diffusers directory
+                                     if os.path.exists(os.path.join(file_path, "model_index.json")):
+                                         detected_format = "diffusers"
+                                 elif os.path.isfile(file_path):
+                                     ext = os.path.splitext(file_path)[1].lower()
+                                     if ext == '.safetensors':
+                                         detected_format = "safetensors"
+                                     elif ext == '.ckpt':
+                                         detected_format = "ckpt"
+                                     elif ext == '.pt':
+                                         detected_format = "pt"
+                                     elif ext == '.bin':
+                                         detected_format = "bin"
+                     except: 
+                         pass
+
+                     # Build display name with format tag
+                     display_name = model_info["name"]
+                     if detected_format:
+                         format_labels = {
+                             'diffusers': 'Diffusers',
+                             'safetensors': 'SafeTensors',
+                             'ckpt': 'CKPT',
+                             'pt': 'PyTorch',
+                             'bin': 'Binary'
+                         }
+                         format_label = format_labels.get(detected_format, detected_format.upper())
+                         display_name = f"{model_info['name']} [{format_label}]"
+
                      all_models.append({
                         "id": model_id,
-                        "name": model_info["name"],
+                        "name": display_name,
                         "description": model_info["description"],
                         "version": "SDXL",
                         "last_known_vram_mb": model_memory_tracker.get_last_known_vram(model_id) or 6000,
                         "type": "generation",
-                        "is_downloaded": is_downloaded
+                        "is_downloaded": is_downloaded,
+                        "size_bytes": size_bytes,
+                        "format": detected_format
                     })
                 
-                # 3. WD14 Fallback
+                # 3. Dynamic Scan for Local Checkpoints (Enhanced Multi-Format Support)
+                try:
+                    models_dir = os.environ.get("MOONDREAM_MODELS_DIR", os.path.expanduser("~/.moondream-station/models"))
+                    
+                    # Scan multiple directories for models
+                    scan_dirs = [
+                        os.path.join(models_dir, "diffusers"),      # Diffusers format models
+                        os.path.join(models_dir, "checkpoints"),     # Single-file checkpoints  
+                        os.path.join(models_dir, "sdxl-checkpoints") # Legacy directory (if exists)
+                    ]
+                    
+                    # Supported checkpoint formats
+                    CHECKPOINT_FORMATS = {
+                        '.safetensors': 'SafeTensors',
+                        '.ckpt': 'CKPT',
+                        '.pt': 'PyTorch',
+                        '.bin': 'Binary'
+                    }
+                    
+                    for scan_dir in scan_dirs:
+                        if not os.path.exists(scan_dir):
+                            continue
+                            
+                        for item in os.listdir(scan_dir):
+                            full_path = os.path.join(scan_dir, item)
+                            
+                            # Check for Diffusers format (directory with model_index.json)
+                            if os.path.isdir(full_path):
+                                model_index_path = os.path.join(full_path, "model_index.json")
+                                if os.path.exists(model_index_path):
+                                    model_id_inferred = item
+                                    already_listed = any(m["id"] == model_id_inferred for m in all_models)
+                                    
+                                    if not already_listed:
+                                        # Get directory size
+                                        size_bytes = 0
+                                        try:
+                                            for dirpath, dirnames, filenames in os.walk(full_path):
+                                                for f in filenames:
+                                                    fp = os.path.join(dirpath, f)
+                                                    if os.path.exists(fp):
+                                                        size_bytes += os.path.getsize(fp)
+                                        except: pass
+                                        
+                                        all_models.append({
+                                            "id": model_id_inferred,
+                                            "name": f"{item.replace('-', ' ').replace('_', ' ').title()} [Diffusers]",
+                                            "description": "Diffusers format model (directory-based).",
+                                            "version": "Local",
+                                            "last_known_vram_mb": 6000,
+                                            "type": "generation",
+                                            "is_downloaded": True,
+                                            "size_bytes": size_bytes,
+                                            "format": "diffusers"
+                                        })
+                            
+                            # Check for single-file checkpoints
+                            elif os.path.isfile(full_path):
+                                file_ext = os.path.splitext(item)[1].lower()
+                                
+                                if file_ext in CHECKPOINT_FORMATS:
+                                    model_id_inferred = item
+                                    already_listed = any(m["id"] == model_id_inferred for m in all_models)
+                                    
+                                    if not already_listed:
+                                        size_bytes = 0
+                                        try: 
+                                            size_bytes = os.path.getsize(full_path)
+                                        except: pass
+                                        
+                                        # Clean up the name and add format tag
+                                        clean_name = os.path.splitext(item)[0].replace("-", " ").replace("_", " ").title()
+                                        format_tag = CHECKPOINT_FORMATS[file_ext]
+                                        
+                                        all_models.append({
+                                            "id": model_id_inferred,
+                                            "name": f"{clean_name} [{format_tag}]",
+                                            "description": f"Local {format_tag} checkpoint file.",
+                                            "version": "Local",
+                                            "last_known_vram_mb": 6000,
+                                            "type": "generation",
+                                            "is_downloaded": True,
+                                            "size_bytes": size_bytes,
+                                            "format": file_ext[1:]  # Remove the dot
+                                        })
+                
+                except Exception as e:
+                    print(f"Failed to scan local checkpoints: {e}")
+                
+                 # 4. WD14 Fallback
                 has_wd14 = any(m["id"] == "wd14-vit-v2" for m in all_models)
                 if not has_wd14:
                      all_models.append({
@@ -1076,6 +1596,10 @@ class RestServer:
                         "type": "analysis",
                         "is_downloaded": True
                     })
+
+                # Debug: Print models types
+                # for m in all_models:
+                #     print(f"[Debug] Model {m['id']} Type: {m.get('type')}")
 
                 return JSONResponse(content={"models": all_models})
 
@@ -1105,6 +1629,58 @@ class RestServer:
                 import traceback
                 traceback.print_exc()
                 raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post("/v1/system/unload")
+        async def unload_model():
+            """Force unload the current model from memory"""
+            try:
+                # Unload Moondream
+                if hasattr(self, "inference_service") and self.inference_service:
+                    self.inference_service.unload_model()
+                
+                # Unload SDXL
+                if sdxl_backend_new:
+                 sdxl_backend_new.unload_backend()
+                 
+                # CRITICAL Fix: Update Memory Tracker
+                # Since we force unloaded everything, we clear the tracker
+                model_memory_tracker.loaded_models.clear()
+                model_memory_tracker.update_memory_usage() # Update metrics immediately
+
+                return {"status": "success", "message": "All models unloaded and VRAM cleared"}
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                return {"status": "error", "message": str(e)}
+
+        @self.app.get("/v1/system/zombie-killer")
+        async def get_zombie_killer_config():
+            return {
+                "enabled": self.zombie_killer_enabled,
+                "interval": self.zombie_check_interval
+            }
+
+        @self.app.post("/v1/system/zombie-killer")
+        async def set_zombie_killer_config(request: Request):
+            try:
+                data = await request.json()
+                if "enabled" in data:
+                    self.zombie_killer_enabled = bool(data["enabled"])
+                    print(f"[System] Zombie Killer {'ENABLED' if self.zombie_killer_enabled else 'DISABLED'}")
+                if "interval" in data:
+                    self.zombie_check_interval = int(data["interval"])
+                
+                # Immediate check if enabled
+                if self.zombie_killer_enabled:
+                    Thread(target=self._check_zombies, daemon=True).start()
+
+                return {
+                    "status": "success",
+                    "enabled": self.zombie_killer_enabled,
+                    "interval": self.zombie_check_interval
+                }
+            except Exception as e:
+                return {"status": "error", "message": str(e)}
 
         @self.app.get("/v1/samplers")
         async def list_samplers():
