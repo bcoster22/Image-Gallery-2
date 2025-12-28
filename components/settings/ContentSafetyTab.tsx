@@ -26,6 +26,50 @@ export const ContentSafetyTab: React.FC<ContentSafetyTabProps> = ({ settings, on
             <h2 className="text-2xl font-bold text-white mb-4">Content Safety</h2>
             <p className="text-sm text-gray-400 mb-6">Configure automatic NSFW detection and content classification for all images.</p>
 
+            {/* How It Works - Info Box */}
+            <div className="p-4 bg-blue-900/20 border border-blue-500/30 rounded-lg space-y-3 mb-6">
+                <div className="flex items-start gap-3">
+                    <svg className="w-5 h-5 text-blue-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div className="space-y-2">
+                        <h3 className="text-sm font-semibold text-blue-300">How Content Safety Works</h3>
+                        <div className="text-xs text-gray-300 space-y-1.5">
+                            <p>
+                                <strong className="text-blue-200">Rating Detection:</strong> Uses WD14 tagging model to detect 5-level content ratings
+                                (<span className="text-green-400">G</span>, <span className="text-green-300">PG</span>, <span className="text-yellow-300">PG-13</span>, <span className="text-orange-400">R</span>, <span className="text-red-400">X</span>, <span className="text-red-500">XXX</span>).
+                            </p>
+                            <p>
+                                <strong className="text-blue-200">Classification:</strong> Ratings are mapped to binary NSFW/SFW classification.
+                                <span className="text-red-400 ml-1">R, X, XXX</span> → NSFW |
+                                <span className="text-green-400 ml-1">G, PG, PG-13</span> → SFW
+                            </p>
+                            <p>
+                                <strong className="text-blue-200">Confidence Scores:</strong> Extracted from tagging results (e.g., <code className="text-xs bg-gray-800 px-1 py-0.5 rounded">score:explicit:0.95</code> = 95% confidence).
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Setup Requirements */}
+            <div className="p-4 bg-amber-900/20 border border-amber-500/30 rounded-lg space-y-2 mb-6">
+                <div className="flex items-start gap-3">
+                    <svg className="w-5 h-5 text-amber-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div className="space-y-1.5">
+                        <h3 className="text-sm font-semibold text-amber-300">Setup Requirements</h3>
+                        <ol className="text-xs text-gray-300 list-decimal list-inside space-y-1">
+                            <li><strong>Enable WD14 Tagger:</strong> Go to <span className="text-blue-300">Providers → Moondream Local</span> and select a WD14 tagging model</li>
+                            <li><strong>Configure Routing:</strong> Add WD14 to <span className="text-blue-300">Routing → Tagging</span> capability</li>
+                            <li><strong>Enable Content Safety:</strong> Toggle "Enable Safety Filters" below</li>
+                            <li><strong>Adjust Threshold:</strong> Set confidence threshold (80%+ recommended for accuracy)</li>
+                        </ol>
+                    </div>
+                </div>
+            </div>
+
             <div className="p-4 bg-gray-800/50 rounded-lg border border-gray-700 space-y-4">
                 {/* Enable/Disable */}
                 <div className="flex items-center justify-between pb-3 border-b border-gray-700/50">
