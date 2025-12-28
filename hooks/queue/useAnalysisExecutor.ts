@@ -1,5 +1,6 @@
 import React, { useCallback } from 'react';
 import { analyzeImage, batchTagImages } from '../../services/aiService';
+import { logger } from '../../services/loggingService';
 import { resizeImage } from '../../utils/fileUtils';
 import { saveImage } from '../../utils/idb';
 import { ImageInfo, AdminSettings } from '../../types';
@@ -73,6 +74,10 @@ export const useAnalysisExecutor = ({ settings, setStatsHistory, setImages, setS
                 if (original) {
                     const updated = { ...original, keywords: res.tags, analysisFailed: false };
                     setImages(p => p.map(i => i.id === original.id ? updated : i));
+
+                    // Log for verification
+                    logger.info(`[Batch Tagging] Image: ${original.fileName} | Tags: ${res.tags.join(', ')}`, 'BatchProcessor');
+
                     // Note: We don't have recreatingPrompt in WD14 batch mode usually
                     saveImage(updated);
                     updateNotification(original.id, { status: 'success', message: 'Tagged.' });

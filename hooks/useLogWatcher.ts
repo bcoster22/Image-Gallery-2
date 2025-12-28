@@ -21,7 +21,7 @@ export const useLogWatcher = (addNotification: (notification: Omit<Notification,
                 if (!res.ok) return; // Silent fail if server not running
 
                 const data = await res.json();
-                const logs: LogEntry[] = data.logs || [];
+                const logs: LogEntry[] = Array.isArray(data) ? data : (data.logs || []);
 
                 // Process oldest to newest
                 // API usually returns newest first, so we reverse

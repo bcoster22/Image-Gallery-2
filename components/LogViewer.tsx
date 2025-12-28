@@ -24,11 +24,15 @@ export const LogViewer: React.FC<LogViewerProps> = ({ onClose }) => {
     const fetchLogs = async () => {
         try {
             setIsLoading(true);
-            const res = await fetch('http://localhost:3001/logs?limit=200');
-            const data = await res.json();
-            if (data.logs) {
-                // API returns newest first, reverse for terminal view (oldest at top)
-                setLogs(data.logs.reverse());
+            const res = await fetch('http://localhost:3001/log?limit=200');
+            if (res.ok) {
+                const data = await res.json();
+                if (Array.isArray(data)) {
+                    // API returns newest first, reverse for terminal view (oldest at top)
+                    setLogs(data.reverse());
+                } else if (data.logs && Array.isArray(data.logs)) {
+                    setLogs(data.logs.reverse());
+                }
             }
         } catch (e) {
             console.error("Failed to fetch logs", e);
