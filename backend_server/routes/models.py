@@ -1,10 +1,99 @@
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import JSONResponse
 import os
+import glob
+from pathlib import Path
 from backend_server.config import SDXL_MODELS
 from backend_server.monitoring import model_memory_tracker
 
 router = APIRouter()
+
+def discover_models_from_directories(models_dir):
+    """
+    Auto-discover models from checkpoints/ and diffusers/ directories.
+    Returns a list of discovered models with metadata.
+    """
+    discovered = []
+    
+    # Scan checkpoints directory for single-file models
+    checkpoints_dir = os.path.join(models_dir, "checkpoints")
+    if os.path.exists(checkpoints_dir):
+        # Support .safetensors, .ckpt, .bin
+        for ext in ["*.safetensors", "*.ckpt", "*.bin"]:
+            for filepath in glob.glob(os.path.join(checkpoints_dir, ext)):
+                filename = os.path.basename(filepath)
+                name_without_ext = os.path.splitext(filename)[0]
+                file_format = os.path.splitext(filename)[1].replace(".", "")
+                file_size = os.path.getsize(filepath)
+                
+                # Create a model ID from the filename
+                model_id = f"custom/{name_without_ext}"
+                
+                # Check if this is already in curated list
+                is_curated = any(
+                    info.get("hf_id", "").split("/")[-1].lower().replace("-", "").replace("_", "") 
+                    in name_without_ext.lower().replace("-", "").replace("_", "")
+                    for info in SDXL_MODELS.values()
+                )
+                
+                if not is_curated:
+                    discovered.append({
+                        "id": model_id,
+                        "name": name_without_ext,
+                        "description": f"Custom {file_format.upper()} model",
+                        "version": "Custom",
+                        "type": "generation",
+                        "format": file_format,
+                        "source": "custom",
+                        "is_downloaded": True,
+                        "size_bytes": file_size,
+                        "file_path": filepath,
+                        "has_warning": file_format in ["ckpt", "bin"],  # Pickle-based formats
+                        "last_known_vram_mb": 6000
+                    })
+    
+    # Scan diffusers directory for folder-based models
+    diffusers_dir = os.path.join(models_dir, "diffusers")
+    if os.path.exists(diffusers_dir):
+        for item in os.listdir(diffusers_dir):
+            item_path = os.path.join(diffusers_dir, item)
+            if os.path.isdir(item_path):
+                model_index = os.path.join(item_path, "model_index.json")
+                if os.path.exists(model_index):
+                    # Calculate directory size
+                    total_size = sum(
+                        os.path.getsize(os.path.join(dirpath, filename))
+                        for dirpath, dirnames, filenames in os.walk(item_path)
+                        for filename in filenames
+                    )
+                    
+                    model_id = f"custom/{item}"
+                    
+                    # Check if this is already in curated list
+                    is_curated = any(
+                        info.get("hf_id", "").split("/")[-1].lower().replace("-", "").replace("_", "") 
+                        in item.lower().replace("-", "").replace("_", "")
+                        for info in SDXL_MODELS.values()
+                    )
+                    
+                    if not is_curated:
+                        discovered.append({
+                            "id": model_id,
+                            "name": item,
+                            "description": "Custom Diffusers model",
+                            "version": "Custom",
+                            "type": "generation",
+                            "format": "diffusers",
+                            "source": "custom",
+                            "is_downloaded": True,
+                            "size_bytes": total_size,
+                            "file_path": item_path,
+                            "has_warning": False,
+                            "last_known_vram_mb": 6000
+                        })
+    
+    return discovered
+
 
 @router.get("/v1/models")
 async def list_models(request: Request):
@@ -49,7 +138,7 @@ async def list_models(request: Request):
 
             all_models.append(m)
 
-        # 2. SDXL and Checkpoints
+        # 2. SDXL and Checkpoints (Curated Models)
         sdxl = app_state.sdxl_backend
         for model_id, model_info in SDXL_MODELS.items():
                 is_downloaded = False
@@ -80,10 +169,17 @@ async def list_models(request: Request):
                 "version": "SDXL",
                 "last_known_vram_mb": model_memory_tracker.get_last_known_vram(model_id) or 6000,
                 "type": "generation",
+                "source": "curated",
                 "is_downloaded": is_downloaded,
                 "size_bytes": size_bytes,
-                "format": detected_format
+                "format": detected_format,
+                "has_warning": False
             })
+        
+        # 3. Auto-discovered Custom Models
+        models_dir = os.environ.get("MOONDREAM_MODELS_DIR", os.path.expanduser("~/.moondream-station/models"))
+        discovered_models = discover_models_from_directories(models_dir)
+        all_models.extend(discovered_models)
         
         return JSONResponse(content={"models": all_models})
     except Exception as e:
@@ -91,6 +187,19 @@ async def list_models(request: Request):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/v1/models/refresh")
+async def refresh_models(request: Request):
+    """
+    Refresh the model list by re-scanning directories.
+    Returns the updated model list.
+    """
+    try:
+        # Simply call list_models which will re-scan
+        return await list_models(request)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 @router.post("/v1/models/switch")
 async def switch_model(request: Request):
     body = await request.json()

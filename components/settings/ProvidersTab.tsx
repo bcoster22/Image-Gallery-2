@@ -1,5 +1,5 @@
-import React from 'react';
-import { BoltIcon as ZapIcon } from '@heroicons/react/24/outline';
+import React, { useState } from 'react';
+import { BoltIcon as ZapIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
 import { AdminSettings, AiProvider, Capability } from '../../types';
 import { providerCapabilities, capabilityDetails } from '../../services/providerCapabilities';
 import { StatusIndicator, CapabilityTag, RestartServerButton, ServerControlPanel, ConnectionStatus } from './SettingsComponents';
@@ -52,7 +52,41 @@ export const ProvidersTab: React.FC<ProvidersTabProps> = ({
             // Filter models by type
             const visionModels = availableMoondreamModels.filter(m => m.type === 'vision');
             const analysisModels = availableMoondreamModels.filter(m => m.type === 'analysis');
-            const generationModels = availableMoondreamModels.filter(m => m.type === 'generation');
+            let generationModels = availableMoondreamModels.filter(m => m.type === 'generation');
+
+            // Sort generation models: curated first (alphabetically), then custom (alphabetically)
+            generationModels = generationModels.sort((a, b) => {
+                if (a.source === 'curated' && b.source !== 'curated') return -1;
+                if (a.source !== 'curated' && b.source === 'curated') return 1;
+                return (a.name || '').localeCompare(b.name || '');
+            });
+
+            // Helper to format model name with format badge
+            const formatModelName = (model: any) => {
+                let name = model.name;
+                if (model.format) {
+                    const formatUpper = model.format.toUpperCase();
+                    const formatIndicator = model.has_warning ? `⚠️ ${formatUpper}` : formatUpper;
+                    name = `${model.name} [${formatIndicator}]`;
+                }
+                return name;
+            };
+
+            // Handle model refresh
+            const handleRefreshModels = async () => {
+                try {
+                    const response = await fetch(`${providerSetting.endpoint}/v1/models/refresh`, {
+                        method: 'POST'
+                    });
+                    if (response.ok) {
+                        if (onModelRefresh) {
+                            onModelRefresh();
+                        }
+                    }
+                } catch (error) {
+                    console.error('Failed to refresh models:', error);
+                }
+            };
 
             return (
                 <>
@@ -129,7 +163,7 @@ export const ProvidersTab: React.FC<ProvidersTabProps> = ({
                                             <option value="">Select generation model</option>
                                             {generationModels.map(model => (
                                                 <option key={`gen-${model.id}`} value={model.id}>
-                                                    {model.name}
+                                                    {formatModelName(model)}
                                                 </option>
                                             ))}
                                         </>
@@ -140,9 +174,19 @@ export const ProvidersTab: React.FC<ProvidersTabProps> = ({
                                 <p className="text-[10px] text-gray-500 italic mt-1">For image generation</p>
                             </div>
                         </div>
-                        <p className="text-[10px] text-gray-500 italic">
-                            These models are used when "Moondream Local" is selected for the specific capability in the Routing tab.
-                        </p>
+                        <div className="flex items-center justify-between gap-2">
+                            <p className="text-[10px] text-gray-500 italic">
+                                These models are used when "Moondream Local" is selected for the specific capability in the Routing tab.
+                            </p>
+                            <button
+                                onClick={handleRefreshModels}
+                                className="flex items-center gap-1 px-2 py-1 text-xs text-indigo-300 hover:text-indigo-200 bg-gray-800 hover:bg-gray-700 border border-gray-600 rounded transition-colors"
+                                title="Refresh model list"
+                            >
+                                <ArrowPathIcon className="w-3.5 h-3.5" />
+                                Refresh
+                            </button>
+                        </div>
                     </div>
                     <div className="mt-4 pt-2 border-t border-gray-700/50">
                         <ServerControlPanel

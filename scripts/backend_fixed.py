@@ -75,9 +75,8 @@ class SDXLBackend:
             
             # Roots to search
             diffusers_dir = os.path.join(self._models_dir, "diffusers")
-            sdxl_models_dir = os.path.join(self._models_dir, "sdxl-models")
             
-            search_roots = [checkpoints_dir, diffusers_dir, sdxl_models_dir]
+            search_roots = [checkpoints_dir, diffusers_dir]
             self.logger.info(f"Searching for model assets in: {search_roots}")
 
             if checkpoint_file:
@@ -685,7 +684,6 @@ def is_model_downloaded(model_id):
     """
     models_dir = os.environ.get("MOONDREAM_MODELS_DIR", os.path.expanduser("~/.moondream-station/models"))
     checkpoints_dir = os.path.join(models_dir, "checkpoints")
-    sdxl_models_dir = os.path.join(models_dir, "sdxl-models")
     
     # Map HuggingFace model IDs to local checkpoint files (Need to keep this in sync with SDXLBackend)
     model_checkpoint_map = {
@@ -718,7 +716,7 @@ def is_model_downloaded(model_id):
     # 2. Recursive check
     def normalize(s): return s.lower().replace("-", "").replace("_", "")
     
-    search_roots = [checkpoints_dir, sdxl_models_dir]
+    search_roots = [checkpoints_dir]
     for root_dir in search_roots:
         if not os.path.exists(root_dir): continue
         for root, dirs, files in os.walk(root_dir):
@@ -748,7 +746,6 @@ def get_model_file_details(model_id):
     """
     models_dir = os.environ.get("MOONDREAM_MODELS_DIR", os.path.expanduser("~/.moondream-station/models"))
     checkpoints_dir = os.path.join(models_dir, "checkpoints")
-    sdxl_models_dir = os.path.join(models_dir, "sdxl-models")
     
     # Map HuggingFace model IDs to local checkpoint files (Need to keep this in sync with SDXLBackend)
     model_checkpoint_map = {
@@ -781,7 +778,7 @@ def get_model_file_details(model_id):
     # 2. Recursive Search for File or Folder
     def normalize(s): return s.lower().replace("-", "").replace("_", "")
 
-    search_roots = [checkpoints_dir, sdxl_models_dir]
+    search_roots = [checkpoints_dir]
     for root_dir in search_roots:
         if not os.path.exists(root_dir): continue
         for root, dirs, files in os.walk(root_dir):
