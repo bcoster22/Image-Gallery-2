@@ -13,7 +13,8 @@ import { QueueMonitor } from './StatusPage/QueueMonitor';
 export default function StatusPage({
   statsHistory, settings, queueStatus, onPauseQueue, onClearQueue, onRemoveFromQueue,
   onShowPerformance, onShowDiagnostics, startCalibration, stopCalibration, calibrationStatus,
-  isBatchMode, onToggleBatchMode
+  isBatchMode, onToggleBatchMode,
+  optimalBatchSize, batchSizeCalibrated, onCalibrateBatchSize, batchCalibrationInProgress
 }: StatusPageProps) {
   // Global State (Fetched here, passed down)
   const [otelMetrics, setOtelMetrics] = useState<OtelMetrics | null>(null);

@@ -92,12 +92,16 @@ export const useAnalysisExecutor = ({ settings, setStatsHistory, setImages, setS
             });
 
         } catch (e: any) {
-            console.error("Batch failed", e);
+            console.error("[Batch Analysis] Batch failed:", e);
+            // Clean up state for all tasks
             tasks.forEach(t => {
-                updateNotification(t.id, { status: 'error', message: 'Batch failed' });
-                setAnalyzingIds(p => { const s = new Set(p); s.delete(t.data.image.id); return s; });
-                queuedAnalysisIds.current.delete(t.data.image.id);
+                const id = t.data.image.id;
+                setAnalyzingIds(p => { const s = new Set(p); s.delete(id); return s; });
+                queuedAnalysisIds.current.delete(id);
+                updateNotification(t.id, { status: 'error', message: e.message || 'Batch analysis failed' });
             });
+            // Re-throw so queue processor knows batch failed
+            throw e;
         }
     }, [settings, setImages, updateNotification, setAnalyzingIds, queuedAnalysisIds]);
 

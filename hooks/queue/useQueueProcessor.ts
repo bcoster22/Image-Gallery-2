@@ -308,6 +308,10 @@ export const useQueueProcessor = ({
 
                 } catch (err: any) {
                     const msg = String(err?.message || err || 'Unknown error').toLowerCase();
+                    const isOOMError = msg.includes('out of memory') ||
+                        msg.includes('oom') ||
+                        msg.includes('cuda') ||
+                        msg.includes('memory');
                     const isConnError = msg.includes('fetch') ||
                         msg.includes('connection') ||
                         msg.includes('network') ||
@@ -316,7 +320,24 @@ export const useQueueProcessor = ({
                         msg.includes('503') ||
                         msg.includes('504');
 
-                    if (isConnError && settings?.resilience?.pauseOnLocalFailure) {
+                    // OOM Error Handling: Reduce batch size and re-queue
+                    if (isOOMError && currentBatch.length > 1) {
+                        console.error(`[Queue] OOM Error with batch size ${currentBatch.length}. Reducing batch size.`);
+
+                        // Reduce optimal batch size by half
+                        const newBatchSize = Math.max(1, Math.floor(optimalBatchSize / 2));
+                        console.warn(`[Queue] Reducing batch size from ${optimalBatchSize} to ${newBatchSize}`);
+                        setOptimalBatchSize(newBatchSize);
+
+                        // Re-queue failed tasks to front of queue for retry
+                        queueRef.current.unshift(...currentBatch);
+                        console.log(`[Queue] Re-queued ${currentBatch.length} tasks for retry with smaller batch`);
+
+                        // Don't mark as failed - they'll retry
+                        syncQueueStatus();
+                    }
+                    // Connection Error Handling
+                    else if (isConnError && settings?.resilience?.pauseOnLocalFailure) {
                         isPausedRef.current = true;
                         queueRef.current.unshift(task);
                     } else if (msg.includes("queue is full")) {
