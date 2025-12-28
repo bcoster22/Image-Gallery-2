@@ -51,6 +51,10 @@ export const useQueueProcessor = ({
 
     const metricsHistoryRef = React.useRef<{ vram: number[], tps: number[] }>({ vram: [], tps: [] });
 
+    // Consecutive Error Tracking for Auto-Pause
+    const consecutiveErrorsRef = React.useRef<number>(0);
+    const MAX_CONSECUTIVE_ERRORS = 3;
+
     // Batch Size Calibration Function
     const calibrateBatchSize = useCallback(async () => {
         if (batchCalibrationInProgress) {
@@ -256,6 +260,9 @@ export const useQueueProcessor = ({
                         }
                     }
 
+                    // Reset consecutive error counter on success
+                    consecutiveErrorsRef.current = 0;
+
                     if (metrics) {
                         const { vramUsagePercent, tokensPerSecond } = metrics;
 
@@ -354,6 +361,13 @@ export const useQueueProcessor = ({
                             setImages(p => p.map(i => i.id === fail.id ? fail : i));
                             setAnalyzingIds(p => { const s = new Set(p); s.delete(fail.id); return s; });
                             queuedAnalysisIds.current.delete(fail.id);
+                        }
+
+                        // Auto-pause after consecutive errors
+                        if (consecutiveErrorsRef.current >= MAX_CONSECUTIVE_ERRORS) {
+                            console.error(`[Queue] ${MAX_CONSECUTIVE_ERRORS} consecutive errors detected. Auto-pausing queue.`);
+                            isPausedRef.current = true;
+                            syncQueueStatus();
                         }
                     }
                 } finally {
