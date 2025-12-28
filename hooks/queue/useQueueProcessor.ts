@@ -55,6 +55,15 @@ export const useQueueProcessor = ({
     const consecutiveErrorsRef = React.useRef<number>(0);
     const MAX_CONSECUTIVE_ERRORS = 3;
 
+    // Retry Queue Configuration
+    const RETRY_DELAY_MS = 120000; // 120 seconds
+    const MAX_RETRY_ATTEMPTS = 30;
+    const retryQueueRef = React.useRef<Map<string, {
+        item: QueueItem;
+        retryTime: number;
+        retryCount: number;
+    }>>(new Map());
+
     // Batch Size Calibration Function
     const calibrateBatchSize = useCallback(async () => {
         if (batchCalibrationInProgress) {
@@ -102,6 +111,31 @@ export const useQueueProcessor = ({
             setBatchCalibrationInProgress(false);
         }
     }, [settings, batchCalibrationInProgress]);
+
+    // Process Retry Queue - Re-queue items after delay
+    const processRetryQueue = useCallback(() => {
+        const now = Date.now();
+        const toRetry: QueueItem[] = [];
+
+        retryQueueRef.current.forEach((entry, id) => {
+            if (entry.retryTime <= now) {
+                console.log(`[Retry] Re-queuing ${entry.item.fileName} (attempt ${entry.retryCount}/${MAX_RETRY_ATTEMPTS})`);
+                toRetry.push(entry.item);
+                retryQueueRef.current.delete(id);
+            }
+        });
+
+        if (toRetry.length > 0) {
+            queueRef.current.push(...toRetry);
+            syncQueueStatus();
+        }
+    }, []);
+
+    // Check retry queue every 10 seconds
+    React.useEffect(() => {
+        const interval = setInterval(processRetryQueue, 10000);
+        return () => clearInterval(interval);
+    }, [processRetryQueue]);
 
     const startCalibration = useCallback(() => {
         console.log("[Queue] Starting Calibration Mode");
@@ -356,16 +390,50 @@ export const useQueueProcessor = ({
                         queueRef.current.unshift(task);
                         setConcurrencyLimit(p => Math.max(1, Math.floor(p / 2)));
                     } else {
-                        updateNotification(task.id, { status: 'error', message: `Failed: ${task.fileName}` });
-                        if (!calibrationRef.current.isActive) setConcurrencyLimit(1); // Only reset on error if not calibrating (maybe?)
-                        // If calibrating, we might want to fail the step? For now, proceed.
+                        // Get retry count for this task
+                        const currentRetryCount = task.retryCount || 0;
+                        const newRetryCount = currentRetryCount + 1;
 
-                        if (task.taskType === 'analysis' && task.data.image) {
-                            const fail = { ...task.data.image, analysisFailed: true, analysisError: msg };
-                            setImages(p => p.map(i => i.id === fail.id ? fail : i));
-                            setAnalyzingIds(p => { const s = new Set(p); s.delete(fail.id); return s; });
-                            queuedAnalysisIds.current.delete(fail.id);
+                        // Check if we've exhausted retry attempts
+                        if (newRetryCount >= MAX_RETRY_ATTEMPTS) {
+                            // Permanent failure after 30 attempts
+                            console.error(`[Queue] ${task.fileName} failed after ${MAX_RETRY_ATTEMPTS} attempts. Marking as permanently failed.`);
+                            task.permanentlyFailed = true;
+                            updateNotification(task.id, { status: 'error', message: `Failed after ${MAX_RETRY_ATTEMPTS} attempts` });
+
+                            if (task.taskType === 'analysis' && task.data.image) {
+                                const fail = { ...task.data.image, analysisFailed: true, analysisError: msg, permanentlyFailed: true };
+                                setImages(p => p.map(i => i.id === fail.id ? fail : i));
+                                setAnalyzingIds(p => { const s = new Set(p); s.delete(fail.id); return s; });
+                                queuedAnalysisIds.current.delete(fail.id);
+                            }
+                        } else {
+                            // Schedule retry after delay
+                            const retryTime = Date.now() + RETRY_DELAY_MS;
+                            task.retryCount = newRetryCount;
+                            task.nextRetryTime = retryTime;
+
+                            retryQueueRef.current.set(task.id, {
+                                item: task,
+                                retryTime,
+                                retryCount: newRetryCount
+                            });
+
+                            const delayMinutes = Math.floor(RETRY_DELAY_MS / 60000);
+                            console.log(`[Queue] ${task.fileName} scheduled for retry ${newRetryCount}/${MAX_RETRY_ATTEMPTS} in ${delayMinutes}m`);
+                            updateNotification(task.id, {
+                                status: 'warning',
+                                message: `Retry ${newRetryCount}/${MAX_RETRY_ATTEMPTS} in ${delayMinutes}min...`
+                            });
+
+                            // Clean up state temporarily (will restore on retry)
+                            if (task.taskType === 'analysis' && task.data.image) {
+                                setAnalyzingIds(p => { const s = new Set(p); s.delete(task.data.image!.id); return s; });
+                            }
                         }
+
+                        // Reset concurrency on error (but not fatal)
+                        if (!calibrationRef.current.isActive) setConcurrencyLimit(1);
 
                         // Auto-pause after consecutive errors
                         if (consecutiveErrorsRef.current >= MAX_CONSECUTIVE_ERRORS) {

@@ -7,6 +7,10 @@ export interface QueueItem {
     fileName: string;
     addedAt: number;
     priority?: number; // 0=Background, 1=Preload, 2=Interactive, 3=Immediate
+    // Retry tracking
+    retryCount?: number;
+    nextRetryTime?: number; // timestamp in ms
+    permanentlyFailed?: boolean;
     data: {
         image?: ImageInfo;
         prompt?: string;
