@@ -231,9 +231,9 @@ pip install bitsandbytes
 ```
 </details>
 
-#### Step 4: Setup Moondream Station
+#### Step 4: Setup Moondream Station (Backend)
 
-Moondream Station provides the vision analysis capabilities.
+**Moondream Station is THE backend** - it provides ALL AI capabilities (vision, generation, analysis).
 
 ```bash
 # Create installation directory
@@ -241,26 +241,27 @@ mkdir -p ~/.moondream-station
 cd ~/.moondream-station
 
 # Clone Moondream Station
-git clone https://github.com/vikhyat/moondream moondream-station
+git clone https://github.com/bcoster22/moondream-station.git
 cd moondream-station
 
-# Install dependencies (uses our existing venv)
-source ~/path/to/Image-Gallery-2/.venv/bin/activate
+# Create and activate virtual environment
+python3.11 -m venv .venv
+source .venv/bin/activate
+
+# Install dependencies
 pip install -r requirements.txt
 
-# Download base model (optional - auto-downloads on first use)
+# Download models (optional - auto-downloads on first use)
 python -c "from transformers import AutoModel; AutoModel.from_pretrained('vikhyatk/moondream2')"
 ```
 
 #### Step 5: Download AI Models
 
-The application uses SDXL models for image generation. You can download them ahead of time or let the app download them on first use.
+SDXL models will be auto-downloaded to moondream-station on first use, or you can pre-download them.
 
 ```bash
-# Return to project directory
-cd ~/path/to/Image-Gallery-2
-
-# Activate virtual environment
+# Activate moondream-station environment
+cd ~/.moondream-station/moondream-station
 source .venv/bin/activate
 
 # Install Hugging Face CLI (if not already installed)
@@ -274,13 +275,13 @@ huggingface-cli download Lykon/dreamshaper-xl-lightning
 ```
 
 **Model Storage Location:**
-- Default: `~/.cache/huggingface/hub/`
-- Custom: Set `MOONDREAM_MODELS_DIR` in `.env`
+- Default: `~/.moondream-station/models/`
+- Set via `MOONDREAM_MODELS_DIR` environment variable
 
 #### Step 6: Setup Frontend
 
 ```bash
-# Return to project directory (if not already there)
+# Navigate to Image-Gallery-2 directory
 cd ~/path/to/Image-Gallery-2
 
 # Install Node dependencies
@@ -335,14 +336,14 @@ VITE_GROK_API_KEY=your_key_here
 #### Step 8: Start the Application
 
 ```bash
-# Terminal 1: Start Backend
-cd ~/path/to/Image-Gallery-2
+# Terminal 1: Start Moondream-Station Backend
+cd ~/.moondream-station/moondream-station
 source .venv/bin/activate
-python3 dev_run_backend.py
+python3 start_server.py
 
 # You should see:
-# - "Successfully imported backend_fixed"
-# - "Started server process [PID]"
+# - "Moondream Station starting..."
+# - "Backend loaded successfully"
 # - "Uvicorn running on http://0.0.0.0:2020"
 
 # Terminal 2: Start Frontend (new terminal)
@@ -371,11 +372,13 @@ npm run dev
 For active development, you can use hot-reload for both frontend and backend:
 
 ```bash
-# Terminal 1: Backend with auto-reload
+# Terminal 1: Moondream-Station with auto-reload
+cd ~/.moondream-station/moondream-station
 source .venv/bin/activate
-uvicorn rest_server_temp_5:app --reload --host 0.0.0.0 --port 2020
+python3 -m moondream_station.core.rest_server --reload
 
 # Terminal 2: Frontend with HMR
+cd ~/path/to/Image-Gallery-2
 npm run dev
 ```
 

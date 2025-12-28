@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "concurrently \"vite\" \"./.venv/bin/python3 station_manager.py\"",
-    "backend": "./.venv/bin/python3 dev_run_backend.py",
+    "backend": "cd ~/.moondream-station/moondream-station && ./.venv/bin/python3 start_server.py",
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext .ts,.tsx",
