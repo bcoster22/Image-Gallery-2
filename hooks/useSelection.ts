@@ -29,8 +29,14 @@ export const useSelection = (initialMode = false): UseSelectionReturn => {
             const newSet = new Set(prev);
             if (newSet.has(id)) {
                 newSet.delete(id);
+                // If this was the last selected item, exit selection mode
+                if (newSet.size === 0) {
+                    setIsSelectionMode(false);
+                }
             } else {
                 newSet.add(id);
+                // Auto-enable selection mode when adding first/any item
+                setIsSelectionMode(true);
             }
             return newSet;
         });
