@@ -216,10 +216,12 @@ const App: React.FC = () => {
 
   // --- 7. Queue System ---
   const {
-    queueStatus, analysisProgress, analyzingIds, processingSmartCropIds, setProcessingSmartCropIds,
-    generationResults, setGenerationResults, addToQueue, processQueue, isPausedRef, activeRequestsRef, checkBackendHealthRef,
+    queueStatus, analyzingIds, processingSmartCropIds, setProcessingSmartCropIds,
+    isBatchMode, analysisProgress, generationResults, setGenerationResults,
+    addToQueue, processQueue, isPausedRef, activeRequestsRef, checkBackendHealthRef,
     queuedAnalysisIds, queuedGenerationIds, removeFromQueue, clearQueue, startCalibration, stopCalibration, calibrationStatus,
-    isBatchMode, toggleBatchMode
+    toggleBatchMode,
+    optimalBatchSize, batchSizeCalibrated, calibrateBatchSize, batchCalibrationInProgress
   } = useQueueSystem({
     settings, addNotification, updateNotification, setImages, setSelectedImage, setSimilarImages, setStatsHistory, handleSaveGeneratedImage
   });
@@ -459,7 +461,7 @@ const App: React.FC = () => {
     else if (galleryView === 'creations') list = images.filter(i => i.source !== 'upload' && i.ownerId === currentUser?.id);
 
     if (searchQuery) list = list.filter(i => i.keywords?.some((k: unknown) => typeof k === 'string' && String(k).toLowerCase().includes(searchQuery.toLowerCase())));
-    if (activeTags.size) list = list.filter(i => Array.from(activeTags).every(t => i.keywords?.some((k: unknown) => typeof k === 'string' && String(k).toLowerCase() === t.toLowerCase())));
+    if (activeTags.size) list = list.filter(i => Array.from(activeTags).every(t => i.keywords?.some((k: unknown) => typeof k === 'string' && String(k).toLowerCase() === String(t).toLowerCase())));
     return list;
   }, [images, galleryView, currentUser, searchQuery, activeTags]);
 
@@ -518,6 +520,10 @@ const App: React.FC = () => {
               calibrationStatus={calibrationStatus}
               isBatchMode={isBatchMode}
               onToggleBatchMode={toggleBatchMode}
+              optimalBatchSize={optimalBatchSize}
+              batchSizeCalibrated={batchSizeCalibrated}
+              onCalibrateBatchSize={calibrateBatchSize}
+              batchCalibrationInProgress={batchCalibrationInProgress}
             />
           ) : galleryView === 'profile-settings' && currentUser ? (
             <UserProfilePage user={currentUser} onUpdateUser={setCurrentUser} galleryImages={images} settings={settings} addNotification={addNotification} onClose={() => setGalleryView('my-gallery')} />

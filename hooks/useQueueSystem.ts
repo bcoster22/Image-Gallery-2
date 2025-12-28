@@ -53,7 +53,10 @@ export const useQueueSystem = ({
         settings, addNotification, handleSaveGeneratedImage, setGenerationResults
     });
 
-    const { processQueue, startCalibration, stopCalibration, getCalibrationStatus } = useQueueProcessor({
+    const {
+        processQueue, startCalibration, stopCalibration, getCalibrationStatus,
+        optimalBatchSize, batchSizeCalibrated, calibrateBatchSize, batchCalibrationInProgress
+    } = useQueueProcessor({
         settings, queueRef, activeRequestsRef, activeJobsRef, isPausedRef, concurrencyLimit, setConcurrencyLimit,
         checkBackendHealthRef, queuedAnalysisIds, queuedGenerationIds, syncQueueStatus, updateNotification,
         setImages, setAnalyzingIds, executeAnalysis, executeGeneration, isBatchMode, executeBatchAnalysis
@@ -132,6 +135,11 @@ export const useQueueSystem = ({
         stopCalibration,
         calibrationStatus: getCalibrationStatus(),
         isBatchMode,
-        toggleBatchMode: () => setIsBatchMode(prev => !prev)
+        toggleBatchMode: () => setIsBatchMode(prev => !prev),
+        // Batch size calibration
+        optimalBatchSize,
+        batchSizeCalibrated,
+        calibrateBatchSize,
+        batchCalibrationInProgress
     };
 };

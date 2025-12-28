@@ -57,10 +57,10 @@ export const LogViewer: React.FC<LogViewerProps> = ({ onClose }) => {
         return () => clearInterval(interval);
     }, []);
 
-    // Auto-scroll
+    // Auto-scroll (Keep view at top for newest logs)
     useEffect(() => {
         if (autoScroll && scrollRef.current) {
-            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+            scrollRef.current.scrollTop = 0;
         }
     }, [logs, autoScroll]);
 

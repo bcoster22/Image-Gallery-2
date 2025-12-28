@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import { QueueItem, ActiveJob } from '../../types/queue';
+import { QueueItem, ActiveJob, BenchmarkResult, CalibrationStatus } from '../../types/queue';
 import { ImageInfo, AdminSettings, DevicePerformanceMetrics } from '../../types';
 
 interface UseQueueProcessorProps {
@@ -31,7 +31,12 @@ export const useQueueProcessor = ({
 
     const processQueueRef = React.useRef<() => Promise<void>>();
 
-    // Calibration State
+    // Batch Size State (for VRAM-aware adaptive batching)
+    const [optimalBatchSize, setOptimalBatchSize] = React.useState<number>(4);
+    const [batchSizeCalibrated, setBatchSizeCalibrated] = React.useState<boolean>(false);
+    const [batchCalibrationInProgress, setBatchCalibrationInProgress] = React.useState<boolean>(false);
+
+    // Calibration State (for concurrency)
     const calibrationRef = React.useRef<{
         isActive: boolean;
         startTime: number;
@@ -45,6 +50,54 @@ export const useQueueProcessor = ({
     });
 
     const metricsHistoryRef = React.useRef<{ vram: number[], tps: number[] }>({ vram: [], tps: [] });
+
+    // Batch Size Calibration Function
+    const calibrateBatchSize = useCallback(async () => {
+        if (batchCalibrationInProgress) {
+            console.log("[Batch Calibration] Already in progress, skipping");
+            return;
+        }
+
+        console.log("[Batch Calibration] Starting VRAM-aware batch size calibration");
+        setBatchCalibrationInProgress(true);
+
+        try {
+            // Use moondream backend URL (hardcoded for now, will be configurable later)
+            const baseUrl = 'http://localhost:2020';
+            const testSizes = [4, 8, 16, 32, 64];
+
+            const response = await fetch(`${baseUrl}/diagnostics/vram-test`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ batch_sizes: testSizes })
+            });
+
+            const data = await response.json();
+            const results = data.results || [];
+
+            // Find largest batch size where VRAM < 85% and success=true
+            const safeResults = results.filter((r: any) => r.success && r.vramPercent < 85);
+
+            if (safeResults.length > 0) {
+                const optimal = Math.max(...safeResults.map((r: any) => r.batchSize));
+                setOptimalBatchSize(optimal);
+                setBatchSizeCalibrated(true);
+                console.log(`[Batch Calibration] Optimal batch size: ${optimal} images (VRAM < 85%)`);
+                console.log(`[Batch Calibration] Full results:`, results);
+            } else {
+                // Fall back to smallest safe size
+                setOptimalBatchSize(4);
+                setBatchSizeCalibrated(true);
+                console.warn("[Batch Calibration] No safe batch sizes found, using default: 4");
+            }
+        } catch (error) {
+            console.error("[Batch Calibration] Error:", error);
+            setOptimalBatchSize(4); // Safe fallback
+            setBatchSizeCalibrated(true);
+        } finally {
+            setBatchCalibrationInProgress(false);
+        }
+    }, [settings, batchCalibrationInProgress]);
 
     const startCalibration = useCallback(() => {
         console.log("[Queue] Starting Calibration Mode");
@@ -161,7 +214,8 @@ export const useQueueProcessor = ({
 
             // --- BATCH MODE LOGIC ---
             // If batch mode is ON and task is 'analysis', try to grab more
-            const BATCH_SIZE = 4;
+            // Use VRAM-calibrated batch size (defaults to 4 if not calibrated)
+            const BATCH_SIZE = optimalBatchSize;
             let currentBatch = [task];
             if (isBatchMode && task.taskType === 'analysis') {
                 // Try to fill the batch
@@ -301,5 +355,15 @@ export const useQueueProcessor = ({
     // Update ref whenever callback changes
     React.useEffect(() => { processQueueRef.current = processQueue; }, [processQueue]);
 
-    return { processQueue, startCalibration, stopCalibration, getCalibrationStatus };
+    return {
+        processQueue,
+        startCalibration,
+        stopCalibration,
+        getCalibrationStatus,
+        // Batch size calibration exports
+        optimalBatchSize,
+        batchSizeCalibrated,
+        calibrateBatchSize,
+        batchCalibrationInProgress
+    };
 };

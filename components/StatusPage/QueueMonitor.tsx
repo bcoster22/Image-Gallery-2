@@ -15,12 +15,18 @@ interface QueueMonitorProps {
     calibrationStatus?: CalibrationStatus;
     isBatchMode?: boolean;
     onToggleBatchMode?: () => void;
+    // Batch size calibration
+    optimalBatchSize?: number;
+    batchSizeCalibrated?: boolean;
+    onCalibrateBatchSize?: () => void;
+    batchCalibrationInProgress?: boolean;
 }
 
 export function QueueMonitor({
     queueStatus, onPauseQueue, onRemoveFromQueue, onClearQueue,
     startCalibration, stopCalibration, calibrationStatus,
-    isBatchMode, onToggleBatchMode
+    isBatchMode, onToggleBatchMode,
+    optimalBatchSize = 4, batchSizeCalibrated, onCalibrateBatchSize, batchCalibrationInProgress
 }: QueueMonitorProps) {
     const [selectedQueueIds, setSelectedQueueIds] = useState<Set<string>>(new Set());
 
@@ -92,6 +98,23 @@ export function QueueMonitor({
                         )
                     )}
 
+                    {/* Batch Size Calibration Button */}
+                    {onCalibrateBatchSize && (
+                        <button
+                            onClick={onCalibrateBatchSize}
+                            disabled={batchCalibrationInProgress}
+                            className={cn(
+                                "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-colors border",
+                                batchCalibrationInProgress
+                                    ? "bg-neutral-800 text-neutral-500 border-neutral-700 cursor-wait"
+                                    : "bg-purple-500/10 text-purple-400 border-purple-500/20 hover:bg-purple-500/20"
+                            )}
+                        >
+                            <Zap className="w-3.5 h-3.5" />
+                            {batchCalibrationInProgress ? "Calibrating..." : "Calibrate Batch Size"}
+                        </button>
+                    )}
+
                     {onToggleBatchMode && (
                         <button
                             onClick={onToggleBatchMode}
@@ -103,7 +126,7 @@ export function QueueMonitor({
                             )}
                         >
                             <Zap className={cn("w-3.5 h-3.5", isBatchMode && "text-blue-400")} />
-                            Batch: {isBatchMode ? "ON" : "OFF"}
+                            Batch: {isBatchMode ? `${optimalBatchSize} imgs` : "OFF"}
                         </button>
                     )}
 

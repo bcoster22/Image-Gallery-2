@@ -91,6 +91,10 @@ export default function StatusPage({
             calibrationStatus={calibrationStatus}
             isBatchMode={isBatchMode}
             onToggleBatchMode={onToggleBatchMode}
+            optimalBatchSize={optimalBatchSize}
+            batchSizeCalibrated={batchSizeCalibrated}
+            onCalibrateBatchSize={onCalibrateBatchSize}
+            batchCalibrationInProgress={batchCalibrationInProgress}
           />
         )}
 

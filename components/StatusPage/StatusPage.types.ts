@@ -1,4 +1,5 @@
 import { AdminSettings, QueueStatus } from "../../types";
+import { CalibrationStatus } from "../../types/queue";
 export type { AdminSettings, QueueStatus };
 
 export interface StatPoint {
@@ -53,7 +54,12 @@ export interface StatusPageProps {
     onShowDiagnostics?: () => void;
     startCalibration?: () => void;
     stopCalibration?: () => void;
-    calibrationStatus?: any; // Avoiding deep imports here, typed in QueueMonitor
-    isBatchMode?: boolean;
+    calibrationStatus?: CalibrationStatus;
+    isBatchMode: boolean;
     onToggleBatchMode?: () => void;
+    // Batch size calibration
+    optimalBatchSize?: number;
+    batchSizeCalibrated?: boolean;
+    onCalibrateBatchSize?: () => void;
+    batchCalibrationInProgress?: boolean;
 }
