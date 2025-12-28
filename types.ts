@@ -392,12 +392,22 @@ export interface ImageAnalysisStats {
   duration?: number;
 }
 
+export interface DevicePerformanceMetrics {
+  vramUsagePercent?: number; // 0-100
+  vramUsedMB?: number;
+  vramTotalMB?: number;
+  tokensPerSecond?: number;
+  inferenceTimeMs?: number;
+  modelLoadTimeMs?: number;
+}
+
 export interface ProviderStats {
   duration: number; // in seconds
   totalTokens?: number;
   tokensPerSec?: number;
   cost?: number;
   device?: string; // e.g., 'GPU', 'CPU'
+  devicePerformance?: DevicePerformanceMetrics;
 }
 
 export interface ImageAnalysisResult {

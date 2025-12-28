@@ -3,14 +3,22 @@ import { Server, Play, Pause, Zap, Clock, Activity, Trash2, X } from 'lucide-rea
 import { cn } from '../../utils/statusUtils';
 import { QueueStatus } from '../../types';
 
+import { CalibrationStatus } from '../../types/queue';
+
 interface QueueMonitorProps {
     queueStatus: QueueStatus;
     onPauseQueue?: (paused: boolean) => void;
     onRemoveFromQueue?: (ids: string[]) => void;
     onClearQueue?: () => void;
+    startCalibration?: () => void;
+    stopCalibration?: () => void;
+    calibrationStatus?: CalibrationStatus;
 }
 
-export function QueueMonitor({ queueStatus, onPauseQueue, onRemoveFromQueue, onClearQueue }: QueueMonitorProps) {
+export function QueueMonitor({
+    queueStatus, onPauseQueue, onRemoveFromQueue, onClearQueue,
+    startCalibration, stopCalibration, calibrationStatus
+}: QueueMonitorProps) {
     const [selectedQueueIds, setSelectedQueueIds] = useState<Set<string>>(new Set());
 
     const handleToggleSelect = (id: string) => {
@@ -55,6 +63,32 @@ export function QueueMonitor({ queueStatus, onPauseQueue, onRemoveFromQueue, onC
                     {queueStatus.isPaused ? 'Paused (Backpressure)' : 'Running'}
                 </div>
                 <div className="flex items-center gap-2">
+                    {/* Calibration Controls */}
+                    {startCalibration && stopCalibration && (
+                        calibrationStatus?.isActive ? (
+                            <button
+                                onClick={stopCalibration}
+                                className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-colors border bg-red-500/10 text-red-400 border-red-500/20 hover:bg-red-500/20"
+                            >
+                                <Zap className="w-3.5 h-3.5" />
+                                Stop Test
+                            </button>
+                        ) : (
+                            <button
+                                onClick={startCalibration}
+                                disabled={queueStatus.pendingCount === 0}
+                                className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-colors border",
+                                    queueStatus.pendingCount > 0
+                                        ? "bg-violet-500/10 text-violet-400 border-violet-500/20 hover:bg-violet-500/20"
+                                        : "bg-neutral-800 text-neutral-600 border-neutral-700 cursor-not-allowed"
+                                )}
+                            >
+                                <Zap className="w-3.5 h-3.5" />
+                                Calibrate
+                            </button>
+                        )
+                    )}
+
                     {onPauseQueue && (
                         <button
                             onClick={() => onPauseQueue(!queueStatus.isPaused)}
@@ -75,7 +109,7 @@ export function QueueMonitor({ queueStatus, onPauseQueue, onRemoveFromQueue, onC
                             className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-colors border bg-red-500/10 text-red-400 border-red-500/20 hover:bg-red-500/20"
                         >
                             <X className="w-3.5 h-3.5" />
-                            Clear Queue
+                            Clear
                         </button>
                     )}
                 </div>
@@ -84,14 +118,31 @@ export function QueueMonitor({ queueStatus, onPauseQueue, onRemoveFromQueue, onC
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {/* Stats */}
                 <div className="space-y-4">
-                    <div className="bg-black/20 rounded-xl p-4 flex justify-between items-center">
+                    <div className="bg-black/20 rounded-xl p-4 flex justify-between items-center relative overflow-hidden">
+                        {calibrationStatus?.isActive && (
+                            <div className="absolute inset-0 bg-violet-500/10 pointer-events-none" />
+                        )}
                         <div>
-                            <div className="text-neutral-400 text-xs font-medium mb-1">Active Threads</div>
-                            <div className="text-2xl font-bold text-white">
+                            <div className="text-neutral-400 text-xs font-medium mb-1 flex items-center gap-2">
+                                Active Threads
+                                {calibrationStatus?.isActive && <span className="text-violet-400 font-bold animate-pulse">CALIBRATION MODE</span>}
+                            </div>
+                            <div className="text-2xl font-bold text-white z-10 relative">
                                 {queueStatus.activeCount} <span className="text-sm text-neutral-500">/ {queueStatus.concurrencyLimit}</span>
                             </div>
+                            {calibrationStatus?.isActive ? (
+                                <div className="text-[10px] text-violet-300 mt-1 font-mono">
+                                    Step {calibrationStatus.currentConcurrency} — {calibrationStatus.timeRemainingInStep.toFixed(0)}s left
+                                </div>
+                            ) : (
+                                calibrationStatus?.results && calibrationStatus.results.length > 0 && (
+                                    <div className="text-[10px] text-emerald-400 mt-1 font-mono">
+                                        Last Sweet Spot: {calibrationStatus.results.reduce((prev, curr) => curr.avgTPS > prev.avgTPS ? curr : prev).concurrency} threads
+                                    </div>
+                                )
+                            )}
                         </div>
-                        <div className="h-10 w-10 rounded-full bg-violet-500/10 flex items-center justify-center text-violet-400">
+                        <div className="h-10 w-10 rounded-full bg-violet-500/10 flex items-center justify-center text-violet-400 z-10">
                             <Zap className="w-5 h-5" />
                         </div>
                     </div>

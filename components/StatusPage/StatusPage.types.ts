@@ -51,4 +51,7 @@ export interface StatusPageProps {
     onRemoveFromQueue?: (ids: string[]) => void;
     onShowPerformance?: () => void;
     onShowDiagnostics?: () => void;
+    startCalibration?: () => void;
+    stopCalibration?: () => void;
+    calibrationStatus?: any; // Avoiding deep imports here, typed in QueueMonitor
 }

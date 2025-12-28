@@ -10,7 +10,10 @@ import { PerformanceStats } from './StatusPage/PerformanceStats';
 import { GPUMetrics } from './StatusPage/GPUMetrics';
 import { QueueMonitor } from './StatusPage/QueueMonitor';
 
-export default function StatusPage({ statsHistory, settings, queueStatus, onPauseQueue, onClearQueue, onRemoveFromQueue, onShowPerformance, onShowDiagnostics }: StatusPageProps) {
+export default function StatusPage({
+  statsHistory, settings, queueStatus, onPauseQueue, onClearQueue, onRemoveFromQueue,
+  onShowPerformance, onShowDiagnostics, startCalibration, stopCalibration, calibrationStatus
+}: StatusPageProps) {
   // Global State (Fetched here, passed down)
   const [otelMetrics, setOtelMetrics] = useState<OtelMetrics | null>(null);
   const [serverReachable, setServerReachable] = useState<boolean>(false);
@@ -82,6 +85,9 @@ export default function StatusPage({ statsHistory, settings, queueStatus, onPaus
             onPauseQueue={onPauseQueue}
             onRemoveFromQueue={onRemoveFromQueue}
             onClearQueue={onClearQueue}
+            startCalibration={startCalibration}
+            stopCalibration={stopCalibration}
+            calibrationStatus={calibrationStatus}
           />
         )}
 

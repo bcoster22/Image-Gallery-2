@@ -1,4 +1,4 @@
-import { ImageInfo, AdminSettings, AspectRatio, ImageAnalysisResult, ProviderCapabilities, ProviderStats, Capability, GenerationResult, GenerationSettings } from "../../types";
+import { ImageInfo, AdminSettings, AspectRatio, ImageAnalysisResult, ProviderCapabilities, ProviderStats, Capability, GenerationResult, GenerationSettings, DevicePerformanceMetrics } from "../../types";
 import { BaseProvider } from "../baseProvider";
 import { registry } from "../providerRegistry";
 import { executeStrategy } from "../promptStrategy";
@@ -146,6 +146,18 @@ const callMoondreamApi = async (
       if (!(e instanceof SyntaxError)) throw e;
     }
 
+    // Extract Headers for Performance Metrics
+    const perfMetrics: DevicePerformanceMetrics = {
+      vramUsedMB: parseFloat(response.headers.get('X-VRAM-Used') || '0'),
+      vramTotalMB: parseFloat(response.headers.get('X-VRAM-Total') || '0'),
+      inferenceTimeMs: parseFloat(response.headers.get('X-Inference-Time') || '0'),
+      modelLoadTimeMs: parseFloat(response.headers.get('X-Model-Load-Time') || '0')
+    };
+
+    if (perfMetrics.vramTotalMB > 0) {
+      perfMetrics.vramUsagePercent = (perfMetrics.vramUsedMB! / perfMetrics.vramTotalMB) * 100;
+    }
+
     let stats: ProviderStats | undefined = undefined;
     if (data.usage && data.usage.completion_tokens) {
       const durationSec = (Date.now() - startTime) / 1000;
@@ -155,7 +167,8 @@ const callMoondreamApi = async (
         tokensPerSec,
         device: data.device || (data.stats && data.stats.device) || 'Unknown',
         totalTokens: tokens,
-        duration: durationSec
+        duration: durationSec,
+        devicePerformance: { ...perfMetrics, tokensPerSecond: tokensPerSec }
       };
     } else if (data.stats) {
       // Handle local stats if available directly
@@ -163,13 +176,15 @@ const callMoondreamApi = async (
         duration: data.stats.duration || (Date.now() - startTime) / 1000,
         totalTokens: data.stats.tokens,
         tokensPerSec: data.stats.tokens_per_sec,
-        device: data.stats.device
+        device: data.stats.device,
+        devicePerformance: { ...perfMetrics, tokensPerSecond: data.stats.tokens_per_sec }
       };
     } else {
       // Minimal stats
       stats = {
         duration: (Date.now() - startTime) / 1000,
-        device: 'Unknown'
+        device: 'Unknown',
+        devicePerformance: perfMetrics
       };
     }
 

@@ -52,7 +52,7 @@ export const useQueueSystem = ({
         settings, addNotification, handleSaveGeneratedImage, setGenerationResults
     });
 
-    const processQueue = useQueueProcessor({
+    const { processQueue, startCalibration, stopCalibration, getCalibrationStatus } = useQueueProcessor({
         settings, queueRef, activeRequestsRef, activeJobsRef, isPausedRef, concurrencyLimit, setConcurrencyLimit,
         checkBackendHealthRef, queuedAnalysisIds, queuedGenerationIds, syncQueueStatus, updateNotification,
         setImages, setAnalyzingIds, executeAnalysis, executeGeneration
@@ -126,6 +126,9 @@ export const useQueueSystem = ({
         activeRequestsRef,
         checkBackendHealthRef,
         queuedAnalysisIds,
-        queuedGenerationIds
+        queuedGenerationIds,
+        startCalibration,
+        stopCalibration,
+        calibrationStatus: getCalibrationStatus()
     };
 };

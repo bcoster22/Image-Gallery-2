@@ -32,4 +32,20 @@ export interface QueueStatus {
     activeJobs: ActiveJob[];
     queuedJobs: { id: string; fileName: string; size: number; startTime: number; taskType: string }[];
     concurrencyLimit: number;
+    calibrationStatus?: CalibrationStatus;
+}
+export interface BenchmarkResult {
+    concurrency: number;
+    avgTPS: number;
+    maxVRAM: number;
+    totalProcessed: number;
+    timestamp: number;
+}
+
+export interface CalibrationStatus {
+    isActive: boolean;
+    startTime: number;
+    currentConcurrency: number;
+    results: BenchmarkResult[];
+    timeRemainingInStep: number; // Seconds
 }

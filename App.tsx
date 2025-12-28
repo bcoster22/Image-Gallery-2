@@ -1,7 +1,8 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { MainLayout } from './components/layout/MainLayout';
 import { NavBar } from './components/layout/NavBar';
-import { ImageInfo, GenerationTask, Notification, AspectRatio, GalleryView, UploadProgress, GenerationResult, GenerationSettings, UpscaleSettings, QueueItem, AdminSettings } from './types';
+import { ImageInfo, GenerationTask, Notification, AspectRatio, GalleryView, UploadProgress, GenerationResult, GenerationSettings, UpscaleSettings, AdminSettings } from './types';
+import type { QueueItem } from './types/queue';
 import { animateImage, editImage, generateImageFromPrompt } from './services/aiService';
 import { getFriendlyErrorMessage } from './utils/errorUtils';
 import { fileToDataUrl, getImageMetadata, dataUrlToBlob, generateVideoThumbnail, createGenericPlaceholder, extractAIGenerationMetadata, getClosestSupportedAspectRatio } from './utils/fileUtils';
@@ -70,6 +71,7 @@ const MOCK_USERS = {
     slideshowBounce: true
   },
 };
+
 
 const App: React.FC = () => {
   // --- 1. Core State & Notifications ---
@@ -216,7 +218,7 @@ const App: React.FC = () => {
   const {
     queueStatus, analysisProgress, analyzingIds, processingSmartCropIds, setProcessingSmartCropIds,
     generationResults, setGenerationResults, addToQueue, processQueue, isPausedRef, activeRequestsRef, checkBackendHealthRef,
-    queuedAnalysisIds, queuedGenerationIds, removeFromQueue, clearQueue
+    queuedAnalysisIds, queuedGenerationIds, removeFromQueue, clearQueue, startCalibration, stopCalibration, calibrationStatus
   } = useQueueSystem({
     settings, addNotification, updateNotification, setImages, setSelectedImage, setSimilarImages, setStatsHistory, handleSaveGeneratedImage
   });
@@ -367,7 +369,7 @@ const App: React.FC = () => {
     addNotification({ status: 'success', message: `Starting ${taskType}...` });
 
     addToQueue([{
-      id: taskId, taskType: taskType as any, fileName: sourceImage.fileName, addedAt: Date.now(),
+      id: taskId, taskType: (taskType === 'image' ? 'generate' : taskType) as any, fileName: sourceImage.fileName, addedAt: Date.now(),
       data: { image: sourceImage, prompt, aspectRatio, generationSettings, providerOverride, sourceImage }
     }]);
 
@@ -455,8 +457,8 @@ const App: React.FC = () => {
     else if (galleryView === 'my-gallery') list = images.filter(i => i.ownerId === currentUser?.id);
     else if (galleryView === 'creations') list = images.filter(i => i.source !== 'upload' && i.ownerId === currentUser?.id);
 
-    if (searchQuery) list = list.filter(i => i.keywords?.some((k: any) => typeof k === 'string' && k.toLowerCase().includes(searchQuery.toLowerCase())));
-    if (activeTags.size) list = list.filter(i => Array.from(activeTags).every(t => i.keywords?.some((k: any) => typeof k === 'string' && k.toLowerCase() === t.toLowerCase())));
+    if (searchQuery) list = list.filter(i => i.keywords?.some((k: unknown) => typeof k === 'string' && String(k).toLowerCase().includes(searchQuery.toLowerCase())));
+    if (activeTags.size) list = list.filter(i => Array.from(activeTags).every(t => i.keywords?.some((k: unknown) => typeof k === 'string' && String(k).toLowerCase() === t.toLowerCase())));
     return list;
   }, [images, galleryView, currentUser, searchQuery, activeTags]);
 
@@ -501,7 +503,19 @@ const App: React.FC = () => {
           {showPerformanceOverview ? (
             <PerformanceOverview settings={settings} onBack={() => setShowPerformanceOverview(false)} />
           ) : galleryView === 'status' ? (
-            <StatusPage statsHistory={statsHistory} settings={settings} queueStatus={queueStatus} onPauseQueue={(p) => isPausedRef.current = p} onClearQueue={clearQueue} onRemoveFromQueue={removeFromQueue} onShowPerformance={() => setShowPerformanceOverview(true)} onShowDiagnostics={() => setShowHealthDashboard(true)} />
+            <StatusPage
+              statsHistory={statsHistory}
+              settings={settings}
+              queueStatus={queueStatus}
+              onPauseQueue={(p) => { isPausedRef.current = p; if (!p) processQueue(); }}
+              onClearQueue={clearQueue}
+              onRemoveFromQueue={removeFromQueue}
+              onShowPerformance={() => setShowPerformanceOverview(true)}
+              onShowDiagnostics={() => setShowHealthDashboard(true)}
+              startCalibration={startCalibration}
+              stopCalibration={stopCalibration}
+              calibrationStatus={calibrationStatus}
+            />
           ) : galleryView === 'profile-settings' && currentUser ? (
             <UserProfilePage user={currentUser} onUpdateUser={setCurrentUser} galleryImages={images} settings={settings} addNotification={addNotification} onClose={() => setGalleryView('my-gallery')} />
           ) : galleryView === 'creations' && currentUser ? (

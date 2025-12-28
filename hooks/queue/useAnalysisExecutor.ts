@@ -38,7 +38,10 @@ export const useAnalysisExecutor = ({ settings, setStatsHistory, setImages, setS
         saveImage(updated);
         updateNotification(img.id, { status: 'success', message: `Analyzed ${img.fileName}.` });
 
+
         setAnalyzingIds(p => { const s = new Set(p); s.delete(img.id); return s; });
         queuedAnalysisIds.current.delete(img.id);
+
+        return metadata.stats?.devicePerformance;
     }, [settings, setStatsHistory, setImages, setSelectedImage, setSimilarImages, updateNotification, setAnalyzingIds, queuedAnalysisIds, setAnalysisProgress, addNotification]);
 };

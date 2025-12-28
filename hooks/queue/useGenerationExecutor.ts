@@ -35,6 +35,7 @@ export const useGenerationExecutor = ({ settings, addNotification, handleSaveGen
             await handleSaveGeneratedImage(result.image, task.data.prompt!, meta);
             setGenerationResults(prev => [...prev, { id: task.id, url: result.image }]);
             addNotification({ id: task.id, status: 'success', message: `Generated: ${task.fileName}` });
+            return result.stats?.devicePerformance;
         } else {
             throw new Error("No image data returned.");
         }
