@@ -100,6 +100,8 @@ export const useAnalysisExecutor = ({ settings, setStatsHistory, setImages, setS
                 queuedAnalysisIds.current.delete(id);
                 updateNotification(t.id, { status: 'error', message: e.message || 'Batch analysis failed' });
             });
+            // Clear progress indicator to prevent stuck "Analyzing Images..." modal
+            setAnalysisProgress(null);
             // Re-throw so queue processor knows batch failed
             throw e;
         }
