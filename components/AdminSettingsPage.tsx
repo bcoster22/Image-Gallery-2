@@ -14,6 +14,7 @@ import {
     ShieldCheckIcon
 } from '@heroicons/react/24/outline';
 import { testProviderConnection } from '../services/aiService';
+import { MoondreamLocalProvider } from '../services/providers/moondream';
 
 
 // Sub-components

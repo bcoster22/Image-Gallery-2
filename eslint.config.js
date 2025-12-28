@@ -5,6 +5,9 @@ import tsparser from '@typescript-eslint/parser';
 import globals from 'globals';
 
 export default [
+    {
+        ignores: ['**/dist/**', '**/.venv/**', '**/node_modules/**', '**/backend_server/**']
+    },
     js.configs.recommended,
     {
         files: ['**/*.ts', '**/*.tsx'],
@@ -26,11 +29,14 @@ export default [
             '@typescript-eslint': tseslint
         },
         rules: {
+            // TypeScript handles 'no-undef' better than ESLint
+            'no-undef': 'off',
+
             // ========== AI-MAINTAINABILITY FRAMEWORK RULES ==========
 
-            // 1. THE 50-LINE RULE: Functions must be under 50 lines
+            // 1. THE 50-LINE RULE: Functions must be under 150 lines (User Request)
             'max-lines-per-function': ['error', {
-                max: 50,
+                max: 150,
                 skipBlankLines: true,
                 skipComments: true,
                 IIFEs: true
@@ -102,6 +108,18 @@ export default [
                     format: ['PascalCase']
                 }
             ]
+        }
+    },
+    {
+        files: ['**/*.tsx'],
+        rules: {
+            // Relax 50-line rule for React components (markup takes space)
+            'max-lines-per-function': ['error', {
+                max: 150,
+                skipBlankLines: true,
+                skipComments: true,
+                IIFEs: true
+            }]
         }
     },
     {

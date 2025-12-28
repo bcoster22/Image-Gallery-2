@@ -18,6 +18,11 @@ CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 if CURRENT_DIR not in sys.path:
     sys.path.append(CURRENT_DIR)
 
+# Add scripts path for backend components
+SCRIPTS_PATH = os.path.join(CURRENT_DIR, "scripts")
+if SCRIPTS_PATH not in sys.path:
+    sys.path.append(SCRIPTS_PATH)
+
 # Import Moondream dependencies
 try:
     from moondream_station.core.config import ConfigManager
@@ -27,12 +32,13 @@ except ImportError as e:
     logger.error("Please ensure you have access to the moondream-station package.")
     sys.exit(1)
 
-# Import local RestServer
+# Import local RestServer (Refactored)
 try:
-    from rest_server_temp_5 import RestServer
+    from backend_server.app import RestServer
 except ImportError as e:
     logger.error(f"Failed to import RestServer: {e}")
     sys.exit(1)
+
 
 def main():
     try:

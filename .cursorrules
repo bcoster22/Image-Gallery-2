@@ -10,13 +10,26 @@ Before modifying any code in this repository, you MUST:
 
 ## Core Rules (Never Violate)
 
-### 🔢 The 50-Line Rule
-**ALL functions must be under 50 lines of code.**
+### 🔢 The 150-Line Rule
+**Functions should be under 150 lines of code.**
 
-If you're writing a function over 50 lines:
+Exceptions:
+- **Configuration Objects**: No strict limit.
+
+If you're writing a logic function over 150 lines:
 - STOP
 - Break it into smaller, focused functions
 - Each function = one clear responsibility
+
+### 📂 Component Colocation
+When splitting a large component, create a directory:
+Basic:
+`components/Button.tsx` (Small, standalone)
+
+Complex:
+`components/UserDashboard/UserDashboard.tsx` (Main)
+`components/UserDashboard/UserMetrics.tsx` (Sub-component)
+`components/UserDashboard/UserGraph.tsx` (Sub-component)
 
 ### 🎯 Single Responsibility
 Each function does ONE thing. If you're using "and" to describe what a function does, it needs to be split.

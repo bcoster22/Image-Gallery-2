@@ -13,59 +13,17 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from huggingface_hub import snapshot_download
 from tqdm import tqdm
 
-# Model list from rest_server_temp_5.py SDXL_MODELS
-MODELS_TO_DOWNLOAD = {
-    "juggernaut-xl": {
-        "repo": "RunDiffusion/Juggernaut-XL-Lightning",
-        "name": "Juggernaut XL",
-        "tier": "🥇 Gold"
-    },
-    "realvisxl-v5": {
-        "repo": "SG161222/RealVisXL_V5.0",
-        "name": "RealVisXL V5",
-        "tier": "🥇 Gold"
-    },
-    "cyberrealistic-xl": {
-        "repo": "Cyberdelia/CyberRealistic_XL",
-        "name": "CyberRealistic XL",
-        "tier": "🥇 Gold"
-    },
-    "epicrealism-xl": {
-        "repo": "emilianJR/epiCRealism_XL",
-        "name": "epiCRealism XL",
-        "tier": "⭐ Specialized"
-    },
-    "zavychroma-xl": {
-        "repo": "stablediffusionapi/zavychromaxl-v80",
-        "name": "ZavyChroma XL",
-        "tier": "⭐ Specialized"
-    },
-    "helloworld-xl": {
-        "repo": "Leosam/HelloWorld_XL",
-        "name": "HelloWorld XL",
-        "tier": "⭐ Specialized"
-    },
-    "nightvision-xl": {
-        "repo": "Disra/NightVisionXL",
-        "name": "NightVision XL",
-        "tier": "⭐ Specialized"
-    },
-    "albedobase-xl": {
-        "repo": "stablediffusionapi/albedobase-xl-v13",
-        "name": "AlbedoBase XL",
-        "tier": "⭐ Specialized"
-    },
-    "copax-timeless-xl": {
-        "repo": "Copax/Copax_TimeLessXL",
-        "name": "Copax Timeless XL",
-        "tier": "⭐ Specialized"
-    },
-    "dreamshaper-xl": {
-        "repo": "Lykon/dreamshaper-xl-1-0",
-        "name": "DreamShaper XL",
-        "tier": "⭐ Specialized"
+from backend_server.config import SDXL_MODELS
+
+# Map from separate config to local format
+MODELS_TO_DOWNLOAD = {}
+for mid, info in SDXL_MODELS.items():
+    tier_display = "🥇 Gold" if info.get('tier') == 'gold' else "⭐ Specialized"
+    MODELS_TO_DOWNLOAD[mid] = {
+        "repo": info['hf_id'],
+        "name": info['name'],
+        "tier": tier_display
     }
-}
 
 def download_model(model_id, model_info):
     """Download a single model from HuggingFace"""
