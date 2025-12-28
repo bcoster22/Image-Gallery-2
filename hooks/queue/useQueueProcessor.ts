@@ -327,6 +327,10 @@ export const useQueueProcessor = ({
                         msg.includes('503') ||
                         msg.includes('504');
 
+                    // Increment consecutive error counter
+                    consecutiveErrorsRef.current++;
+                    console.warn(`[Queue] Error ${consecutiveErrorsRef.current}/${MAX_CONSECUTIVE_ERRORS}:`, msg);
+
                     // OOM Error Handling: Reduce batch size and re-queue
                     if (isOOMError && currentBatch.length > 1) {
                         console.error(`[Queue] OOM Error with batch size ${currentBatch.length}. Reducing batch size.`);
