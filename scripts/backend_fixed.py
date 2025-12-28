@@ -121,7 +121,12 @@ class SDXLBackend:
                     self.logger.warning(f"Failed to load from single checkpoint: {e}. Falling back to directory search.")
                     checkpoint_path = None # Reset to force directory search
             
+            # Attempt 2: Diffusers Directory Search
+            if not load_success and not checkpoint_path:
                 def normalize(s): return s.lower().replace("-", "").replace("_", "")
+                
+                # Extract model name from HuggingFace ID
+                name = self.model_id.split("/")[-1] if "/" in self.model_id else self.model_id
                 
                 for root_dir in search_roots:
                     if not os.path.exists(root_dir): continue
