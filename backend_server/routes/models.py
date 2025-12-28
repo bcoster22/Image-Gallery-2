@@ -12,17 +12,19 @@ async def list_models(request: Request):
         all_models = []
         app_state = request.app.state
         
+        
         # 1. Manifest Models
-        manifest_models_raw = list(app_state.manifest_manager.get_models().values())
-        for m_raw in manifest_models_raw:
+        manifest_models_dict = app_state.manifest_manager.get_models()
+        for manifest_key, m_raw in manifest_models_dict.items():
             m_data = {}
             if hasattr(m_raw, "model_dump"): m_data = m_raw.model_dump()
             elif hasattr(m_raw, "dict"): m_data = m_raw.dict()
             elif hasattr(m_raw, "__dict__"): m_data = m_raw.__dict__
             elif isinstance(m_raw, dict): m_data = m_raw
             
-            mid = m_data.get("id") or m_data.get("model_id") or m_data.get("args", {}).get("model_id")
-            if not mid: continue
+            # Use manifest key as ID if no explicit ID is found
+            mid = m_data.get("id") or m_data.get("model_id") or m_data.get("args", {}).get("model_id") or manifest_key
+
                     
             m = {
                 "id": mid,
