@@ -286,6 +286,21 @@ export const animateImage = async (
     return executeWithFallback(settings, 'animateImage', [image, prompt, aspectRatio]);
 };
 
+export const batchTagImages = async (
+    images: ImageInfo[],
+    settings: AdminSettings
+): Promise<{ tags: string[], imageId: string }[]> => {
+    // Currently only Moondream Local supports batching via our explicit implementation
+    // We bypass the generic executeWithFallback for this specific specialized features
+    const provider = registry.getProvider('moondream_local');
+    if (!provider) throw new Error("Moondream Local provider not found");
+
+    if ((provider as any).batchTagImages) {
+        return await (provider as any).batchTagImages(images, settings);
+    }
+    throw new Error("Provider does not support batch tagging");
+};
+
 export const editImage = async (
     image: ImageInfo,
     prompt: string,

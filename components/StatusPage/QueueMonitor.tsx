@@ -13,11 +13,14 @@ interface QueueMonitorProps {
     startCalibration?: () => void;
     stopCalibration?: () => void;
     calibrationStatus?: CalibrationStatus;
+    isBatchMode?: boolean;
+    onToggleBatchMode?: () => void;
 }
 
 export function QueueMonitor({
     queueStatus, onPauseQueue, onRemoveFromQueue, onClearQueue,
-    startCalibration, stopCalibration, calibrationStatus
+    startCalibration, stopCalibration, calibrationStatus,
+    isBatchMode, onToggleBatchMode
 }: QueueMonitorProps) {
     const [selectedQueueIds, setSelectedQueueIds] = useState<Set<string>>(new Set());
 
@@ -87,6 +90,21 @@ export function QueueMonitor({
                                 Calibrate
                             </button>
                         )
+                    )}
+
+                    {onToggleBatchMode && (
+                        <button
+                            onClick={onToggleBatchMode}
+                            className={cn(
+                                "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-colors border",
+                                isBatchMode
+                                    ? "bg-blue-500/10 text-blue-400 border-blue-500/20 hover:bg-blue-500/20"
+                                    : "bg-neutral-800 text-neutral-500 border-neutral-700 hover:bg-neutral-700"
+                            )}
+                        >
+                            <Zap className={cn("w-3.5 h-3.5", isBatchMode && "text-blue-400")} />
+                            Batch: {isBatchMode ? "ON" : "OFF"}
+                        </button>
                     )}
 
                     {onPauseQueue && (

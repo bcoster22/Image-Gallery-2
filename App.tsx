@@ -218,7 +218,8 @@ const App: React.FC = () => {
   const {
     queueStatus, analysisProgress, analyzingIds, processingSmartCropIds, setProcessingSmartCropIds,
     generationResults, setGenerationResults, addToQueue, processQueue, isPausedRef, activeRequestsRef, checkBackendHealthRef,
-    queuedAnalysisIds, queuedGenerationIds, removeFromQueue, clearQueue, startCalibration, stopCalibration, calibrationStatus
+    queuedAnalysisIds, queuedGenerationIds, removeFromQueue, clearQueue, startCalibration, stopCalibration, calibrationStatus,
+    isBatchMode, toggleBatchMode
   } = useQueueSystem({
     settings, addNotification, updateNotification, setImages, setSelectedImage, setSimilarImages, setStatsHistory, handleSaveGeneratedImage
   });
@@ -515,6 +516,8 @@ const App: React.FC = () => {
               startCalibration={startCalibration}
               stopCalibration={stopCalibration}
               calibrationStatus={calibrationStatus}
+              isBatchMode={isBatchMode}
+              onToggleBatchMode={toggleBatchMode}
             />
           ) : galleryView === 'profile-settings' && currentUser ? (
             <UserProfilePage user={currentUser} onUpdateUser={setCurrentUser} galleryImages={images} settings={settings} addNotification={addNotification} onClose={() => setGalleryView('my-gallery')} />

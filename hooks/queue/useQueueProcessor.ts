@@ -19,12 +19,14 @@ interface UseQueueProcessorProps {
     setAnalyzingIds: React.Dispatch<React.SetStateAction<Set<string>>>;
     executeAnalysis: (task: QueueItem) => Promise<DevicePerformanceMetrics | undefined>;
     executeGeneration: (task: QueueItem) => Promise<DevicePerformanceMetrics | undefined>;
+    isBatchMode: boolean;
+    executeBatchAnalysis: (tasks: QueueItem[]) => Promise<void>;
 }
 
 export const useQueueProcessor = ({
     settings, queueRef, activeRequestsRef, activeJobsRef, isPausedRef, concurrencyLimit, setConcurrencyLimit,
     checkBackendHealthRef, queuedAnalysisIds, queuedGenerationIds, syncQueueStatus, updateNotification, setImages, setAnalyzingIds,
-    executeAnalysis, executeGeneration
+    executeAnalysis, executeGeneration, isBatchMode, executeBatchAnalysis
 }: UseQueueProcessorProps) => {
 
     const processQueueRef = React.useRef<() => Promise<void>>();
@@ -157,13 +159,28 @@ export const useQueueProcessor = ({
             const task = getNextJob(); // Use Smart Batching
             if (!task) { syncQueueStatus(); break; }
 
-            // Dedupe Analysis
-            if (task.taskType === 'analysis' && task.data.image && !queuedAnalysisIds.current.has(task.data.image.id)) {
-                syncQueueStatus(); continue;
+            // --- BATCH MODE LOGIC ---
+            // If batch mode is ON and task is 'analysis', try to grab more
+            const BATCH_SIZE = 4;
+            let currentBatch = [task];
+            if (isBatchMode && task.taskType === 'analysis') {
+                // Try to fill the batch
+                for (let i = 0; i < BATCH_SIZE - 1; i++) {
+                    if (queueRef.current.length > 0 && queueRef.current[0].taskType === 'analysis') {
+                        const next = queueRef.current.shift();
+                        if (next) currentBatch.push(next);
+                    } else {
+                        break;
+                    }
+                }
             }
 
-            activeRequestsRef.current++;
-            activeJobsRef.current.push({ id: task.id, fileName: task.fileName, size: task.data.image?.dataUrl.length || 0, startTime: Date.now(), taskType: task.taskType });
+            activeRequestsRef.current++; // Batch counts as 1 concurrent request for simplicity (single GPU op)
+
+            // Mark all as active
+            currentBatch.forEach(t => {
+                activeJobsRef.current.push({ id: t.id, fileName: t.fileName, size: t.data.image?.dataUrl.length || 0, startTime: Date.now(), taskType: t.taskType });
+            });
             syncQueueStatus();
 
             syncQueueStatus();
@@ -172,8 +189,18 @@ export const useQueueProcessor = ({
             (async () => {
                 try {
                     let metrics: DevicePerformanceMetrics | undefined;
-                    if (task.taskType === 'analysis') metrics = await executeAnalysis(task);
-                    else if (task.taskType === 'generate') metrics = await executeGeneration(task);
+
+                    if (currentBatch.length > 1 && task.taskType === 'analysis') {
+                        // BATCH EXECUTION
+                        await executeBatchAnalysis(currentBatch);
+                        // Metrics approximation?
+                    } else {
+                        // SINGLE EXECUTION (Loop if we somehow grabbed multiple non-analysis or single analysis)
+                        for (const t of currentBatch) {
+                            if (t.taskType === 'analysis') metrics = await executeAnalysis(t);
+                            else if (t.taskType === 'generate') metrics = await executeGeneration(t);
+                        }
+                    }
 
                     if (metrics) {
                         const { vramUsagePercent, tokensPerSecond } = metrics;
@@ -256,8 +283,12 @@ export const useQueueProcessor = ({
                     }
                 } finally {
                     activeRequestsRef.current = Math.max(0, activeRequestsRef.current - 1);
-                    activeJobsRef.current = activeJobsRef.current.filter(j => j.id !== task.id);
-                    if (task.taskType === 'generate') queuedGenerationIds.current.delete(task.id);
+                    const batchIds = new Set(currentBatch.map(t => t.id));
+                    activeJobsRef.current = activeJobsRef.current.filter(j => !batchIds.has(j.id));
+
+                    currentBatch.forEach(t => {
+                        if (t.taskType === 'generate') queuedGenerationIds.current.delete(t.id);
+                    });
                     syncQueueStatus();
 
                     // Recursive Trigger
@@ -265,7 +296,7 @@ export const useQueueProcessor = ({
                 }
             })();
         }
-    }, [isPausedRef, activeRequestsRef, concurrencyLimit, queueRef, queuedAnalysisIds, activeJobsRef, executeAnalysis, executeGeneration, setConcurrencyLimit, settings, syncQueueStatus, updateNotification, setImages, setAnalyzingIds, queuedGenerationIds, getNextJob, stopCalibration]); // Added dependencies
+    }, [isPausedRef, activeRequestsRef, concurrencyLimit, queueRef, queuedAnalysisIds, activeJobsRef, executeAnalysis, executeGeneration, setConcurrencyLimit, settings, syncQueueStatus, updateNotification, setImages, setAnalyzingIds, queuedGenerationIds, getNextJob, stopCalibration, isBatchMode, executeBatchAnalysis]); // Added dependencies
 
     // Update ref whenever callback changes
     React.useEffect(() => { processQueueRef.current = processQueue; }, [processQueue]);

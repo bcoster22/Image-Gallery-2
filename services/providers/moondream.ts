@@ -570,10 +570,52 @@ export class MoondreamLocalProvider extends BaseProvider {
       return tags;
     }
 
-    // --- FALLBACK (JoyCaption/Moondream) ---
-    // Use standard analysis which supports strategies (like "Extract keywords")
     const result = await this.analyzeImage(image, effectiveSettings);
     return result.keywords;
+  }
+
+  async batchTagImages(images: ImageInfo[], settings: AdminSettings): Promise<{ tags: string[], imageId: string }[]> {
+    const config = settings.providers.moondream_local;
+    const modelOverride = config.taggingModel || "wd-vit-tagger-v3"; // Default to V3 for batching
+
+    // Safety check: Batching is only for WD14 currently
+    if (!modelOverride.includes('wd14') && !modelOverride.includes('tagger') && !modelOverride.includes('vit')) {
+      throw new Error("Batch tagging is only supported for WD14 models.");
+    }
+
+    const endpoint = config.endpoint || 'http://127.0.0.1:2020/v1';
+    const baseUrl = normalizeEndpoint(endpoint.includes('localhost') ? endpoint.replace('localhost', '127.0.0.1') : endpoint);
+    const apiUrl = `${baseUrl}/v1/vision/batch-caption`;
+
+    const body = {
+      model: modelOverride,
+      images: images.map(img => img.dataUrl.split(',')[1]) // Extract base64
+    };
+
+    try {
+      // Need to type the response properly
+      const result = await callMoondreamApi(apiUrl, "", body, false, 120, settings.performance?.vramUsage || 'balanced');
+      // Result.text is JSON string: { "captions": [{ "text": "tag1, tag2" }, ...], "count": 3 }
+
+      const json = JSON.parse(result.text);
+      if (!json.captions || !Array.isArray(json.captions)) {
+        throw new Error("Invalid batch response format");
+      }
+
+      return json.captions.map((c: any, idx: number) => {
+        // Parse CSV string to array
+        const rawTags = c.text || "";
+        const tags = rawTags.split(',').map((t: string) => t.trim()).filter((t: string) => t.length > 0 && t !== 'LABEL 0' && t !== 'unknown'); // Basic filtering
+        return {
+          imageId: images[idx].id,
+          tags: tags
+        };
+      });
+
+    } catch (err: any) {
+      console.error("[Moondream] Batch Tagging Failed:", err);
+      throw err;
+    }
   }
 
 

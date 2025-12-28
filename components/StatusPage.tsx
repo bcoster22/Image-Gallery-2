@@ -12,7 +12,8 @@ import { QueueMonitor } from './StatusPage/QueueMonitor';
 
 export default function StatusPage({
   statsHistory, settings, queueStatus, onPauseQueue, onClearQueue, onRemoveFromQueue,
-  onShowPerformance, onShowDiagnostics, startCalibration, stopCalibration, calibrationStatus
+  onShowPerformance, onShowDiagnostics, startCalibration, stopCalibration, calibrationStatus,
+  isBatchMode, onToggleBatchMode
 }: StatusPageProps) {
   // Global State (Fetched here, passed down)
   const [otelMetrics, setOtelMetrics] = useState<OtelMetrics | null>(null);
@@ -88,6 +89,8 @@ export default function StatusPage({
             startCalibration={startCalibration}
             stopCalibration={stopCalibration}
             calibrationStatus={calibrationStatus}
+            isBatchMode={isBatchMode}
+            onToggleBatchMode={onToggleBatchMode}
           />
         )}
 

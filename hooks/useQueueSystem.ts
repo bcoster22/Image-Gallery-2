@@ -42,8 +42,9 @@ export const useQueueSystem = ({
     const [processingSmartCropIds, setProcessingSmartCropIds] = React.useState<Set<string>>(new Set());
     const [generationResults, setGenerationResults] = React.useState<{ id: string; url: string }[]>([]);
     const [analysisProgress, setAnalysisProgress] = React.useState<{ current: number; total: number; fileName: string } | null>(null);
+    const [isBatchMode, setIsBatchMode] = React.useState<boolean>(false);
 
-    const executeAnalysis = useAnalysisExecutor({
+    const { executeAnalysis, executeBatchAnalysis } = useAnalysisExecutor({
         settings, setStatsHistory, setImages, setSelectedImage, setSimilarImages,
         updateNotification, setAnalyzingIds, queuedAnalysisIds, setAnalysisProgress, addNotification
     });
@@ -55,7 +56,7 @@ export const useQueueSystem = ({
     const { processQueue, startCalibration, stopCalibration, getCalibrationStatus } = useQueueProcessor({
         settings, queueRef, activeRequestsRef, activeJobsRef, isPausedRef, concurrencyLimit, setConcurrencyLimit,
         checkBackendHealthRef, queuedAnalysisIds, queuedGenerationIds, syncQueueStatus, updateNotification,
-        setImages, setAnalyzingIds, executeAnalysis, executeGeneration
+        setImages, setAnalyzingIds, executeAnalysis, executeGeneration, isBatchMode, executeBatchAnalysis
     });
 
     // Recursion Handling: The processor needs to trigger itself. 
@@ -129,6 +130,8 @@ export const useQueueSystem = ({
         queuedGenerationIds,
         startCalibration,
         stopCalibration,
-        calibrationStatus: getCalibrationStatus()
+        calibrationStatus: getCalibrationStatus(),
+        isBatchMode,
+        toggleBatchMode: () => setIsBatchMode(prev => !prev)
     };
 };

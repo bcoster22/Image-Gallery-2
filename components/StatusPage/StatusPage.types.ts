@@ -54,4 +54,6 @@ export interface StatusPageProps {
     startCalibration?: () => void;
     stopCalibration?: () => void;
     calibrationStatus?: any; // Avoiding deep imports here, typed in QueueMonitor
+    isBatchMode?: boolean;
+    onToggleBatchMode?: () => void;
 }
