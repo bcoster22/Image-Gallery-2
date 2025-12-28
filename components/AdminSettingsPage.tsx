@@ -160,23 +160,14 @@ export const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, on
     // Fetch available models from backend
     const fetchModels = async () => {
         try {
-            // Determine endpoint - prefer configured setting, default to DEFAULT
-            const endpoint = settings.providers.moondream_local?.endpoint || DEFAULTS.providers.moondream_local.endpoint;
-            // Remove /v1 if present for model list endpoint if it's base
-            const baseUrl = endpoint.replace(/\/v1\/?$/, '');
+            const provider = new MoondreamLocalProvider();
+            const models = await provider.getModels(settings); // Now returns { id, name, type? }
 
-            const response = await fetch(`${baseUrl}/v1/models`);
-            if (response.ok) {
-                const data = await response.json();
-                if (data && data.models) {
-                    // Preserve type information from backend
-                    setAvailableMoondreamModels(data.models.map((m: any) => ({
-                        id: m.id,
-                        name: m.name || m.id, // Use backend's name, fallback to ID
-                        type: m.type  // Keep the type (vision/analysis/generation)
-                    })));
-                }
-            }
+            setAvailableMoondreamModels(models.map(m => ({
+                id: m.id,
+                name: m.name,
+                type: m.type
+            })));
         } catch (error) {
             console.warn("Failed to fetch models from backend, using fallback list.");
         }

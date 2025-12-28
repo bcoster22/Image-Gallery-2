@@ -3,6 +3,7 @@ import { ImageInfo, AspectRatio, GenerationSettings, AIModelSettings, UpscaleSet
 import { XMarkIcon as CloseIcon, SparklesIcon, VideoCameraIcon, SparklesIcon as WandIcon } from '@heroicons/react/24/outline';
 import Modal from './Modal';
 import { PromptSubmissionModalProps } from './PromptModal/types';
+import { MoondreamLocalProvider, DEFAULT_MOONDREAM_MODELS } from '../services/providers/moondream';
 
 // Modes
 import StandardForm from './PromptModal/modes/StandardForm';
@@ -27,6 +28,12 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = (props) => {
     const [negativePrompt, setNegativePrompt] = useState('');
     const [selectedAspectRatio, setSelectedAspectRatio] = useState<AspectRatio | undefined>('9:16');
     const [selectedProvider, setSelectedProvider] = useState<string>('auto');
+    // Only init with GENERATION models for the dropdown to avoid showing vision models in generation tab
+    const [moondreamModels, setMoondreamModels] = useState<string[]>(
+        DEFAULT_MOONDREAM_MODELS
+            .filter(m => m.type === 'generation')
+            .map(m => m.id)
+    );
 
     // Advanced Settings
     const [advancedSettings, setAdvancedSettings] = useState<GenerationSettings | UpscaleSettings | null>(null);
@@ -47,6 +54,7 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = (props) => {
             // Set default settings based on task type
             if (config.taskType === 'image') {
                 setAdvancedSettings({
+                    provider: 'moondream_local', // Helper to satisfy type
                     model: 'flux-dev',
                     steps: 28,
                     denoise: 100,
@@ -59,16 +67,38 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = (props) => {
         }
     }, [isOpen, config]);
 
+
+    // Fetch Moondream Models
+    useEffect(() => {
+        const fetchMoondreamModels = async () => {
+            if (!settings) return;
+            // Use centralized provider to fetch models (handles defaults/fallback internally)
+            const provider = new MoondreamLocalProvider();
+            const models = await provider.getModels(settings);
+
+            // Filter for generation models only
+            const genModels = models
+                .filter(m => m.type === 'generation')
+                .map(m => m.id);
+            setMoondreamModels(genModels);
+        };
+
+        if (isOpen) {
+            fetchMoondreamModels();
+        }
+    }, [isOpen, settings?.providers.moondream_local.endpoint]);
+
     // Derived Logic for Mode
-    // Is Player Mode if task is Image AND No Source Image provided (Text-to-Image)
-    const isPlayerMode = config?.taskType === 'image' && !config.image;
+    // Is Player Mode if task is Image (Text-to-Image OR Image-to-Image)
+    // We want the new Generation Studio for ALL generation tasks
+    const isPlayerMode = config?.taskType === 'image';
     const isEnhanceMode = config?.taskType === 'enhance';
     const taskType = config?.taskType || 'image';
 
     // Available Models Logic
     const availableModels = useMemo(() => {
         if (!settings || !config) return [];
-        const models: { id: string; name: string; model?: string | null }[] = [];
+        const models: { id: string; name: string; model?: string | null; models?: string[] }[] = [];
         const { providers } = settings;
 
         if (config.taskType === 'image') {
@@ -77,17 +107,27 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = (props) => {
             if (providers.grok.apiKey) models.push({ id: 'grok', name: 'xAI Grok', model: providers.grok.generationModel });
             if (providers.comfyui.endpoint) models.push({ id: 'comfyui', name: 'ComfyUI (Local)', model: 'Workflow' });
             if (providers.moondream_local.endpoint) {
-                models.push({ id: 'moondream_local', name: 'Moondream Local', model: providers.moondream_local.model });
+                models.push({
+                    id: 'moondream_local',
+                    name: 'Moondream Local',
+                    model: providers.moondream_local.model,
+                    models: moondreamModels
+                });
             }
         } else if (config.taskType === 'video') {
             if (providers.gemini.apiKey) models.push({ id: 'gemini', name: 'Google Veo', model: providers.gemini.veoModel });
         } else if (config.taskType === 'enhance') {
             if (providers.gemini.apiKey) models.push({ id: 'gemini', name: 'Google Gemini', model: 'Imagen' });
             if (providers.comfyui.endpoint) models.push({ id: 'comfyui', name: 'ComfyUI', model: 'Upscale' });
-            models.push({ id: 'moondream_local', name: 'Moondream Station', model: 'Standard' });
+            models.push({
+                id: 'moondream_local',
+                name: 'Moondream Station',
+                model: 'Standard',
+                models: moondreamModels
+            });
         }
         return models;
-    }, [settings, config]);
+    }, [settings, config, moondreamModels]);
 
     const handleSubmit = () => {
         onSubmit(prompt, {
@@ -103,7 +143,7 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = (props) => {
     // Determine panel classes based on mode
     let panelClasses = "bg-gray-800 text-white rounded-xl shadow-2xl flex flex-col overflow-hidden max-h-[90vh]";
     if (isPlayerMode || isEnhanceMode) {
-        panelClasses = "bg-black text-white rounded-xl shadow-2xl flex flex-col overflow-hidden h-[90vh] w-[95vw] max-w-[1600px] border border-gray-800";
+        panelClasses = "bg-black text-white rounded-xl shadow-2xl flex flex-col overflow-hidden h-[96vh] w-[95vw] max-w-[1600px] border border-gray-800";
     }
 
     const dynamicMaxWidth = (isPlayerMode || isEnhanceMode) ? '100%' : '2xl';

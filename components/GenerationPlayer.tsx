@@ -91,7 +91,7 @@ const GenerationPlayer: React.FC<GenerationPlayerProps> = ({
     }
 
     return (
-        <div className="flex flex-col h-dvh bg-black select-none text-sans overflow-hidden">
+        <div className="flex flex-col h-full bg-black select-none text-sans overflow-hidden">
             {/* Top Bar */}
             <div className="flex items-center justify-between px-4 py-2 bg-[#1a1a1a] border-b border-[#2a2a2a] z-20 shrink-0 h-14">
                 <div className="flex items-center gap-6">
@@ -177,17 +177,30 @@ const GenerationPlayer: React.FC<GenerationPlayerProps> = ({
                             onAutoSeedAdvanceChange={onAutoSeedAdvanceChange}
                         />
 
-                        <div className="h-10"></div> {/* Spacer */}
+                        {/* Action Step (Step 5) - DESKTOP ONLY */}
+                        <div className="hidden md:block">
+                            <ActionStep
+                                batchCount={batchCount}
+                                onBatchCountChange={onBatchCountChange}
+                                isGenerating={isGenerating}
+                                onGenerate={onGenerate}
+                                isValid={prompt.trim().length > 0}
+                            />
+                        </div>
+
+                        <div className="h-32"></div> {/* Spacer */}
                     </div>
 
-                    {/* Action Step (Sticky Bottom) */}
-                    <ActionStep
-                        batchCount={batchCount}
-                        onBatchCountChange={onBatchCountChange}
-                        isGenerating={isGenerating}
-                        onGenerate={onGenerate}
-                        isValid={prompt.trim().length > 0}
-                    />
+                    {/* Action Step (Step 5) - MOBILE ONLY (Fixed Bottom) */}
+                    <div className="md:hidden border-t border-[#2a2a2a] bg-[#141414] p-0 z-10">
+                        <ActionStep
+                            batchCount={batchCount}
+                            onBatchCountChange={onBatchCountChange}
+                            isGenerating={isGenerating}
+                            onGenerate={onGenerate}
+                            isValid={prompt.trim().length > 0}
+                        />
+                    </div>
                 </div>
             </div>
         </div>

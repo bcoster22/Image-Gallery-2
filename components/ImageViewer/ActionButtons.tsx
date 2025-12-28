@@ -10,7 +10,6 @@ import {
     ScissorsIcon as CropIcon,
     PlayIcon,
     StopIcon,
-    ArrowsRightLeftIcon as ArrowLeftRightIcon,
     ArrowTrendingUpIcon as UpscaleIcon
 } from '@heroicons/react/24/outline';
 import Spinner from '../Spinner';
@@ -133,22 +132,13 @@ export const ActionButtons: React.FC<ActionButtonsProps> = ({
                     {isPreparingAnimation ? <Spinner className={iconClass} /> : <VideoCameraIcon className={iconClass} />}
                 </button>
             </div>
-            <div title={getTxt2ImgTooltip()}>
+            <div title={getGenerationTooltip(supportedAR)}>
                 <button
-                    onClick={() => onGenerate(supportedAR as AspectRatio)}
+                    onClick={() => onRecreate(supportedAR as AspectRatio)}
                     className={`${buttonClass} bg-pink-600/80 hover:bg-pink-600`}
                     disabled={!canGenerate || isPreparingAnimation || !currentUser}
                 >
                     <SparklesIcon className={iconClass} />
-                </button>
-            </div>
-            <div title={getGenerationTooltip(supportedAR)}>
-                <button
-                    onClick={() => onRecreate(supportedAR as AspectRatio)}
-                    className={`${buttonClass} bg-indigo-600/80 hover:bg-indigo-600`}
-                    disabled={!canGenerate || isPreparingAnimation || !currentUser}
-                >
-                    <ArrowLeftRightIcon className={iconClass} />
                 </button>
             </div>
         </div>

@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { MagnifyingGlassIcon as SearchIcon, XMarkIcon as CloseIcon, ExclamationTriangleIcon as WarningIcon } from '@heroicons/react/24/outline';
+import { MagnifyingGlassIcon as SearchIcon, XMarkIcon as CloseIcon, ExclamationTriangleIcon as WarningIcon, SparklesIcon } from '@heroicons/react/24/outline';
 import GenerationStatusIndicator from '../GenerationStatusIndicator';
 import { GalleryView, User, GenerationTask, QueueStatus } from '../../types';
 
@@ -20,6 +20,7 @@ interface NavBarProps {
     failedAnalysisCount: number;
     onRetryAnalysis: () => void;
     onFilesSelected: (e: React.ChangeEvent<HTMLInputElement>) => void;
+    onOpenGenerationStudio: () => void;
 }
 
 export const NavBar: React.FC<NavBarProps> = ({
@@ -37,7 +38,8 @@ export const NavBar: React.FC<NavBarProps> = ({
     onToggleSelectionMode,
     failedAnalysisCount,
     onRetryAnalysis,
-    onFilesSelected
+    onFilesSelected,
+    onOpenGenerationStudio
 }) => {
     return (
         <div className="sticky top-0 z-40 bg-gray-900/95 backdrop-blur-xl -mx-4 px-4 py-3 mb-6 border-b border-gray-800 shadow-lg md:shadow-none md:static md:bg-transparent md:mx-0 md:px-0 md:py-0 md:border-none flex flex-col sm:flex-row justify-between items-center gap-4 transition-all duration-300">
@@ -66,9 +68,19 @@ export const NavBar: React.FC<NavBarProps> = ({
                     queueStatus={queueStatus}
                 />
 
+                {currentUser && (
+                    <button
+                        onClick={onOpenGenerationStudio}
+                        className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold py-2 px-4 rounded-lg transition-all duration-300 shadow-md hover:shadow-lg text-sm whitespace-nowrap flex items-center gap-2"
+                    >
+                        <SparklesIcon className="w-4 h-4" />
+                        Generate Image
+                    </button>
+                )}
+
                 {currentUser && hasImages && (
                     <button
-                        onClick={onToggleSelectionMode}
+                        onClick={() => onToggleSelectionMode()}
                         className={'text-sm font-medium py-2 px-4 rounded-lg transition-colors duration-300 whitespace-nowrap ' + (isSelectionMode ? 'bg-gray-600 hover:bg-gray-500 text-white' : 'bg-gray-700 hover:bg-gray-600 text-gray-200')}
                     >
                         {isSelectionMode ? 'Cancel Selection' : 'Select Items'}

@@ -9,7 +9,7 @@ interface EnhanceWrapperProps {
     aiModelSettings: AIModelSettings;
     onAiSettingsChange: (s: AIModelSettings) => void;
     settings: AdminSettings | null;
-    availableProviders: { id: string; name: string }[];
+    availableProviders: { id: string; name: string; model?: string | null; models?: string[] }[];
     batchImages?: ImageInfo[];
     onSaveGeneratedImage?: (dataUrl: string, prompt: string, metadata?: any) => void;
     promptHistory?: string[];
@@ -110,7 +110,7 @@ const EnhanceWrapper: React.FC<EnhanceWrapperProps> = ({
                 onNavigate={handleNavigate}
                 hasNext={hasNext}
                 hasPrev={hasPrev}
-                availableProviders={availableProviders.map(m => ({ id: m.id, name: m.name }))}
+                availableProviders={availableProviders}
                 resultImage={resultImage}
                 isBatchProcessing={images.length > 1}
                 promptHistory={promptHistory}

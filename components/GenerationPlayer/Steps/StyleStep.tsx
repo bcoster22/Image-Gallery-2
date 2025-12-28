@@ -1,11 +1,12 @@
 import React from 'react';
 import { PaintBrushIcon, ChevronDownIcon } from '@heroicons/react/24/outline';
 import ConfigSection from '../ConfigSection';
-import { AiProvider, GenerationSettings } from '../../../types';
+import { GenerationSettings } from '../../../types';
 import PresetSelector from '../../PresetSelector';
+import { UiProvider } from '../GenerationPlayer.types';
 
 interface StyleStepProps {
-    availableProviders: AiProvider[];
+    availableProviders: UiProvider[];
     selectedProvider: string;
     onProviderChange: (providerId: string) => void;
     settings: GenerationSettings;
@@ -27,7 +28,7 @@ export const StyleStep: React.FC<StyleStepProps> = ({
     };
 
     const currentProviderObj = availableProviders.find(p => p.id === selectedProvider);
-    const modelOptions = currentProviderObj?.models.map(m => ({ value: m, label: m.split('/').pop()?.replace(/-/g, ' ') || m }));
+    const modelOptions = currentProviderObj?.models?.map(m => ({ value: m, label: m.split('/').pop()?.replace(/-/g, ' ') || m })) || [];
 
     return (
         <ConfigSection number={3} title="Style" icon={PaintBrushIcon}>

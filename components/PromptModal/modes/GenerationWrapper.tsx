@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ImageInfo, AspectRatio, GenerationSettings, AiProvider } from '../../../types';
 import GenerationPlayer from '../../GenerationPlayer';
 import { PromptSubmissionModalProps } from '../types';
+import { UiProvider } from '../../GenerationPlayer/GenerationPlayer.types';
 
 interface GenerationWrapperProps {
     prompt: string;
@@ -10,7 +11,7 @@ interface GenerationWrapperProps {
     onNegativePromptChange: (np: string) => void;
     settings: GenerationSettings | null;
     onSettingsChange: (s: GenerationSettings) => void;
-    availableProviders: { id: string; name: string }[];
+    availableProviders: { id: string; name: string; models?: string[] }[];
     selectedProvider: string;
     onProviderChange: (p: string) => void;
     currentModelOptions: { value: string; label: string }[];
@@ -52,6 +53,20 @@ const GenerationWrapper: React.FC<GenerationWrapperProps> = ({
     const [selectedAspectRatio, setSelectedAspectRatio] = useState<AspectRatio>('1:1');
     const [randomAspectRatio, setRandomAspectRatio] = useState(false);
     const [enabledRandomRatios, setEnabledRandomRatios] = useState<AspectRatio[]>(['16:9', '9:16', '1:1', '4:3', '3:4']);
+
+    // Initialize settings if null to prevent crashes
+    const activeSettings: GenerationSettings = settings || {
+        provider: 'moondream_local' as AiProvider,
+        model: 'flux-dev',
+        steps: 28,
+        denoise: 100,
+        cfg_scale: 7,
+        seed: -1,
+        width: 1024,
+        height: 1024,
+        scheduler: 'dpm_pp_2m_karras',
+        sampler: 'euler_ancestral'
+    };
 
     // Session State
     const [generatedImage, setGeneratedImage] = useState<{ id: string; url: string } | null>(null);
@@ -128,11 +143,11 @@ const GenerationWrapper: React.FC<GenerationWrapperProps> = ({
     };
 
     const handlePlayerGenerate = async () => {
-        if (!prompt || !settings) return;
+        if (!prompt) return;
 
         // Create queue items
         const queueItems: import('../../../types').QueueItem[] = [];
-        let currentSeed = settings.seed ?? -1;
+        let currentSeed = activeSettings.seed ?? -1;
 
         for (let i = 0; i < batchCount; i++) {
             let currentAspectRatio = selectedAspectRatio || '1:1';
@@ -145,10 +160,10 @@ const GenerationWrapper: React.FC<GenerationWrapperProps> = ({
 
             const genSettings: GenerationSettings = {
                 provider: (selectedProvider === 'auto' ? 'moondream_local' : selectedProvider) as AiProvider,
-                model: settings.model || 'flux-dev',
-                steps: settings.steps || 28,
-                denoise: settings.denoise || 100,
-                cfg_scale: settings.cfg_scale || 7,
+                model: activeSettings.model || 'flux-dev',
+                steps: activeSettings.steps || 28,
+                denoise: activeSettings.denoise || 100,
+                cfg_scale: activeSettings.cfg_scale || 7,
                 seed: currentSeed
             };
 
@@ -208,10 +223,14 @@ const GenerationWrapper: React.FC<GenerationWrapperProps> = ({
                 negativePrompt={negativePrompt}
                 onNegativePromptChange={onNegativePromptChange}
 
-                settings={settings}
+                settings={activeSettings}
                 onSettingsChange={onSettingsChange}
 
-                availableProviders={availableProviders.map(p => ({ id: p.id as AiProvider, name: p.name }))}
+                availableProviders={availableProviders.map(p => ({
+                    id: p.id as AiProvider,
+                    name: p.name,
+                    models: p.models
+                }))}
                 selectedProvider={selectedProvider}
                 onProviderChange={onProviderChange}
 

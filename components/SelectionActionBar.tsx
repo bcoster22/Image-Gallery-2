@@ -11,7 +11,6 @@ import {
   SparklesIcon as MagicIcon, // Remix/Generate
   VideoCameraIcon as AnimateIcon,
   ArrowTrendingUpIcon as UpscaleIcon, // Enhance
-  ArrowsRightLeftIcon as TransferIcon, // Img2Img
   ArrowDownTrayIcon as DownloadIcon
 } from '@heroicons/react/24/outline';
 import { ImageInfo } from '../types';
@@ -174,12 +173,7 @@ const SelectionActionBar: React.FC<SelectionActionBarProps> = ({
                And leave Arrows for `TriggerDownload`? No.
                Let's stick to the 5 strong creative actions + Management.
            */}
-          <ActionButton
-            onClick={onRemix}
-            icon={TransferIcon}
-            label="Transfer / Img2Img"
-            colorClass="bg-indigo-600 hover:bg-indigo-500 ring-1 ring-indigo-400/30"
-          />
+
 
         </div>
 

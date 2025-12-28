@@ -3,6 +3,18 @@ import { BaseProvider } from "../baseProvider";
 import { registry } from "../providerRegistry";
 import { executeStrategy } from "../promptStrategy";
 
+// --- Constants ---
+export const DEFAULT_MOONDREAM_MODELS = [
+  { id: 'moondream-2', name: 'Moondream 2 (Vision)', type: 'vision' },
+  { id: 'moondream-3-preview', name: 'Moondream 3 Preview', type: 'vision' },
+  { id: 'vikhyatk/moondream2', name: 'Moondream 2 (Classic)', type: 'vision' },
+  { id: 'joycaption-alpha-2', name: 'JoyCaption Alpha 2', type: 'captioning' },
+  { id: 'wd14-vit-v2', name: 'WD14 ViT Tagger v2', type: 'tagging' },
+  { id: 'sdxl-realism', name: 'SDXL Realism (Lightning)', type: 'generation' },
+  { id: 'sdxl-anime', name: 'SDXL Anime (Pony)', type: 'generation' },
+  { id: 'sdxl-surreal', name: 'SDXL Surreal (DreamShaper)', type: 'generation' }
+];
+
 // --- Helper Functions ---
 
 const callMoondreamApi = async (
@@ -312,7 +324,7 @@ export class MoondreamLocalProvider extends BaseProvider {
     return !!settings.providers.moondream_local.endpoint;
   }
 
-  async getModels(settings: AdminSettings): Promise<{ id: string; name: string }[]> {
+  async getModels(settings: AdminSettings): Promise<{ id: string; name: string; type?: string }[]> {
     const providerConfig = settings?.providers?.moondream_local || {};
     const { endpoint } = providerConfig as any;
     let usedEndpoint = endpoint || 'http://127.0.0.1:2020/v1';
@@ -327,22 +339,36 @@ export class MoondreamLocalProvider extends BaseProvider {
       // Standard OpenAI format: { data: [{ id: '...', ... }] }
       // Or local backend format: { models: [...] }
       const modelsList = data.data || data.models;
-      if (modelsList && Array.isArray(modelsList)) {
-        return modelsList.map((m: any) => ({
-          id: m.id,
-          name: m.name || m.id
-        }));
+      if (modelsList && Array.isArray(modelsList) && modelsList.length > 0) {
+        return modelsList.map((m: any) => {
+          let type = m.type;
+
+          // Infer type if missing
+          if (!type) {
+            const id = (m.id || '').toLowerCase();
+            if (id.includes('sdxl') || id.includes('diffusion') || id.includes('flux')) {
+              type = 'generation';
+            } else if (id.includes('moondream') || id.includes('llava')) {
+              type = 'vision';
+            } else if (id.includes('caption')) {
+              type = 'captioning';
+            } else if (id.includes('wd14') || id.includes('tagger')) {
+              type = 'tagging';
+            }
+          }
+
+          return {
+            id: m.id,
+            name: m.name || m.id,
+            type: type
+          };
+        });
       }
-      return [];
+      console.warn("[MoondreamLocal] Empty model list returned, falling back to defaults.");
+      return DEFAULT_MOONDREAM_MODELS;
     } catch (e) {
-      console.warn("[MoondreamLocal] Failed to list models:", e);
-      // Fallback to static list if offline or old backend
-      return [
-        { id: 'sdxl-realism', name: 'SDXL Realism (Lightning)' },
-        { id: 'sdxl-anime', name: 'SDXL Anime (Pony)' },
-        { id: 'sdxl-surreal', name: 'SDXL Surreal (DreamShaper)' },
-        { id: 'moondream-2', name: 'Moondream 2 (Vision)' }
-      ];
+      console.warn("[MoondreamLocal] Failed to list models, using defaults:", e);
+      return DEFAULT_MOONDREAM_MODELS;
     }
   }
 

@@ -2030,6 +2030,29 @@ const App: React.FC = () => {
     });
   }, [selectedIds, images]);
 
+  const handleOpenGenerationStudio = useCallback(() => {
+    if (selectedIds.size === 0) return;
+    const selectedImagesList = images.filter(img => selectedIds.has(img.id));
+    if (selectedImagesList.length === 0) return;
+
+    const firstImage = selectedImagesList[0];
+
+    setPromptModalConfig({
+      taskType: 'image',
+      image: firstImage,
+      initialPrompt: firstImage.recreationPrompt || '',
+      aspectRatio: firstImage.aspectRatio ? getClosestSupportedAspectRatio(firstImage.aspectRatio) as AspectRatio : '1:1'
+    });
+  }, [selectedIds, images]);
+
+  const handleOpenTxt2Img = useCallback(() => {
+    setPromptModalConfig({
+      taskType: 'image',
+      initialPrompt: '',
+      aspectRatio: '1:1'
+    });
+  }, []);
+
   return (
     <MainLayout
       onSetView={setGalleryView}
@@ -2075,6 +2098,7 @@ const App: React.FC = () => {
             failedAnalysisCount={failedAnalysisCount}
             onRetryAnalysis={handleRetryAnalysis}
             onFilesSelected={handleFilesChange}
+            onOpenGenerationStudio={handleOpenTxt2Img}
           />
 
           {(galleryView === 'public' || galleryView === 'my-gallery' || galleryView === 'creations') && (
@@ -2197,11 +2221,12 @@ const App: React.FC = () => {
             onDelete={handleDeleteSelected}
             onMakePublic={handleBatchMakePublic}
             onMakePrivate={handleBatchMakePrivate}
-            onRemix={handleBatchRemixClick}
+            onRemix={handleOpenGenerationStudio}
+            onEnhance={handleOpenEnhanceStudio}
+
             onRegenerate={handleBatchRegenerate}
             onSelectAll={handleSelectAll}
             onSmartCrop={handleSmartCrop}
-            onEnhance={handleOpenEnhanceStudio}
             onAnimate={handleBatchAnimate}
             triggerDownload={triggerBulkDownload}
           />
@@ -2318,7 +2343,6 @@ const App: React.FC = () => {
       }
       {showHealthDashboard && (
         <DiagnosticsPage
-          onClose={() => setShowHealthDashboard(false)}
           onClose={() => setShowHealthDashboard(false)}
         />
       )}

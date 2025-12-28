@@ -6,7 +6,7 @@ interface AIModelSettingsPanelProps {
     settings: AIModelSettings;
     onChange: (settings: AIModelSettings) => void;
     preset?: 'quick' | 'standard' | 'premium' | 'portrait' | 'landscape';
-    availableProviders?: { id: string; name: string }[];
+    availableProviders?: { id: string; name: string; model?: string | null; models?: string[] }[];
     promptHistory?: string[];
     autoSave?: boolean;
     onAutoSaveChange?: (enabled: boolean) => void;
@@ -74,9 +74,9 @@ const AIModelSettingsPanel: React.FC<AIModelSettingsPanelProps> = ({ settings, o
 
     return (
         <div className="space-y-6 pb-20">
-            <div className="flex items-center justify-between pb-2 border-b border-gray-800">
+            <div className="flex items-center justify-start gap-3 pb-2 border-b border-gray-800">
                 <h3 className="text-sm font-medium text-gray-300">Generation Settings</h3>
-                <span className="text-xs text-gray-500">Dec 2025 Standard</span>
+                <span className="text-[10px] text-gray-400 bg-gray-800/80 border border-gray-700/50 px-2 py-0.5 rounded-full">Dec 2025 Standard</span>
             </div>
 
             {/* Presets */}
@@ -132,33 +132,54 @@ const AIModelSettingsPanel: React.FC<AIModelSettingsPanelProps> = ({ settings, o
                         onChange={(e) => updateSetting('model', e.target.value)}
                         className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-indigo-500"
                     >
-                        {(settings.provider === 'moondream_local' || !settings.provider) ? (
-                            <>
-                                <optgroup label="Photorealistic">
-                                    <option value="sdxl-realism">SDXL Realism (Juggernaut Lightning)</option>
-                                </optgroup>
-                                <optgroup label="Anime & Illustration">
-                                    <option value="sdxl-anime">SDXL Anime (Animagine XL)</option>
-                                </optgroup>
-                                <optgroup label="Artistic & Surreal">
-                                    <option value="sdxl-surreal">SDXL Surreal (DreamShaper Lightning)</option>
-                                </optgroup>
-                            </>
-                        ) : settings.provider === 'gemini' ? (
-                            <optgroup label="Google DeepMind">
-                                <option value="imagen-3">Imagen 3 (Highest Quality)</option>
-                                <option value="imagen-3-fast">Imagen 3 Fast</option>
-                            </optgroup>
-                        ) : settings.provider === 'openai' ? (
-                            <optgroup label="OpenAI">
-                                <option value="dall-e-3">DALL-E 3 (Standard)</option>
-                                <option value="dall-e-3-hd">DALL-E 3 HD</option>
-                            </optgroup>
-                        ) : (
-                            <optgroup label="Custom">
-                                <option value="custom">Custom Workflow</option>
-                            </optgroup>
-                        )}
+                        {(() => {
+                            // Find the selected provider
+                            const selectedProvider = availableProviders?.find(p => p.id === (settings.provider || 'moondream_local'));
+
+                            // If provider has a models array, use it
+                            if (selectedProvider?.models && selectedProvider.models.length > 0) {
+                                return selectedProvider.models.map(modelId => (
+                                    <option key={modelId} value={modelId}>{modelId}</option>
+                                ));
+                            }
+
+                            // Otherwise fall back to hard-coded options
+                            if (settings.provider === 'moondream_local' || !settings.provider) {
+                                return (
+                                    <>
+                                        <optgroup label="Photorealistic">
+                                            <option value="sdxl-realism">SDXL Realism (Juggernaut Lightning)</option>
+                                        </optgroup>
+                                        <optgroup label="Anime & Illustration">
+                                            <option value="sdxl-anime">SDXL Anime (Animagine XL)</option>
+                                        </optgroup>
+                                        <optgroup label="Artistic & Surreal">
+                                            <option value="sdxl-surreal">SDXL Surreal (DreamShaper Lightning)</option>
+                                        </optgroup>
+                                    </>
+                                );
+                            } else if (settings.provider === 'gemini') {
+                                return (
+                                    <optgroup label="Google DeepMind">
+                                        <option value="imagen-3">Imagen 3 (Highest Quality)</option>
+                                        <option value="imagen-3-fast">Imagen 3 Fast</option>
+                                    </optgroup>
+                                );
+                            } else if (settings.provider === 'openai') {
+                                return (
+                                    <optgroup label="OpenAI">
+                                        <option value="dall-e-3">DALL-E 3 (Standard)</option>
+                                        <option value="dall-e-3-hd">DALL-E 3 HD</option>
+                                    </optgroup>
+                                );
+                            } else {
+                                return (
+                                    <optgroup label="Custom">
+                                        <option value="custom">Custom Workflow</option>
+                                    </optgroup>
+                                );
+                            }
+                        })()}
                     </select>
                 </div>
             </div>

@@ -21,10 +21,29 @@ if SCRIPTS_PATH not in sys.path:
 
 try:
     import backend_fixed as sdxl_backend_new
-    print("Successfully imported backend_fixed as sdxl_backend_new")
-except ImportError as e:
-    print(f"Warning: Could not import backend_fixed ({e}). Gen AI will not work.")
+    
+    # Validate module has required methods
+    required_methods = ['init_backend', 'generate', 'unload_backend']
+    missing_methods = [m for m in required_methods if not hasattr(sdxl_backend_new, m)]
+    
+    if missing_methods:
+        raise AttributeError(f"backend_fixed missing required methods: {missing_methods}")
+    
+    # Initialize backend state if it doesn't exist
+    if not hasattr(sdxl_backend_new, 'BACKEND'):
+        sdxl_backend_new.BACKEND = None
+        print("[Backend] Initialized BACKEND attribute to None")
+    
+    print(f"✓ Successfully imported and validated backend_fixed as sdxl_backend_new")
+    print(f"  - Module: {sdxl_backend_new}")
+    print(f"  - Has methods: {', '.join(required_methods)}")
+    print(f"  - BACKEND state: {'Initialized' if hasattr(sdxl_backend_new, 'BACKEND') else 'Missing'}")
+    
+except (ImportError, AttributeError) as e:
+    print(f"✗ ERROR: Could not import/validate backend_fixed ({e})")
+    print("  Gen AI functionality will not work.")
     sdxl_backend_new = None
+
 
 import json
 import time
@@ -693,33 +712,59 @@ class RestServer:
         
         # Inject models into manifest so they appear in UI
         try:
+            from transformers import AutoModelForImageClassification
+            
             models = self.manifest_manager.get_models()
-            # DISABLED: moondream-3-preview-4bit has dtype errors (Float vs Half)
-            # Using moondream2 instead which works correctly
-            # models['moondream-3-preview-4bit'] = type('ModelInfo', (object,), {
-            #     'id': 'moondream-3-preview-4bit',
-            #     'name': 'Moondream 3 (4-bit 8GB)',
-            #     'type': 'vision',
-            #     'description': 'Optimized 4-bit Moondream 3 for 8GB VRAM cards.',
-            #     'version': '3.0-preview'
-            # })
-            models['florence-2-large-4bit'] = type('ModelInfo', (object,), {
-                'id': 'florence-2-large-4bit',
-                'name': 'Florence-2 Large (4-bit)',
-                'type': 'vision',
-                'description': 'Microsoft Florence-2 Large with 4-bit quantization.',
-                'version': '2.0'
-            })
-            models['wd-vit-tagger-v3'] = type('ModelInfo', (object,), {
-                'id': 'wd-vit-tagger-v3',
-                'name': 'WD14 ViT Tagger v3',
-                'type': 'vision',
-                'description': 'SmilingWolf WD Tagger V3. Returns tags and Image ratings.',
-                'version': '3.0'
-            })
-            print("[Advanced] Injected advanced models into manifest.")
+            
+            # Check model availability before injecting
+            print("[Advanced] Checking model availability...")
+            
+            # Check Florence-2
+            florence_available = False
+            try:
+                # Just check if config exists, don't download
+                from transformers import AutoConfig
+                AutoConfig.from_pretrained("microsoft/Florence-2-large", local_files_only=True)
+                florence_available = True
+                print("  ✓ Florence-2 Large available locally")
+            except:
+                print("  ✗ Florence-2 Large not available (not downloaded)")
+            
+            # Check WD14 v3
+            wd14v3_available = False
+            try:
+                AutoConfig.from_pretrained("SmilingWolf/wd-vit-tagger-v3", local_files_only=True)
+                wd14v3_available = True
+                print("  ✓ WD14 ViT Tagger v3 available locally")
+            except:
+                print("  ✗ WD14 ViT Tagger v3 not available (not downloaded)")
+            
+            # Only inject if available
+            if florence_available:
+                models['florence-2-large-4bit'] = type('ModelInfo', (object,), {
+                    'id': 'florence-2-large-4bit',
+                    'name': 'Florence-2 Large (4-bit)',
+                    'type': 'vision',
+                    'description': 'Microsoft Florence-2 Large with 4-bit quantization.',
+                    'version': '2.0'
+                })
+                print("  ➜ Injected Florence-2 into manifest")
+            
+            if wd14v3_available:
+                models['wd-vit-tagger-v3'] = type('ModelInfo', (object,), {
+                    'id': 'wd-vit-tagger-v3',
+                    'name': 'WD14 ViT Tagger v3',
+                    'type': 'vision',
+                    'description': 'SmilingWolf WD Tagger V3. Returns tags and Image ratings.',
+                    'version': '3.0'
+                })
+                print("  ➜ Injected WD14 v3 into manifest")
+            
+            injected_count = sum([florence_available, wd14v3_available])
+            print(f"[Advanced] Successfully injected {injected_count}/2 advanced models into manifest")
+            
         except Exception as e:
-            print(f"[Advanced] Warning: Failed to inject models: {e}")
+            print(f"[Advanced] Warning: Failed to check/inject models: {e}")
         
         self.app = FastAPI(title="Moondream Station (Advanced Logic)", version="1.2.0")
         self.app.add_middleware(
@@ -757,7 +802,7 @@ class RestServer:
         # Check if Tracker detects zombie
         # We access the global model_memory_tracker
         if model_memory_tracker.zombie_detected:
-             print(f"[ZombieKiller] 🧟 ZOMBIE DETECTED! (Ghost: {model_memory_tracker.last_ghost_size_mb:.1f}MB). Terminating...")
+             print(f"[ZombieKiller] 🧟 ZOMBIE DETECTED! (Ghost: {model_memory_tracker.ghost_vram_mb:.1f}MB). Terminating...")
              
              # 1. Unload everything
              try:
@@ -770,12 +815,21 @@ class RestServer:
                      sdxl_backend_new.unload_backend()
              except: pass
                  
-             # 2. Reset Tracker
+             # 2. Track all unloads before clearing
+             for model_id in list(model_memory_tracker.loaded_models.keys()):
+                 try:
+                     model_memory_tracker.track_model_unload(model_id)
+                     print(f"[ZombieKiller] Tracked unload for: {model_id}")
+                 except Exception as e:
+                     print(f"[ZombieKiller] Warning: Failed to track unload for {model_id}: {e}")
+             
+             # 3. Reset Tracker
              model_memory_tracker.loaded_models.clear()
              model_memory_tracker.zombie_detected = False
+             model_memory_tracker.ghost_vram_mb = 0
              model_memory_tracker.update_memory_usage()
              
-             # 3. Force GC
+             # 4. Force GC
              gc.collect()
              if torch.cuda.is_available():
                  torch.cuda.empty_cache()
@@ -841,6 +895,32 @@ class RestServer:
             if not result["success"]:
                  raise HTTPException(status_code=500, detail=result["message"])
             return result
+
+        @self.app.get("/diagnostics/backend-health")
+        async def backend_health():
+            """Check if SDXL backend is available and initialized"""
+            if sdxl_backend_new is None:
+                return {
+                    "backend_imported": False,
+                    "backend_module": None,
+                    "has_init": False,
+                    "has_generate": False, 
+                    "has_unload": False,
+                    "backend_initialized": False,
+                    "status": "not_imported",
+                    "error": "Backend module failed to import"
+                }
+            
+            return {
+                "backend_imported": True,
+                "backend_module": str(sdxl_backend_new),
+                "has_init": hasattr(sdxl_backend_new, 'init_backend'),
+                "has_generate": hasattr(sdxl_backend_new, 'generate'),
+                "has_unload": hasattr(sdxl_backend_new, 'unload_backend'),
+                "backend_initialized": hasattr(sdxl_backend_new, 'BACKEND') and sdxl_backend_new.BACKEND is not None,
+                "status": "ready" if (hasattr(sdxl_backend_new, 'BACKEND')) else "not_initialized"
+            }
+
 
         @self.app.post("/diagnostics/setup-autofix")
         async def setup_autofix(request: Request):

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { AdminSettings } from '../../types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { MoondreamLocalProvider } from '../../services/providers/moondream';
 
 function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs));
@@ -113,23 +114,23 @@ export default function ModelLoadTestPanel({ otelMetrics, settings, onRefreshMet
     // Fetch available models on mount
     useEffect(() => {
         const fetchModels = async () => {
+            if (!settings) return;
             try {
-                console.log('[ModelLoadTestPanel] Fetching models from:', `${moondreamUrl}/v1/models`);
-                const res = await fetch(`${moondreamUrl}/v1/models`);
-                console.log('[ModelLoadTestPanel] Models response status:', res.status);
-                if (res.ok) {
-                    const data = await res.json();
-                    console.log('[ModelLoadTestPanel] Models data:', data);
-                    setAvailableModels(data.models || []);
-                } else {
-                    console.error('[ModelLoadTestPanel] Models fetch failed with status:', res.status);
-                }
+                const provider = new MoondreamLocalProvider();
+                const models = await provider.getModels(settings); // Returns { id, name, type? }
+
+                setAvailableModels(models.map(m => ({
+                    id: m.id,
+                    name: m.name,
+                    description: m.type ? `${m.type} model` : 'AI Model',
+                    type: m.type
+                })));
             } catch (e) {
                 console.error("[ModelLoadTestPanel] Failed to fetch models", e);
             }
         };
         fetchModels();
-    }, [moondreamUrl]);
+    }, [settings]);
 
     // Track model loads/unloads from backend metrics
     useEffect(() => {

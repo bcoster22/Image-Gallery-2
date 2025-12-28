@@ -1,5 +1,12 @@
 import { GenerationSettings, AspectRatio, AiProvider, ImageInfo } from '../../types';
 
+// UI Representation of a Provider with its available models
+export interface UiProvider {
+    id: AiProvider;
+    name: string;
+    models?: string[];
+}
+
 export interface GenerationPlayerProps {
     prompt: string;
     onPromptChange: (prompt: string) => void;
@@ -7,7 +14,7 @@ export interface GenerationPlayerProps {
     onNegativePromptChange: (negativePrompt: string) => void;
     settings: GenerationSettings;
     onSettingsChange: (settings: GenerationSettings) => void;
-    availableProviders: AiProvider[];
+    availableProviders: UiProvider[];
     selectedProvider: string;
     onProviderChange: (providerId: string) => void;
     generatedImage: string | null;

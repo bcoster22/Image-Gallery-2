@@ -1,6 +1,6 @@
 import React from 'react';
 import { Capability, AdminSettings, AiProvider } from '../../types';
-import { capabilityDetails } from '../../services/providerCapabilities';
+import { capabilityDetails, providerCapabilities } from '../../services/providerCapabilities';
 import { isProviderConfigured } from './adminUtils';
 
 interface RoutingTabProps {
@@ -78,7 +78,7 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ settings, handleRoutingC
 
                                                 // We need to know if the provider actually SUPPORTS this capability to show it as an option
                                                 // I will import providerCapabilities
-                                                const { providerCapabilities } = require('../../services/providerCapabilities'); // Dynamic or top-level? Top-level is better.
+                                                // Removed dynamic require
                                                 const supports = providerCapabilities[provider] && providerCapabilities[provider][cap];
 
                                                 if (!supports) return null;
@@ -88,10 +88,10 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ settings, handleRoutingC
                                                         key={provider}
                                                         onClick={() => handleRoutingChange(cap, provider)}
                                                         className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-all ${isActive
-                                                                ? 'bg-indigo-600 border-indigo-500 text-white'
-                                                                : isConfigured
-                                                                    ? 'bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600'
-                                                                    : 'bg-gray-800 border-gray-700 text-gray-600 opacity-50 cursor-not-allowed'
+                                                            ? 'bg-indigo-600 border-indigo-500 text-white'
+                                                            : isConfigured
+                                                                ? 'bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600'
+                                                                : 'bg-gray-800 border-gray-700 text-gray-600 opacity-50 cursor-not-allowed'
                                                             }`}
                                                         disabled={!isConfigured}
                                                         title={!isConfigured ? "Provider not configured" : isActive ? "Click to remove" : "Click to add"}

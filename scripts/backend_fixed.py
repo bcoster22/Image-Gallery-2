@@ -640,6 +640,7 @@ def unload_backend():
     global BACKEND
     import gc
     import torch
+    import psutil
     
     print("[SDXL-Backend] Unloading backend...")
     

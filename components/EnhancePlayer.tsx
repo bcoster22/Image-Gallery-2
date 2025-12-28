@@ -20,7 +20,7 @@ interface EnhancePlayerProps {
     onPreviewGenerate: (settings: AIModelSettings, autoSave?: boolean) => Promise<string | null>;
     hasNext?: boolean;
     hasPrev?: boolean;
-    availableProviders?: { id: string; name: string }[];
+    availableProviders?: { id: string; name: string; model?: string | null; models?: string[] }[];
     resultImage?: string | null;
     isBatchProcessing?: boolean;
     promptHistory?: string[];
