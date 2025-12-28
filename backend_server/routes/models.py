@@ -33,13 +33,17 @@ async def list_models(request: Request):
                 "last_known_vram_mb": model_memory_tracker.get_last_known_vram(mid)
             }
             
+            
             mid_lower = mid.lower()
             if "moondream" in mid_lower or "florence" in mid_lower or "joycaption" in mid_lower:
                 m["type"] = "vision"
             elif "wd14" in mid_lower or "tagger" in mid_lower:
                 m["type"] = "analysis"
+            elif "sdxl" in mid_lower or "juggernaut" in mid_lower or "animagine" in mid_lower or "dreamshaper" in mid_lower or "proteus" in mid_lower or "realvis" in mid_lower or "cyberrealistic" in mid_lower:
+                m["type"] = "generation"
             else:
                 m["type"] = "analysis"
+
 
             all_models.append(m)
 
