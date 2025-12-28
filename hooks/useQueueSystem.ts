@@ -90,6 +90,28 @@ export const useQueueSystem = ({
         processQueue();
     };
 
+    const removeFromQueue = (ids: string[]) => {
+        ids.forEach(id => {
+            const index = queueRef.current.findIndex(item => item.id === id);
+            if (index !== -1) {
+                const item = queueRef.current[index];
+                queueRef.current.splice(index, 1);
+
+                // Remove from tracking sets
+                if (item.taskType === 'analysis') queuedAnalysisIds.current.delete(id);
+                else if (item.taskType === 'generate') queuedGenerationIds.current.delete(id);
+            }
+        });
+        syncQueueStatus();
+    };
+
+    const clearQueue = () => {
+        queueRef.current = [];
+        queuedAnalysisIds.current.clear();
+        queuedGenerationIds.current.clear();
+        syncQueueStatus();
+    };
+
     return {
         queueStatus,
         analysisProgress,
@@ -97,6 +119,8 @@ export const useQueueSystem = ({
         processingSmartCropIds, setProcessingSmartCropIds,
         generationResults, setGenerationResults,
         addToQueue,
+        removeFromQueue,
+        clearQueue,
         processQueue,
         isPausedRef,
         activeRequestsRef,

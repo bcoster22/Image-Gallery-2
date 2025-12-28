@@ -1,5 +1,5 @@
-import React from 'react';
-import { Server, Play, Pause, Zap, Clock, Activity } from 'lucide-react';
+import React, { useState } from 'react';
+import { Server, Play, Pause, Zap, Clock, Activity, Trash2, X } from 'lucide-react';
 import { cn } from '../../utils/statusUtils';
 import { QueueStatus } from '../../types';
 
@@ -11,6 +11,32 @@ interface QueueMonitorProps {
 }
 
 export function QueueMonitor({ queueStatus, onPauseQueue, onRemoveFromQueue, onClearQueue }: QueueMonitorProps) {
+    const [selectedQueueIds, setSelectedQueueIds] = useState<Set<string>>(new Set());
+
+    const handleToggleSelect = (id: string) => {
+        const newSet = new Set(selectedQueueIds);
+        if (newSet.has(id)) {
+            newSet.delete(id);
+        } else {
+            newSet.add(id);
+        }
+        setSelectedQueueIds(newSet);
+    };
+
+    const handleRemoveSelected = () => {
+        if (selectedQueueIds.size > 0 && onRemoveFromQueue) {
+            onRemoveFromQueue(Array.from(selectedQueueIds));
+            setSelectedQueueIds(new Set());
+        }
+    };
+
+    const handleClearQueue = () => {
+        if (onClearQueue) {
+            onClearQueue();
+            setSelectedQueueIds(new Set());
+        }
+    };
+
     return (
         <div className="col-span-1 md:col-span-2 bg-neutral-900/50 border border-white/10 rounded-2xl p-6">
             <div className="flex items-center justify-between mb-6">
@@ -28,20 +54,31 @@ export function QueueMonitor({ queueStatus, onPauseQueue, onRemoveFromQueue, onC
                 )}>
                     {queueStatus.isPaused ? 'Paused (Backpressure)' : 'Running'}
                 </div>
-                {onPauseQueue && (
-                    <button
-                        onClick={() => onPauseQueue(!queueStatus.isPaused)}
-                        className={cn(
-                            "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-colors border",
-                            queueStatus.isPaused
-                                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20"
-                                : "bg-amber-500/10 text-amber-400 border-amber-500/20 hover:bg-amber-500/20"
-                        )}
-                    >
-                        {queueStatus.isPaused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
-                        {queueStatus.isPaused ? "Resume Queue" : "Pause Queue"}
-                    </button>
-                )}
+                <div className="flex items-center gap-2">
+                    {onPauseQueue && (
+                        <button
+                            onClick={() => onPauseQueue(!queueStatus.isPaused)}
+                            className={cn(
+                                "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-colors border",
+                                queueStatus.isPaused
+                                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20"
+                                    : "bg-amber-500/10 text-amber-400 border-amber-500/20 hover:bg-amber-500/20"
+                            )}
+                        >
+                            {queueStatus.isPaused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
+                            {queueStatus.isPaused ? "Resume" : "Pause"}
+                        </button>
+                    )}
+                    {onClearQueue && queueStatus.pendingCount > 0 && (
+                        <button
+                            onClick={handleClearQueue}
+                            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-colors border bg-red-500/10 text-red-400 border-red-500/20 hover:bg-red-500/20"
+                        >
+                            <X className="w-3.5 h-3.5" />
+                            Clear Queue
+                        </button>
+                    )}
+                </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -72,7 +109,7 @@ export function QueueMonitor({ queueStatus, onPauseQueue, onRemoveFromQueue, onC
                 </div>
 
                 {/* Jobs List (Active & Queued) */}
-                <div className="col-span-1 md:col-span-2 bg-black/20 rounded-xl p-4 overflow-hidden flex flex-col gap-4">
+                <div className="col-span-1 md:col-span-2 bg-black/20 rounded-xl p-4 overflow-hidden flex flex-col gap-4 max-h-[400px] overflow-y-auto scrollbar-thin scrollbar-thumb-white/10">
 
                     {/* Active Jobs */}
                     <div>
@@ -109,6 +146,56 @@ export function QueueMonitor({ queueStatus, onPauseQueue, onRemoveFromQueue, onC
                             </div>
                         )}
                     </div>
+
+                    {/* Queued Jobs */}
+                    {queueStatus.queuedJobs.length > 0 && (
+                        <div>
+                            <div className="flex items-center justify-between mb-2">
+                                <h4 className="text-sm font-medium text-blue-400 flex items-center gap-2">
+                                    <Clock className="w-3 h-3" /> Pending Queue ({queueStatus.queuedJobs.length})
+                                </h4>
+                                {selectedQueueIds.size > 0 && onRemoveFromQueue && (
+                                    <button
+                                        onClick={handleRemoveSelected}
+                                        className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold uppercase bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors"
+                                    >
+                                        <Trash2 className="w-3 h-3" />
+                                        Remove ({selectedQueueIds.size})
+                                    </button>
+                                )}
+                            </div>
+                            <div className="space-y-1.5 text-xs">
+                                {queueStatus.queuedJobs.slice(0, 5).map((job, index) => (
+                                    <div key={job.id} className="flex items-center gap-2 bg-blue-500/5 border border-blue-500/10 rounded-lg p-2 hover:bg-blue-500/10 transition-colors group">
+                                        {onRemoveFromQueue && (
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedQueueIds.has(job.id)}
+                                                onChange={() => handleToggleSelect(job.id)}
+                                                className="w-3.5 h-3.5 rounded border-neutral-500 bg-neutral-700 text-blue-500 focus:ring-blue-500 cursor-pointer"
+                                            />
+                                        )}
+                                        <div className="flex items-center gap-2 flex-1 overflow-hidden">
+                                            <span className="text-neutral-500 font-mono text-[10px] w-5">#{index + 1}</span>
+                                            <span className="truncate text-neutral-300">{job.fileName}</span>
+                                        </div>
+                                        <div className={cn("px-1.5 py-0.5 rounded border text-[10px] uppercase font-bold tracking-wider",
+                                            job.taskType === 'analysis' ? "bg-purple-500/10 text-purple-400 border-purple-500/20" :
+                                                job.taskType === 'generate' ? "bg-pink-500/10 text-pink-400 border-pink-500/20" :
+                                                    "bg-gray-500/10 text-gray-400 border-gray-500/20"
+                                        )}>
+                                            {job.taskType}
+                                        </div>
+                                    </div>
+                                ))}
+                                {queueStatus.queuedJobs.length > 5 && (
+                                    <div className="text-center text-neutral-500 text-[10px] italic pt-1">
+                                        +{queueStatus.queuedJobs.length - 5} more in queue
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

@@ -216,7 +216,7 @@ const App: React.FC = () => {
   const {
     queueStatus, analysisProgress, analyzingIds, processingSmartCropIds, setProcessingSmartCropIds,
     generationResults, setGenerationResults, addToQueue, processQueue, isPausedRef, activeRequestsRef, checkBackendHealthRef,
-    queuedAnalysisIds, queuedGenerationIds
+    queuedAnalysisIds, queuedGenerationIds, removeFromQueue, clearQueue
   } = useQueueSystem({
     settings, addNotification, updateNotification, setImages, setSelectedImage, setSimilarImages, setStatsHistory, handleSaveGeneratedImage
   });
@@ -501,7 +501,7 @@ const App: React.FC = () => {
           {showPerformanceOverview ? (
             <PerformanceOverview settings={settings} onBack={() => setShowPerformanceOverview(false)} />
           ) : galleryView === 'status' ? (
-            <StatusPage statsHistory={statsHistory} settings={settings} queueStatus={queueStatus} onPauseQueue={(p) => isPausedRef.current = p} onClearQueue={() => { }} onRemoveFromQueue={() => { }} onShowPerformance={() => setShowPerformanceOverview(true)} onShowDiagnostics={() => setShowHealthDashboard(true)} />
+            <StatusPage statsHistory={statsHistory} settings={settings} queueStatus={queueStatus} onPauseQueue={(p) => isPausedRef.current = p} onClearQueue={clearQueue} onRemoveFromQueue={removeFromQueue} onShowPerformance={() => setShowPerformanceOverview(true)} onShowDiagnostics={() => setShowHealthDashboard(true)} />
           ) : galleryView === 'profile-settings' && currentUser ? (
             <UserProfilePage user={currentUser} onUpdateUser={setCurrentUser} galleryImages={images} settings={settings} addNotification={addNotification} onClose={() => setGalleryView('my-gallery')} />
           ) : galleryView === 'creations' && currentUser ? (
