@@ -295,6 +295,28 @@ const GridItem: React.FC<GridItemProps> = ({ image, onImageClick, isAnalyzing, i
             <MoreOptionsIcon className="w-5 h-5 text-white" />
           </div>
 
+          {/* Rating Badge - Top Left */}
+          {image.keywords?.some(k => k.startsWith('rating:')) && (
+            <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+              {image.keywords.filter(k => k.startsWith('rating:')).map((kw, i) => {
+                const rating = kw.replace('rating:', '');
+                let colorClass = 'bg-gray-500/80 text-gray-100 border-gray-400';
+                if (rating === 'G') colorClass = 'bg-green-500/80 text-white border-green-400';
+                if (rating === 'PG') colorClass = 'bg-green-600/80 text-white border-green-500';
+                if (rating === 'PG-13') colorClass = 'bg-yellow-500/80 text-white border-yellow-400';
+                if (rating === 'R') colorClass = 'bg-orange-500/80 text-white border-orange-400';
+                if (rating === 'X') colorClass = 'bg-red-500/80 text-white border-red-400';
+                if (rating === 'XXX') colorClass = 'bg-red-900/90 text-white border-red-700';
+
+                return (
+                  <div key={`rating-${i}`} className={`px-2 py-0.5 text-xs font-bold border backdrop-blur-sm rounded-md shadow-lg ${colorClass}`}>
+                    {rating}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 via-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex justify-between items-center">
             <div className="flex items-center gap-2 min-w-0">
               {image.authorAvatarUrl && (
