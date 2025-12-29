@@ -261,6 +261,29 @@ export default function PerformanceOverview({ settings, onBack }: PerformanceOve
                         <div className="p-8 text-center text-neutral-500">No models found. Check connection to Moondream Station.</div>
                     )}
                 </div>
+
+                {/* Prompt Configuration */}
+                <div className="bg-neutral-900 border border-white/10 rounded-2xl p-6">
+                    <div className="flex items-center gap-3 mb-4">
+                        <div className="p-2 bg-blue-500/20 rounded-lg">
+                            <Info className="w-5 h-5 text-blue-400" />
+                        </div>
+                        <div>
+                            <h2 className="text-lg font-semibold text-white">Test Prompt</h2>
+                            <p className="text-sm text-neutral-400">Used for generation models and vision verification</p>
+                        </div>
+                    </div>
+                    <textarea
+                        value={testPrompt}
+                        onChange={(e) => setTestPrompt(e.target.value)}
+                        placeholder="Enter your test prompt..."
+                        className="w-full bg-neutral-800 border border-neutral-700 rounded-lg p-4 text-white placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                        rows={3}
+                    />
+                    <p className="text-xs text-neutral-500 mt-2">
+                        💡 Generation models will create an image from this prompt. Vision models will verify if the generated image matches.
+                    </p>
+                </div>
             </div>
 
             {/* Result Modal */}
@@ -338,28 +361,6 @@ export default function PerformanceOverview({ settings, onBack }: PerformanceOve
                     </div>
                 </div>
 
-                {/* Prompt Configuration */}
-            <div className="bg-neutral-900 border border-white/10 rounded-2xl p-6">
-                <div className="flex items-center gap-3 mb-4">
-                    <div className="p-2 bg-blue-500/20 rounded-lg">
-                        <Info className="w-5 h-5 text-blue-400" />
-                    </div>
-                    <div>
-                        <h2 className="text-lg font-semibold text-white">Test Prompt</h2>
-                        <p className="text-sm text-neutral-400">Used for generation models and vision verification</p>
-                    </div>
-                </div>
-                <textarea
-                    value={testPrompt}
-                    onChange={(e) => setTestPrompt(e.target.value)}
-                    placeholder="Enter your test prompt..."
-                    className="w-full bg-neutral-800 border border-neutral-700 rounded-lg p-4 text-white placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                    rows={3}
-                />
-                <p className="text-xs text-neutral-500 mt-2">
-                    💡 Generation models will create an image from this prompt. Vision models will verify if the generated image matches.
-                </p>
-            </div>
 
         </div>
     );
