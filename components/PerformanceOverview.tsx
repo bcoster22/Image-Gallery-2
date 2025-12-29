@@ -337,7 +337,6 @@ export default function PerformanceOverview({ settings, onBack }: PerformanceOve
                             )}
 
                             {testResult.error && (
-            </div>
                                 <div className="bg-red-500/10 border border-red-500/20 text-red-300 p-4 rounded-xl text-sm">
                                     {testResult.error}
                                 </div>
