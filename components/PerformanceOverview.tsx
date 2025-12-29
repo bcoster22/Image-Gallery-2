@@ -362,6 +362,7 @@ export default function PerformanceOverview({ settings, onBack }: PerformanceOve
                 </div>
 
 
+            )}
         </div>
     );
 }
