@@ -7,6 +7,7 @@ export interface DiagnosticResult {
     message: string;
     timestamp: number;
     fix_id?: string;
+    source?: 'frontend' | 'backend';
 }
 
 export interface DiagnosticsPageProps {

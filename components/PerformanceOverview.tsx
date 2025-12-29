@@ -31,6 +31,7 @@ export default function PerformanceOverview({ settings, onBack }: PerformanceOve
     const [loading, setLoading] = useState(true);
     const [testResult, setTestResult] = useState<TestResult | null>(null);
     const [showResultModal, setShowResultModal] = useState(false);
+    const [testPrompt, setTestPrompt] = useState("hot sexy 22 yo woman in bikini posing for sports illustrated model photo shots. long red hair and hazel-green eyes. big teardrop breasts, attention grabbing cleavage.");
 
     const moondreamUrl = settings?.providers.moondream_local.endpoint || 'http://localhost:2020';
     const cleanUrl = moondreamUrl.replace(/\/$/, "").replace(/\/v1$/, "");
@@ -64,9 +65,8 @@ export default function PerformanceOverview({ settings, onBack }: PerformanceOve
         const startTime = Date.now();
 
         try {
-            // 1. Trigger Generation (360x720, Top 15 tags equivalent)
-            // We use a fixed prompt for consistency
-            const prompt = "cinematic, dramatic lighting, high quality, detailed, 4k, masterpiece, photorealistic, professional photography, depth of field, sharp focus, ray tracing, vivid colors, atmospheric, intricate details, best quality";
+            // 1. Trigger Generation (360x720) using custom prompt
+            const prompt = testPrompt;
 
             let imageUrl: string | undefined;
 
@@ -123,7 +123,7 @@ export default function PerformanceOverview({ settings, onBack }: PerformanceOve
                                 {
                                     role: "user",
                                     content: [
-                                        { type: "text", text: "Is this a high quality image matching the prompt: cinematic, dramatic lighting?" },
+                                        { type: "text", text: `Does this image match the prompt: "${prompt}"? Describe what you see.` },
                                         { type: "image_url", image_url: { url: imageUrl } }
                                     ]
                                 }
@@ -337,7 +337,29 @@ export default function PerformanceOverview({ settings, onBack }: PerformanceOve
                         </div>
                     </div>
                 </div>
-            )}
+
+                {/* Prompt Configuration */}
+            <div className="bg-neutral-900 border border-white/10 rounded-2xl p-6">
+                <div className="flex items-center gap-3 mb-4">
+                    <div className="p-2 bg-blue-500/20 rounded-lg">
+                        <Info className="w-5 h-5 text-blue-400" />
+                    </div>
+                    <div>
+                        <h2 className="text-lg font-semibold text-white">Test Prompt</h2>
+                        <p className="text-sm text-neutral-400">Used for generation models and vision verification</p>
+                    </div>
+                </div>
+                <textarea
+                    value={testPrompt}
+                    onChange={(e) => setTestPrompt(e.target.value)}
+                    placeholder="Enter your test prompt..."
+                    className="w-full bg-neutral-800 border border-neutral-700 rounded-lg p-4 text-white placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                    rows={3}
+                />
+                <p className="text-xs text-neutral-500 mt-2">
+                    💡 Generation models will create an image from this prompt. Vision models will verify if the generated image matches.
+                </p>
+            </div>
 
         </div>
     );
