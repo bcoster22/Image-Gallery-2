@@ -143,7 +143,8 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = (props) => {
     // Determine panel classes based on mode
     let panelClasses = "bg-gray-800 text-white rounded-xl shadow-2xl flex flex-col overflow-hidden max-h-[90vh]";
     if (isPlayerMode || isEnhanceMode) {
-        panelClasses = "bg-black text-white rounded-xl shadow-2xl flex flex-col overflow-hidden h-[96vh] w-[95vw] max-w-[1600px] border border-gray-800";
+        // Use fixed constraints relative to viewport instead of vh height to ensure it fits exactly
+        panelClasses = "bg-black text-white rounded-xl shadow-2xl flex flex-col overflow-hidden fixed inset-2 md:inset-4 lg:inset-8 border border-gray-800";
     }
 
     const dynamicMaxWidth = (isPlayerMode || isEnhanceMode) ? '100%' : '2xl';
@@ -187,6 +188,7 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = (props) => {
                     onDeleteNegativePrompt={onDeleteNegativePrompt}
                     generationResults={generationResults}
                     negativePromptHistory={negativePromptHistory}
+                    promptHistory={promptHistory || []}
                     configImage={config.image}
                 />
             ) : (

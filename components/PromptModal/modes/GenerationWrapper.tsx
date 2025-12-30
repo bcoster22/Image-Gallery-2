@@ -25,6 +25,7 @@ interface GenerationWrapperProps {
 
     // History
     negativePromptHistory: string[];
+    promptHistory: string[];
 
     // Config
     configImage?: ImageInfo;
@@ -43,15 +44,16 @@ const GenerationWrapper: React.FC<GenerationWrapperProps> = ({
     onDeleteNegativePrompt,
     generationResults,
     negativePromptHistory,
+    promptHistory,
     configImage
 }) => {
     // Local State specific to Generation Logic
-    const [batchCount, setBatchCount] = useState(1);
+    const [batchCount, setBatchCount] = useState(5);
     const [autoSave, setAutoSave] = useState(true);
     const [autoSeedAdvance, setAutoSeedAdvance] = useState(true);
 
     const [selectedAspectRatio, setSelectedAspectRatio] = useState<AspectRatio>('1:1');
-    const [randomAspectRatio, setRandomAspectRatio] = useState(false);
+    const [randomAspectRatio, setRandomAspectRatio] = useState(true);
     const [enabledRandomRatios, setEnabledRandomRatios] = useState<AspectRatio[]>(['16:9', '9:16', '1:1', '4:3', '3:4']);
 
     // Initialize settings if null to prevent crashes
@@ -67,6 +69,56 @@ const GenerationWrapper: React.FC<GenerationWrapperProps> = ({
         scheduler: 'dpm_pp_2m_karras',
         sampler: 'euler_ancestral'
     };
+
+    // Persistence Key
+    const STORAGE_KEY = 'generation_studio_settings_v3';
+
+    // Local State specific to Generation Logic
+    const [maxBatchCount, setMaxBatchCount] = useState(200);
+
+    // Load saved settings on mount
+    useEffect(() => {
+        try {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if (parsed.batchCount) setBatchCount(parsed.batchCount);
+                if (parsed.maxBatchCount) setMaxBatchCount(parsed.maxBatchCount);
+                if (parsed.randomAspectRatio !== undefined) setRandomAspectRatio(parsed.randomAspectRatio);
+                if (parsed.selectedAspectRatio) setSelectedAspectRatio(parsed.selectedAspectRatio);
+                if (parsed.enabledRandomRatios) setEnabledRandomRatios(parsed.enabledRandomRatios);
+                if (parsed.autoSeedAdvance !== undefined) setAutoSeedAdvance(parsed.autoSeedAdvance);
+
+                // Merge saved generation settings with defaults
+                if (parsed.settings) {
+                    onSettingsChange({ ...activeSettings, ...parsed.settings });
+                }
+
+                // Provider Selection
+                if (parsed.selectedProvider) {
+                    onProviderChange(parsed.selectedProvider);
+                }
+            }
+        } catch (e) {
+            console.warn("Failed to load generation settings", e);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // Run once on mount
+
+    // Save settings on change
+    useEffect(() => {
+        const stateToSave = {
+            batchCount,
+            maxBatchCount,
+            randomAspectRatio,
+            selectedAspectRatio,
+            enabledRandomRatios,
+            autoSeedAdvance,
+            selectedProvider,
+            settings: activeSettings
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
+    }, [batchCount, maxBatchCount, randomAspectRatio, selectedAspectRatio, enabledRandomRatios, autoSeedAdvance, selectedProvider, activeSettings]);
 
     // Session State
     const [generatedImage, setGeneratedImage] = useState<{ id: string; url: string } | null>(null);
@@ -249,6 +301,8 @@ const GenerationWrapper: React.FC<GenerationWrapperProps> = ({
 
                 batchCount={batchCount}
                 onBatchCountChange={setBatchCount}
+                maxBatchCount={maxBatchCount}
+                onMaxBatchCountChange={setMaxBatchCount}
                 // autoSave={autoSave}
                 // onAutoSaveChange={setAutoSave}
                 autoSeedAdvance={autoSeedAdvance}
@@ -278,6 +332,7 @@ const GenerationWrapper: React.FC<GenerationWrapperProps> = ({
                 onDeleteNegativePrompt={onDeleteNegativePrompt}
                 slideshowSpeed={slideshowSpeed}
                 onSlideshowSpeedChange={setSlideshowSpeed}
+                promptHistory={promptHistory}
             />
         </div>
     );

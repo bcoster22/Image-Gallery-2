@@ -35,7 +35,7 @@ export const StyleStep: React.FC<StyleStepProps> = ({
             <div className="space-y-4">
                 {/* Provider Selection */}
                 <div>
-                    <label className="block text-[10px] uppercase text-gray-500 font-bold mb-1">Model Provider</label>
+                    <label className="block text-left text-[10px] uppercase text-gray-500 font-bold mb-1">Model Provider</label>
                     <div className="relative">
                         <select
                             value={selectedProvider}
@@ -50,7 +50,7 @@ export const StyleStep: React.FC<StyleStepProps> = ({
 
                 {/* Model Selection Dropdown */}
                 <div>
-                    <label className="block text-[10px] uppercase text-gray-500 font-bold mb-1">Model Selection</label>
+                    <label className="block text-left text-[10px] uppercase text-gray-500 font-bold mb-1">Model Selection</label>
                     <div className="relative">
                         <select
                             value={settings.model}
@@ -66,7 +66,7 @@ export const StyleStep: React.FC<StyleStepProps> = ({
                 </div>
 
                 <div className="pt-2 border-t border-gray-800">
-                    <label className="block text-[10px] uppercase text-gray-500 font-bold mb-2">Style Presets</label>
+                    <label className="block text-left text-[10px] uppercase text-gray-500 font-bold mb-2">Style Presets</label>
                     <PresetSelector
                         prompt={prompt}
                         currentPreset={settings.model}

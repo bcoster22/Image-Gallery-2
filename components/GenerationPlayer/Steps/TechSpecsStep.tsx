@@ -44,12 +44,22 @@ export const TechSpecsStep: React.FC<TechSpecsStepProps> = ({
                 </div>
 
                 <div>
-                    {/* Discrete Quality Steps */}
-                    <div className="flex justify-between text-xs mb-1.5">
+                    <div className="flex justify-between text-xs mb-2">
                         <span className="text-gray-400">Quality Steps</span>
-                        <span className="text-indigo-400 font-mono">{settings.steps}</span>
+                        <span className="text-emerald-400 font-mono font-bold bg-emerald-900/30 px-2 rounded">{settings.steps}</span>
                     </div>
-                    <div className="relative flex items-center h-5">
+
+                    <div className="relative w-full h-6 flex items-center group">
+                        {/* Custom Track Background */}
+                        <div className="absolute w-full h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                            {/* Active Fill (Green) */}
+                            <div
+                                className="h-full bg-gradient-to-r from-emerald-600 to-green-400 rounded-full transition-all duration-75 ease-out"
+                                style={{ width: `${((settings.steps || 30) / 150) * 100}%` }}
+                            />
+                        </div>
+
+                        {/* Native Range Input (Invisible Overlay) */}
                         <input
                             type="range"
                             min="1"
@@ -57,35 +67,42 @@ export const TechSpecsStep: React.FC<TechSpecsStepProps> = ({
                             step="1"
                             value={settings.steps || 30}
                             onChange={e => updateSetting('steps', Number(e.target.value))}
-                            list="quality-steps-list"
-                            className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                            className="absolute w-full h-full opacity-0 cursor-pointer z-10"
+                        />
+
+                        {/* Custom Thumb (Visual Only - follows position) */}
+                        <div
+                            className="absolute h-3.5 w-3.5 bg-white rounded-full shadow-lg border-2 border-emerald-500 pointer-events-none transition-all duration-75 ease-out group-hover:scale-110 group-active:scale-95 z-0"
+                            style={{ left: `calc(${((settings.steps || 30) / 150) * 100}% - 7px)` }}
                         />
                     </div>
-                    <datalist id="quality-steps-list">
-                        <option value="8"></option>
-                        <option value="16"></option>
-                        <option value="26"></option>
-                        <option value="36"></option>
-                        <option value="56"></option>
-                        <option value="76"></option>
-                        <option value="96"></option>
-                        <option value="116"></option>
-                        <option value="132"></option>
-                        <option value="150"></option>
-                    </datalist>
-                    <div className="flex justify-between text-[8px] text-gray-600 font-mono mt-0.5">
+
+                    {/* Tick Marks / Scale */}
+                    <div className="flex justify-between text-[9px] text-gray-600 font-mono mt-1 px-1">
                         <span>1</span>
+                        <span>30</span>
                         <span>75</span>
                         <span>150</span>
                     </div>
                 </div>
 
                 <div>
-                    <div className="flex justify-between text-xs mb-1.5">
+                    <div className="flex justify-between text-xs mb-2">
                         <span className="text-gray-400">Classifier Free Guidance (CFG)</span>
-                        <span className="text-indigo-400 font-mono">{settings.cfg_scale ? settings.cfg_scale.toFixed(1) : '7.0'}</span>
+                        <span className="text-amber-400 font-mono font-bold bg-amber-900/30 px-2 rounded">{settings.cfg_scale ? settings.cfg_scale.toFixed(1) : '7.0'}</span>
                     </div>
-                    <div className="relative flex items-center h-5">
+
+                    <div className="relative w-full h-6 flex items-center group">
+                        {/* Custom Track Background */}
+                        <div className="absolute w-full h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                            {/* Active Fill (Yellow) */}
+                            <div
+                                className="h-full bg-gradient-to-r from-amber-600 to-yellow-400 rounded-full transition-all duration-75 ease-out"
+                                style={{ width: `${((settings.cfg_scale || 7) / 20) * 100}%` }}
+                            />
+                        </div>
+
+                        {/* Native Range Input (Invisible Overlay) */}
                         <input
                             type="range"
                             min="1"
@@ -93,7 +110,13 @@ export const TechSpecsStep: React.FC<TechSpecsStepProps> = ({
                             step="0.5"
                             value={settings.cfg_scale}
                             onChange={e => updateSetting('cfg_scale', Number(e.target.value))}
-                            className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                            className="absolute w-full h-full opacity-0 cursor-pointer z-10"
+                        />
+
+                        {/* Custom Thumb */}
+                        <div
+                            className="absolute h-3.5 w-3.5 bg-white rounded-full shadow-lg border-2 border-amber-500 pointer-events-none transition-all duration-75 ease-out group-hover:scale-110 group-active:scale-95 z-0"
+                            style={{ left: `calc(${((settings.cfg_scale || 7) / 20) * 100}% - 7px)` }}
                         />
                     </div>
                 </div>

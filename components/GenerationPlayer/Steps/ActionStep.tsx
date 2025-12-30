@@ -1,9 +1,12 @@
 import React from 'react';
 import { BoltIcon } from '@heroicons/react/24/outline';
+import ConfigSection from '../ConfigSection';
 
 interface ActionStepProps {
     batchCount: number;
     onBatchCountChange: (count: number) => void;
+    maxBatchCount?: number;
+    onMaxBatchCountChange?: (max: number) => void;
     isGenerating: boolean;
     onGenerate: () => void;
     isValid: boolean;
@@ -12,32 +15,60 @@ interface ActionStepProps {
 export const ActionStep: React.FC<ActionStepProps> = ({
     batchCount,
     onBatchCountChange,
+    maxBatchCount,
+    onMaxBatchCountChange,
     isGenerating,
     onGenerate,
     isValid
 }) => {
     return (
-        <div className="bg-[#141414] border-t border-[#2a2a2a] p-4 pb-8 md:p-4 sticky bottom-0 z-10 w-full">
-            <div className="flex items-center gap-2 mb-3 opacity-60">
-                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Step 5: Action</span>
-                <div className="h-px bg-gray-700 flex-grow"></div>
-            </div>
-
+        <ConfigSection number={5} title="Action" icon={BoltIcon}>
             <div className="flex items-center gap-4">
                 {/* Batch Slider */}
                 <div className="flex-grow">
-                    <div className="flex justify-between text-[10px] text-gray-400 mb-1">
-                        <span>Batch Count</span>
-                        <span className="text-white font-mono">{batchCount}</span>
+                    <div className="flex justify-between text-[10px] text-gray-400 mb-2">
+                        <span className="text-left font-bold text-gray-500 uppercase">Batch Count</span>
+                        <div className="flex items-center gap-1">
+                            <span className="text-white font-mono bg-gray-800 px-1.5 py-0.5 rounded border border-gray-700">{batchCount}</span>
+                            <span className="text-gray-600">/</span>
+                            <input
+                                type="number"
+                                className="w-10 bg-transparent text-right text-gray-500 hover:text-gray-300 focus:text-white focus:outline-none border-b border-transparent hover:border-gray-700 focus:border-indigo-500 transition-all font-mono"
+                                value={maxBatchCount}
+                                onChange={(e) => onMaxBatchCountChange && onMaxBatchCountChange(Math.max(1, Number(e.target.value)))}
+                                title="Set Max Batch Count"
+                            />
+                        </div>
                     </div>
-                    <input
-                        type="range"
-                        min="1"
-                        max="200"
-                        value={batchCount}
-                        onChange={e => onBatchCountChange(Number(e.target.value))}
-                        className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                    />
+
+                    <div className="relative w-full h-4 flex items-center group">
+                        {/* Rainbow Track */}
+                        <div className="absolute w-full h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                            <div
+                                className="h-full rounded-full transition-all duration-75 ease-out"
+                                style={{
+                                    width: `${(batchCount / (maxBatchCount || 200)) * 100}%`,
+                                    background: 'linear-gradient(90deg, #ef4444, #f97316, #eab308, #22c55e, #3b82f6, #8b5cf6, #ec4899)'
+                                }}
+                            />
+                        </div>
+
+                        {/* Native Range Input */}
+                        <input
+                            type="range"
+                            min="1"
+                            max={maxBatchCount || 200}
+                            value={batchCount}
+                            onChange={e => onBatchCountChange(Number(e.target.value))}
+                            className="absolute w-full h-full opacity-0 cursor-pointer z-10"
+                        />
+
+                        {/* Custom Thumb */}
+                        <div
+                            className="absolute h-3.5 w-3.5 bg-white rounded-full shadow-lg border-2 border-indigo-500 pointer-events-none transition-all duration-75 ease-out group-hover:scale-110 group-active:scale-95 z-0"
+                            style={{ left: `calc(${(batchCount / (maxBatchCount || 200)) * 100}% - 7px)` }}
+                        />
+                    </div>
                 </div>
 
                 {/* Generate Button */}
@@ -64,6 +95,6 @@ export const ActionStep: React.FC<ActionStepProps> = ({
                     )}
                 </button>
             </div>
-        </div>
+        </ConfigSection>
     );
 };

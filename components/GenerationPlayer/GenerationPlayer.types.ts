@@ -41,6 +41,9 @@ export interface GenerationPlayerProps {
     sessionImages?: ImageInfo[]; // For navigation context
 
     // History
+    promptHistory?: string[]; // Added: History for positive prompts
+    maxBatchCount?: number;
+    onMaxBatchCountChange?: (max: number) => void;
     negativePromptHistory?: string[];
     onDeleteNegativePrompt?: (prompt: string) => void;
 

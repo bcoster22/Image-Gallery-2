@@ -26,6 +26,7 @@ const GenerationPlayer: React.FC<GenerationPlayerProps> = ({
     randomAspectRatio = false,
     onRandomAspectRatioChange,
     batchCount = 1, onBatchCountChange = (c) => { },
+    maxBatchCount = 200, onMaxBatchCountChange = (m) => { }, // Default max 200
     autoSeedAdvance = false, onAutoSeedAdvanceChange,
 
     // Navigation
@@ -33,7 +34,7 @@ const GenerationPlayer: React.FC<GenerationPlayerProps> = ({
 
     // History
     enabledRandomRatios = AspectRatios, onEnabledRandomRatiosChange = (v) => { },
-    negativePromptHistory = [], onDeleteNegativePrompt,
+    promptHistory = [], negativePromptHistory = [], onDeleteNegativePrompt, // Added: default empty array for promptHistory
 
     slideshowSpeed = 3000, onSlideshowSpeedChange = (v) => { }
 }) => {
@@ -116,7 +117,7 @@ const GenerationPlayer: React.FC<GenerationPlayerProps> = ({
             </div>
 
             {/* Main Content Area */}
-            <div className="flex-grow flex flex-col md:flex-row overflow-hidden relative">
+            <div className="flex-grow flex flex-col md:flex-row overflow-hidden relative min-h-0">
 
                 {/* 1. LEFT PANE (Canvas) */}
                 <div className="relative flex-grow bg-[#0f0f0f] overflow-hidden flex items-center justify-center
@@ -136,14 +137,15 @@ const GenerationPlayer: React.FC<GenerationPlayerProps> = ({
                 <div className="flex flex-col bg-[#141414] 
                     w-full md:w-[400px] md:min-w-[400px] 
                     flex-grow md:flex-grow-0 
-                    h-full overflow-hidden
+                    h-full overflow-hidden min-h-0
                 ">
                     {/* Scrollable Steps Area */}
-                    <div className="flex-grow overflow-y-auto custom-scrollbar p-0">
+                    <div className="flex-grow overflow-y-auto custom-scrollbar p-0 min-h-0 overscroll-y-contain supports-scrollbars:pr-2">
 
                         <ConceptStep
                             prompt={prompt}
                             onPromptChange={onPromptChange}
+                            promptHistory={promptHistory} // Added: Pass history to child
                             negativePrompt={negativePrompt}
                             onNegativePromptChange={onNegativePromptChange}
                             negativePromptHistory={negativePromptHistory}
@@ -182,6 +184,8 @@ const GenerationPlayer: React.FC<GenerationPlayerProps> = ({
                             <ActionStep
                                 batchCount={batchCount}
                                 onBatchCountChange={onBatchCountChange}
+                                maxBatchCount={maxBatchCount}
+                                onMaxBatchCountChange={onMaxBatchCountChange}
                                 isGenerating={isGenerating}
                                 onGenerate={onGenerate}
                                 isValid={prompt.trim().length > 0}

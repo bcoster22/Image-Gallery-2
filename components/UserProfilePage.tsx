@@ -1,36 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { User, AdminSettings, ImageInfo } from '../types';
-import { Upload, Sliders, Image as ImageIcon, Camera, RefreshCw, Check, X, Move, Layout, Film } from 'lucide-react';
-import { ViewfinderCircleIcon as ViewfinderIcon } from '@heroicons/react/24/outline';
-import { fileToDataUrl } from '../utils/fileUtils';
-import { generateImageFromPrompt } from '../services/aiService';
-
-interface UserProfilePageProps {
-    user: User;
-    onUpdateUser: (user: User) => void;
-    galleryImages: ImageInfo[]; // For gallery picker
-    settings: AdminSettings | null;
-    addNotification: (notification: any) => void;
-    onClose: () => void;
-}
-
-const AVATAR_PRESETS = [
-    'https://api.dicebear.com/8.x/adventurer/svg?seed=Alex',
-    'https://api.dicebear.com/8.x/adventurer/svg?seed=Sam',
-    'https://api.dicebear.com/8.x/adventurer/svg?seed=Milo',
-    'https://api.dicebear.com/8.x/adventurer/svg?seed=Willow',
-    'https://api.dicebear.com/8.x/adventurer/svg?seed=Caleb',
-    'https://api.dicebear.com/8.x/adventurer/svg?seed=Sofia',
-    'https://api.dicebear.com/8.x/avataaars/svg?seed=Felix',
-    'https://api.dicebear.com/8.x/avataaars/svg?seed=Aneka',
-    'https://api.dicebear.com/8.x/bottts/svg?seed=Bot1',
-    'https://api.dicebear.com/8.x/bottts/svg?seed=Bot2',
-    'https://api.dicebear.com/8.x/lorelei/svg?seed=L1',
-    'https://api.dicebear.com/8.x/lorelei/svg?seed=L2',
-    'https://api.dicebear.com/8.x/micah/svg?seed=M1',
-    'https://api.dicebear.com/8.x/micah/svg?seed=M2',
-    'https://api.dicebear.com/8.x/notionists/svg?seed=N1',
-];
+import React, { useState, useRef } from 'react';
+import { Check, Image as ImageIcon, Camera, Sliders, X } from 'lucide-react';
+import { UserProfilePageProps } from './UserProfilePage/types';
+import { ProfileHeader } from './UserProfilePage/ProfileHeader';
+import { AvatarSelector } from './UserProfilePage/AvatarSelector';
+import { ProfileSettings } from './UserProfilePage/ProfileSettings';
 
 const UserProfilePage: React.FC<UserProfilePageProps> = ({
     user,
@@ -44,84 +17,23 @@ const UserProfilePage: React.FC<UserProfilePageProps> = ({
     const [isGalleryPickerOpen, setIsGalleryPickerOpen] = useState(false);
     const [pickerFilter, setPickerFilter] = useState<'all' | 'mine'>('mine');
 
-    // Banner State
-    const [bannerUrl, setBannerUrl] = useState<string | undefined>(user.bannerUrl);
-    const [bannerPos, setBannerPos] = useState(user.bannerPosition || { x: 50, y: 50, scale: 1 });
-    const [galleryLayout, setGalleryLayout] = useState<'masonry' | 'grid'>(user.galleryLayout || 'masonry');
-    const [slideshowTransition, setSlideshowTransition] = useState(user.slideshowTransition || 'fade');
-    const [isDraggingBanner, setIsDraggingBanner] = useState(false);
-    const [startDrag, setStartDrag] = useState({ x: 0, y: 0 });
-    const bannerRef = useRef<HTMLDivElement>(null);
+    // Local State Buffer (so we can save all at once)
+    const [localUser, setLocalUser] = useState(user);
 
-    // Avatar State
-    const [avatarUrl, setAvatarUrl] = useState<string>(user.avatarUrl);
-    const [avatarPrompt, setAvatarPrompt] = useState<string>('');
-    const [isGeneratingAvatar, setIsGeneratingAvatar] = useState(false);
-    const fileInputRef = useRef<HTMLInputElement>(null);
-
-    // --- Banner Handlers ---
-
-    const handleBannerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            if (!file.type.startsWith('image/')) {
-                addNotification({ status: 'error', message: 'Please select an image file.' });
-                return;
-            }
-            try {
-                const url = await fileToDataUrl(file);
-                setBannerUrl(url);
-            } catch (error) {
-                addNotification({ status: 'error', message: 'Failed to read image file.' });
-            }
-        }
-    };
-
-    const handleBannerDragCheck = (e: React.MouseEvent) => {
-        if (isDraggingBanner && bannerRef.current) {
-            // Calculate delta
-            // This is a simplified drag simulation for the "Position" visualizer
-            // In a real implementation, we'd map pixels to percentage based on container size
-        }
+    // We update localUser on changes, then commit on Save
+    // The sub-components act on this 'localUser' state
+    const updateLocalUser = (updates: Partial<typeof user>) => {
+        setLocalUser(prev => ({ ...prev, ...updates }));
     };
 
     const saveProfile = () => {
-        onUpdateUser({
-            ...user,
-            bannerUrl,
-            bannerPosition: bannerPos,
-            avatarUrl,
-            galleryLayout,
-            slideshowTransition
-        });
+        onUpdateUser(localUser);
         addNotification({ status: 'success', message: 'Profile updated successfully!' });
-        // Don't close immediately, let user see success? Or maybe close.
-        // onClose(); 
     };
 
-    // --- Avatar Handlers ---
-
-    const handleGenerateAvatar = async () => {
-        if (!settings || !avatarPrompt.trim()) return;
-        setIsGeneratingAvatar(true);
-        try {
-            // Use "square" aspect ratio implicitly by requesting 1:1 if supported, 
-            // or just relying on the provider's default. standard 'generateImageFromPrompt' 
-            // usually produces 1:1 unless specified.
-            const generatedUrl = await generateImageFromPrompt(
-                `Profile avatar, ${avatarPrompt}, centralized, simple background, high quality`,
-                settings,
-                '1:1'
-            );
-            // Determine if text base64 or url
-            // The generateImageFromPrompt usually returns base64 data URL
-            setAvatarUrl(generatedUrl);
-            addNotification({ status: 'success', message: 'Avatar generated!' });
-        } catch (e: any) {
-            addNotification({ status: 'error', message: 'Failed to generate avatar: ' + e.message });
-        } finally {
-            setIsGeneratingAvatar(false);
-        }
+    // Helper for ProfileHeader to update banner specific fields
+    const handleBannerPosChange = (pos: { x: number; y: number; scale: number }) => {
+        updateLocalUser({ bannerPosition: pos });
     };
 
     return (
@@ -181,456 +93,30 @@ const UserProfilePage: React.FC<UserProfilePageProps> = ({
                 {/* Right Content */}
                 <div className="lg:col-span-2">
                     {activeTab === 'banner' && (
-                        <div className="space-y-6 animate-fade-in">
-                            {/* Banner Preview */}
-                            <div className="bg-gray-900 rounded-xl border border-gray-700 overflow-hidden relative group">
-                                <div className="absolute top-4 left-4 z-10 bg-black/50 backdrop-blur px-3 py-1 rounded text-xs font-mono text-gray-300">
-                                    LIVE PREVIEW
-                                </div>
-
-                                {/* Simulated Header Interface to show context */}
-                                <div className="h-40 relative w-full overflow-hidden bg-gray-950">
-                                    {bannerUrl ? (
-                                        <div
-                                            className="w-full h-full"
-                                            style={{
-                                                backgroundImage: `url(${bannerUrl})`,
-                                                backgroundPosition: `${bannerPos.x}% ${bannerPos.y}%`,
-                                                backgroundSize: 'cover', // In real app we might use transform: scale() for zoom
-                                                transform: `scale(${bannerPos.scale})`,
-                                                transformOrigin: `${bannerPos.x}% ${bannerPos.y}%`,
-                                                transition: 'transform 0.1s'
-                                            }}
-                                        />
-                                    ) : (
-                                        <div className="w-full h-full flex items-center justify-center text-gray-600">
-                                            No banner selected
-                                        </div>
-                                    )}
-
-                                    {/* Fake UI Overlay */}
-                                    <div className="absolute inset-0 bg-gradient-to-b from-gray-900/80 to-transparent pointer-events-none"></div>
-                                    <div className="absolute top-0 left-0 right-0 p-4 flex justify-between opacity-50 pointer-events-none">
-                                        <div className="w-32 h-6 bg-gray-700 rounded"></div>
-                                        <div className="flex gap-2">
-                                            <div className="w-8 h-8 bg-gray-700 rounded-full"></div>
-                                            <div className="w-8 h-8 bg-gray-700 rounded-full"></div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="p-6 bg-gray-800 border-t border-gray-700">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <div>
-                                            <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-4">Source</h3>
-                                            <div className="space-y-3">
-                                                <button
-                                                    onClick={() => fileInputRef.current?.click()}
-                                                    className="w-full py-2 px-4 bg-gray-700 hover:bg-gray-600 text-white rounded-lg flex items-center justify-center gap-2 transition-colors"
-                                                >
-                                                    <Upload className="w-4 h-4" /> Upload Image
-                                                </button>
-                                                <input
-                                                    ref={fileInputRef}
-                                                    type="file"
-                                                    accept="image/*"
-                                                    className="hidden"
-                                                    onChange={handleBannerUpload}
-                                                />
-                                                <button
-                                                    onClick={() => setIsGalleryPickerOpen(true)}
-                                                    className="w-full py-2 px-4 bg-gray-700 hover:bg-gray-600 text-white rounded-lg flex items-center justify-center gap-2 transition-colors"
-                                                >
-                                                    <ImageIcon className="w-4 h-4" /> Select from Gallery
-                                                </button>
-                                            </div>
-                                        </div>
-
-                                        <div>
-                                            <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-4">Adjust</h3>
-                                            <div className="space-y-4">
-                                                <div>
-                                                    <div className="flex justify-between text-xs text-gray-400 mb-1">
-                                                        <span>Position X</span>
-                                                        <span>{bannerPos.x}%</span>
-                                                    </div>
-                                                    <input
-                                                        type="range"
-                                                        min="0" max="100"
-                                                        value={bannerPos.x}
-                                                        onChange={(e) => setBannerPos({ ...bannerPos, x: parseInt(e.target.value) })}
-                                                        className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                                                    />
-                                                </div>
-                                                <div>
-                                                    <div className="flex justify-between text-xs text-gray-400 mb-1">
-                                                        <span>Position Y</span>
-                                                        <span>{bannerPos.y}%</span>
-                                                    </div>
-                                                    <input
-                                                        type="range"
-                                                        min="0" max="100"
-                                                        value={bannerPos.y}
-                                                        onChange={(e) => setBannerPos({ ...bannerPos, y: parseInt(e.target.value) })}
-                                                        className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                                                    />
-                                                </div>
-                                                <div>
-                                                    <div className="flex justify-between text-xs text-gray-400 mb-1">
-                                                        <span>Zoom</span>
-                                                        <span>{bannerPos.scale.toFixed(1)}x</span>
-                                                    </div>
-                                                    <input
-                                                        type="range"
-                                                        min="1" max="2" step="0.1"
-                                                        value={bannerPos.scale}
-                                                        onChange={(e) => setBannerPos({ ...bannerPos, scale: parseFloat(e.target.value) })}
-                                                        className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                                                    />
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                        <ProfileHeader
+                            bannerUrl={localUser.bannerUrl}
+                            bannerPos={localUser.bannerPosition || { x: 50, y: 50, scale: 1 }}
+                            onBannerUrlChange={(url) => updateLocalUser({ bannerUrl: url })}
+                            onBannerPosChange={handleBannerPosChange}
+                            onOpenGalleryPicker={() => setIsGalleryPickerOpen(true)}
+                            addNotification={addNotification}
+                        />
                     )}
 
                     {activeTab === 'avatar' && (
-                        <div className="space-y-6 animate-fade-in">
-                            <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-6">
-                                <div className="flex items-center gap-6 mb-8">
-                                    <div className="relative">
-                                        <img src={avatarUrl} alt="Current" className="w-24 h-24 rounded-full border-4 border-gray-700 shadow-lg" />
-                                        <div className="absolute -bottom-2 -right-2 bg-green-500 text-black text-xs font-bold px-2 py-0.5 rounded-full">
-                                            CURRENT
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <h3 className="text-lg font-bold text-white">Your Avatar</h3>
-                                        <p className="text-gray-400 text-sm">Select a preset or generate a unique AI avatar.</p>
-                                    </div>
-                                </div>
-
-                                <div className="mb-6">
-                                    <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">AI Generator</h3>
-                                    <div className="flex gap-2">
-                                        <input
-                                            type="text"
-                                            value={avatarPrompt}
-                                            onChange={(e) => setAvatarPrompt(e.target.value)}
-                                            placeholder="E.g., Cyberpunk raccoon, minimalist cat, neon robot..."
-                                            className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
-                                        />
-                                        <button
-                                            onClick={handleGenerateAvatar}
-                                            disabled={isGeneratingAvatar || !avatarPrompt.trim()}
-                                            className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-700 disabled:text-gray-500 text-white font-bold rounded-lg flex items-center gap-2 transition-colors"
-                                        >
-                                            {isGeneratingAvatar ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                                            Generate
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">Presets</h3>
-                                    <div className="grid grid-cols-5 sm:grid-cols-6 md:grid-cols-8 gap-3">
-                                        {AVATAR_PRESETS.map((url, i) => (
-                                            <button
-                                                key={i}
-                                                onClick={() => setAvatarUrl(url)}
-                                                className={`relative rounded-full overflow-hidden transition-transform hover:scale-110 focus:outline-none ${avatarUrl === url ? 'ring-2 ring-indigo-500 ring-offset-2 ring-offset-gray-800' : ''}`}
-                                            >
-                                                <img src={url} alt={`Preset ${i}`} className="w-full h-full bg-gray-700" />
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                        <AvatarSelector
+                            avatarUrl={localUser.avatarUrl}
+                            onAvatarChange={(url) => updateLocalUser({ avatarUrl: url })}
+                            settings={settings}
+                            addNotification={addNotification}
+                        />
                     )}
 
                     {activeTab === 'preferences' && (
-                        <div className="space-y-6 animate-fade-in">
-                            <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-6">
-                                <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-                                    <ViewfinderIcon className="w-5 h-5 text-indigo-400" />
-                                    Workflow
-                                </h3>
-                                <div className="bg-gray-800 p-4 rounded-xl border border-gray-700 hover:border-gray-600 transition-colors mb-6">
-                                    <div className="flex justify-between items-center">
-                                        <div>
-                                            <div className="font-medium text-white">Auto-save to My Gallery</div>
-                                            <div className="text-xs text-gray-400 mt-1">
-                                                Automatically show new creations in your main gallery view.
-                                            </div>
-                                        </div>
-                                        <label className="relative inline-flex items-center cursor-pointer">
-                                            <input
-                                                type="checkbox"
-                                                className="sr-only peer"
-                                                checked={!!user.autoSaveToGallery}
-                                                onChange={(e) => onUpdateUser({ ...user, autoSaveToGallery: e.target.checked })}
-                                            />
-                                            <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-focus:ring-2 peer-focus:ring-indigo-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
-                                        </label>
-                                    </div>
-                                </div>
-
-                                <div className="h-px bg-gray-700/50 my-6"></div>
-
-                                <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-                                    <Layout className="w-5 h-5 text-indigo-400" />
-                                    Gallery Layout
-                                </h3>
-
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
-                                    <button
-                                        onClick={() => setGalleryLayout('masonry')}
-                                        className={`p-4 rounded-xl border-2 text-left transition-all ${galleryLayout === 'masonry' ? 'border-indigo-500 bg-indigo-500/10' : 'border-gray-700 hover:border-gray-600 bg-gray-800'}`}
-                                    >
-                                        <div className="flex justify-between items-start mb-2">
-                                            <div className="space-y-1">
-                                                <div className="h-8 w-6 bg-gray-600 rounded-sm mb-1 inline-block mr-1"></div>
-                                                <div className="h-12 w-6 bg-gray-600 rounded-sm inline-block mr-1"></div>
-                                                <div className="h-6 w-6 bg-gray-600 rounded-sm inline-block"></div>
-                                            </div>
-                                            {galleryLayout === 'masonry' && <Check className="w-5 h-5 text-indigo-400" />}
-                                        </div>
-                                        <div className="font-semibold text-white">Masonry (Pinterest)</div>
-                                        <div className="text-xs text-gray-400 mt-1">Best for mixed aspect ratios. Shows full uncropped images.</div>
-                                    </button>
-
-                                    <button
-                                        onClick={() => setGalleryLayout('grid')}
-                                        className={`p-4 rounded-xl border-2 text-left transition-all ${galleryLayout === 'grid' ? 'border-indigo-500 bg-indigo-500/10' : 'border-gray-700 hover:border-gray-600 bg-gray-800'}`}
-                                    >
-                                        <div className="flex justify-between items-start mb-2">
-                                            <div className="grid grid-cols-3 gap-1 w-20">
-                                                {[1, 2, 3, 4, 5, 6].map(i => (
-                                                    <div key={i} className="aspect-square bg-gray-600 rounded-sm"></div>
-                                                ))}
-                                            </div>
-                                            {galleryLayout === 'grid' && <Check className="w-5 h-5 text-indigo-400" />}
-                                        </div>
-                                        <div className="font-semibold text-white">Uniform Grid</div>
-                                        <div className="text-xs text-gray-400 mt-1">Clean, square thumbnails. Best for scanning large collections.</div>
-                                    </button>
-                                </div>
-
-                                <div className="h-px bg-gray-700/50 my-6"></div>
-
-                                <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-                                    <ViewfinderIcon className="w-5 h-5 text-indigo-400" />
-                                    Smart Crop Behavior
-                                </h3>
-
-                                <div className="bg-gray-800 p-4 rounded-xl border border-gray-700 hover:border-gray-600 transition-colors">
-                                    <div className="flex justify-between items-center">
-                                        <div>
-                                            <div className="font-medium text-white">Smart Crop in Slideshow</div>
-                                            <div className="text-xs text-gray-400 mt-1">
-                                                When enabled, slideshow images will zoom to fill the screen, centered on the main subject.
-                                            </div>
-                                        </div>
-                                        <label className="relative inline-flex items-center cursor-pointer">
-                                            <input
-                                                type="checkbox"
-                                                className="sr-only peer"
-                                                checked={!!user.slideshowSmartCrop}
-                                                onChange={(e) => onUpdateUser({ ...user, slideshowSmartCrop: e.target.checked })}
-                                            />
-                                            <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-focus:ring-2 peer-focus:ring-indigo-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
-                                        </label>
-                                    </div>
-
-                                    <div className="h-px bg-gray-700/50 my-4"></div>
-
-                                    <div className="flex justify-between items-center">
-                                        <div>
-                                            <div className="font-medium text-white">Adaptive Portrait Slideshow</div>
-                                            <div className="text-xs text-gray-400 mt-1">
-                                                Automatically pan horizontal images when viewed on portrait screens (Cinematic Pan).
-                                            </div>
-                                        </div>
-                                        <label className="relative inline-flex items-center cursor-pointer">
-                                            <input
-                                                type="checkbox"
-                                                className="sr-only peer"
-                                                checked={!!user.slideshowAdaptivePan}
-                                                onChange={(e) => onUpdateUser({ ...user, slideshowAdaptivePan: e.target.checked })}
-                                            />
-                                            <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-focus:ring-2 peer-focus:ring-indigo-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
-                                        </label>
-                                    </div>
-
-                                    <div className="h-px bg-gray-700/50 my-4"></div>
-
-                                    <div className="flex justify-between items-center">
-                                        <div>
-                                            <div className="font-medium text-white">Disable Notifications</div>
-                                            <div className="text-xs text-gray-400 mt-1">
-                                                Hide "Smart Crop complete" status messages.
-                                            </div>
-                                        </div>
-                                        <label className="relative inline-flex items-center cursor-pointer">
-                                            <input
-                                                type="checkbox"
-                                                className="sr-only peer"
-                                                checked={!!user.disableSmartCropNotifications}
-                                                onChange={(e) => onUpdateUser({ ...user, disableSmartCropNotifications: e.target.checked })}
-                                            />
-                                            <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-focus:ring-2 peer-focus:ring-indigo-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
-                                        </label>
-                                    </div>
-
-                                </div>
-
-                                <div className="h-px bg-gray-700/50 my-6"></div>
-
-                                <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-                                    <ViewfinderIcon className="w-5 h-5 text-indigo-400" />
-                                    Thumbnail Appearance
-                                </h3>
-
-                                <div className="bg-gray-800 p-4 rounded-xl border border-gray-700 mb-6 space-y-4">
-                                    <div>
-                                        <div className="flex justify-between items-center mb-1">
-                                            <span className="text-sm font-medium text-gray-300">Thumbnail Size</span>
-                                            <span className="text-xs text-indigo-400">{user.thumbnailSize ?? 40}px</span>
-                                        </div>
-                                        <input
-                                            type="range"
-                                            min="30" max="100" step="5"
-                                            value={user.thumbnailSize ?? 40}
-                                            onChange={(e) => onUpdateUser({ ...user, thumbnailSize: parseInt(e.target.value) })}
-                                            className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                                        />
-                                        <div className="flex justify-between text-xs text-gray-500 mt-1">
-                                            <span>Small</span>
-                                            <span>Large</span>
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <div className="flex justify-between items-center mb-1">
-                                            <span className="text-sm font-medium text-gray-300">Hover Zoom</span>
-                                            <span className="text-xs text-indigo-400">{user.thumbnailHoverScale ?? 1.2}x</span>
-                                        </div>
-                                        <input
-                                            type="range"
-                                            min="1.0" max="2.0" step="0.1"
-                                            value={user.thumbnailHoverScale ?? 1.2}
-                                            onChange={(e) => onUpdateUser({ ...user, thumbnailHoverScale: parseFloat(e.target.value) })}
-                                            className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                                        />
-                                        <div className="flex justify-between text-xs text-gray-500 mt-1">
-                                            <span>None</span>
-                                            <span>2x</span>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="h-px bg-gray-700/50 my-6"></div>
-
-                                <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-                                    <Film className="w-5 h-5 text-indigo-400" />
-                                    Slideshow Experience
-                                </h3>
-
-                                {/* Timing Controls */}
-                                <div className="bg-gray-800 p-4 rounded-xl border border-gray-700 mb-6 space-y-4">
-                                    <div>
-                                        <div className="flex justify-between items-center mb-1">
-                                            <span className="text-sm font-medium text-gray-300">Image Duration</span>
-                                            <span className="text-xs text-indigo-400">{(user.slideshowInterval || 4000) / 1000}s</span>
-                                        </div>
-                                        <input
-                                            type="range"
-                                            min="1000" max="30000" step="500"
-                                            value={user.slideshowInterval || 4000}
-                                            onChange={(e) => onUpdateUser({ ...user, slideshowInterval: parseInt(e.target.value) })}
-                                            className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                                        />
-                                        <p className="text-xs text-gray-500 mt-1">How long each photo stays on screen.</p>
-                                    </div>
-
-                                    <div>
-                                        <div className="flex justify-between items-center mb-1">
-                                            <span className="text-sm font-medium text-gray-300">Transition Speed</span>
-                                            <span className="text-xs text-indigo-400">{(user.slideshowAnimationDuration || 1500) / 1000}s</span>
-                                        </div>
-                                        <input
-                                            type="range"
-                                            min="500" max="10000" step="100"
-                                            value={user.slideshowAnimationDuration || 1500}
-                                            onChange={(e) => onUpdateUser({ ...user, slideshowAnimationDuration: parseInt(e.target.value) })}
-                                            className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                                        />
-                                        <p className="text-xs text-gray-500 mt-1">Duration of the animation effect.</p>
-                                    </div>
-
-                                    <div className="flex justify-between items-center pt-2 border-t border-gray-700/50">
-                                        <div>
-                                            <div className="font-medium text-white text-sm">Bounce Animation</div>
-                                            <div className="text-xs text-gray-400">Reverse animation direction (Ping-Pong)</div>
-                                        </div>
-                                        <label className="relative inline-flex items-center cursor-pointer">
-                                            <input
-                                                type="checkbox"
-                                                className="sr-only peer"
-                                                checked={!!user.slideshowBounce}
-                                                onChange={(e) => onUpdateUser({ ...user, slideshowBounce: e.target.checked })}
-                                            />
-                                            <div className="w-9 h-5 bg-gray-600 rounded-full peer peer-focus:ring-2 peer-focus:ring-indigo-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
-                                        </label>
-                                    </div>
-
-                                    <div className="flex justify-between items-center pt-2 border-t border-gray-700/50">
-                                        <div>
-                                            <div className="font-medium text-white text-sm">Random Order</div>
-                                            <div className="text-xs text-gray-400">Shuffle images without repeats</div>
-                                        </div>
-                                        <label className="relative inline-flex items-center cursor-pointer">
-                                            <input
-                                                type="checkbox"
-                                                className="sr-only peer"
-                                                checked={!!user.slideshowRandomOrder}
-                                                onChange={(e) => onUpdateUser({ ...user, slideshowRandomOrder: e.target.checked })}
-                                            />
-                                            <div className="w-9 h-5 bg-gray-600 rounded-full peer peer-focus:ring-2 peer-focus:ring-indigo-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
-                                        </label>
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    {[
-                                        { id: 'fade', label: 'Simple Fade', desc: 'Basic fade out then in.' },
-                                        { id: 'cross-fade', label: 'Cross Fade', desc: 'Smooth overlap blend (No gap).' },
-                                        { id: 'slide', label: 'Push Slide', desc: 'Seamless horizontal slide.' },
-                                        { id: 'cube', label: '3D Cube', desc: 'Rotating 3D cube effect.' },
-                                        { id: 'stack', label: 'Card Stack', desc: 'New photo slides up over old.' },
-                                        { id: 'zoom', label: 'Deep Zoom', desc: 'Immersive Z-axis movement.' },
-                                        { id: 'ken-burns', label: 'Ken Burns', desc: 'Cinematic pan and zoom.' },
-                                        { id: 'parallax', label: 'Parallax Glide', desc: 'Premium fluid motion window.' },
-                                        { id: 'random', label: 'Surprise Me', desc: 'Randomly cycle through all effects.' },
-                                    ].map((option) => (
-                                        <button
-                                            key={option.id}
-                                            onClick={() => setSlideshowTransition(option.id as any)}
-                                            className={`p-3 rounded-lg border text-left transition-all hover:bg-gray-700/50 ${slideshowTransition === option.id ? 'border-indigo-500 bg-indigo-500/10' : 'border-gray-700 bg-transparent'}`}
-                                        >
-                                            <div className="flex justify-between items-center mb-1">
-                                                <div className="font-medium text-white">{option.label}</div>
-                                                {slideshowTransition === option.id && <Check className="w-4 h-4 text-indigo-400" />}
-                                            </div>
-                                            <div className="text-xs text-gray-400">{option.desc}</div>
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
+                        <ProfileSettings
+                            user={localUser}
+                            onUpdateUser={updateLocalUser}
+                        />
                     )}
                 </div>
             </div>
@@ -672,7 +158,7 @@ const UserProfilePage: React.FC<UserProfilePageProps> = ({
                                         <button
                                             key={img.id}
                                             onClick={() => {
-                                                setBannerUrl(img.dataUrl);
+                                                updateLocalUser({ bannerUrl: img.dataUrl });
                                                 setIsGalleryPickerOpen(false);
                                                 addNotification({ status: 'success', message: `Selected ${img.fileName}` });
                                             }}
