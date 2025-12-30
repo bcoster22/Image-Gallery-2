@@ -86,6 +86,16 @@ export interface IAiProvider {
   detectSubject?(image: ImageInfo, settings: AdminSettings): Promise<{ x: number, y: number }>; // Returns center coordinates (0-100)
 
   /**
+   * Detects a specific object in an image and returns its bounding box.
+   * Required for 'vision' capability.
+   */
+  detectObject?(
+    image: ImageInfo,
+    objectName: string,
+    settings: AdminSettings
+  ): Promise<{ ymin: number; xmin: number; ymax: number; xmax: number } | null>;
+
+  /**
    * Generates an image from a text prompt.
    * Required for 'generation' capability.
    */

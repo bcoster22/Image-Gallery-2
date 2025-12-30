@@ -80,7 +80,7 @@ export const testProviderConnection = async (
     }
 };
 
-type FunctionName = 'analyzeImage' | 'detectSubject' | 'generateImageFromPrompt' | 'animateImage' | 'editImage' | 'generateKeywordsForPrompt' | 'enhancePromptWithKeywords' | 'adaptPromptToTheme' | 'captionImage' | 'tagImage';
+type FunctionName = 'analyzeImage' | 'detectSubject' | 'detectObject' | 'generateImageFromPrompt' | 'animateImage' | 'editImage' | 'generateKeywordsForPrompt' | 'enhancePromptWithKeywords' | 'adaptPromptToTheme' | 'captionImage' | 'tagImage';
 
 function getCapabilityForFunction(funcName: FunctionName): Capability {
     switch (funcName) {
@@ -265,6 +265,18 @@ export const detectSubject = async (
     settings: AdminSettings
 ): Promise<{ x: number, y: number } | undefined> => {
     return executeWithFallback(settings, 'detectSubject', [image]);
+};
+
+/**
+ * Detects a specific object in an image and returns its bounding box.
+ * Required for 'vision' capability.
+ */
+export const detectObject = async (
+    image: ImageInfo,
+    objectName: string,
+    settings: AdminSettings
+): Promise<{ ymin: number; xmin: number; ymax: number; xmax: number } | null> => {
+    return executeWithFallback(settings, 'detectObject', [image, objectName]);
 };
 
 export const generateImageFromPrompt = async (

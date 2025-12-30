@@ -748,6 +748,20 @@ export class MoondreamLocalProvider extends BaseProvider {
     image: ImageInfo,
     settings: AdminSettings
   ): Promise<{ x: number, y: number }> {
+    const box = await this.detectObject(image, 'main subject', settings);
+    if (box) {
+      const centerX = ((box.xmin + box.xmax) / 2) * 100;
+      const centerY = ((box.ymin + box.ymax) / 2) * 100;
+      return { x: Math.round(centerX), y: Math.round(centerY) };
+    }
+    return { x: 50, y: 50 }; // Default center
+  }
+
+  async detectObject(
+    image: ImageInfo,
+    objectName: string,
+    settings: AdminSettings
+  ): Promise<{ ymin: number; xmin: number; ymax: number; xmax: number } | null> {
     const providerConfig = settings?.providers?.moondream_local || {};
     const { endpoint, model } = providerConfig as any;
     let usedEndpoint = endpoint || 'http://127.0.0.1:2020/v1';
@@ -756,14 +770,14 @@ export class MoondreamLocalProvider extends BaseProvider {
     const apiUrl = `${baseUrl}/v1/chat/completions`;
 
     // Prompt for JSON coordinates
-    const prompt = 'Detect the main subject. Return the bounding box coordinates as a JSON object: {"ymin": 0.0, "xmin": 0.0, "ymax": 1.0, "xmax": 1.0}.';
+    const prompt = `Detect ${objectName}. Return the bounding box coordinates as a JSON object: {"ymin": 0.0, "xmin": 0.0, "ymax": 1.0, "xmax": 1.0}.`;
 
     const body = {
       model: (!model || model.startsWith('sdxl-')) ? "moondream-2" : model,
       messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: image.dataUrl } }] }],
       stream: false,
       max_tokens: 256,
-      response_format: { type: "json_object" } // Try to hint JSON mode if supported, otherwise prompt does lifting
+      response_format: { type: "json_object" } // Try to hint JSON mode if supported
     };
 
     try {
@@ -776,20 +790,22 @@ export class MoondreamLocalProvider extends BaseProvider {
         const cleanText = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
         bbox = JSON.parse(cleanText);
       } catch (e) {
-        console.warn("Failed to parse JSON for detectSubject. Trying regex fallback.");
-        // Fallback regex for [ymin, xmin, ymax, xmax] arrays or similar
+        console.warn(`Failed to parse JSON for detectObject('${objectName}').`);
       }
 
       if (bbox && typeof bbox.ymin === 'number') {
-        const centerX = ((bbox.xmin + bbox.xmax) / 2) * 100;
-        const centerY = ((bbox.ymin + bbox.ymax) / 2) * 100;
-        return { x: Math.round(centerX), y: Math.round(centerY) };
+        return {
+          ymin: bbox.ymin,
+          xmin: bbox.xmin,
+          ymax: bbox.ymax,
+          xmax: bbox.xmax
+        };
       }
 
-      return { x: 50, y: 50 }; // Default center
+      return null;
     } catch (e) {
-      console.error("detectSubject failed:", e);
-      return { x: 50, y: 50 };
+      console.error(`detectObject('${objectName}') failed:`, e);
+      return null;
     }
   }
 

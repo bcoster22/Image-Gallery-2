@@ -249,6 +249,7 @@ const App: React.FC = () => {
   // Bind Ref
   useEffect(() => { runImageAnalysisRef.current = runImageAnalysis; }, [runImageAnalysis]);
 
+
   // Handle Retry Analysis Button
   const handleRetryAnalysis = useCallback((imageId?: string) => {
     let imagesToRetry: ImageInfo[] = [];
@@ -410,6 +411,52 @@ const App: React.FC = () => {
 
 
   // --- 13. Modal Handlers ---
+
+  // --- Global Keyboard Shortcuts (Valid) ---
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if input/textarea is focused to prevent closing while typing
+      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
+
+      if (e.key === 'Escape') {
+        // Priority 1: High-level modals managed by App.tsx
+        if (veoRetryState) { setVeoRetryState(null); return; }
+        if (isLoginModalOpen) { setIsLoginModalOpen(false); return; }
+        if (promptModalConfig) { setPromptModalConfig(null); return; }
+        if (isBatchRemixModalOpen) { setIsBatchRemixModalOpen(false); return; }
+        if (isDeleteModalOpen) { setIsDeleteModalOpen(false); return; }
+
+        // Priority 2: Full-screen overrides managed by App.tsx
+        if (showSystemLogs) { setShowSystemLogs(false); return; }
+        if (showDuplicates) { setShowDuplicates(false); return; }
+        if (showHealthDashboard) { setShowHealthDashboard(false); return; }
+
+        // Priority 3: Selection Mode (low priority)
+        // Only clear selection if NO other high-level view is active
+        // And ensure we don't interfere with ImageViewer (selectedImage) or PerformanceOverview which have their own handlers
+        // Note: ImageViewer has its own Listener, so we don't need to handle it here, but we check to prevent double-firing logic on Selection
+        const isImageViewerOpen = !!selectedImage;
+        const isPerformanceOpen = showPerformanceOverview;
+
+        if (!isImageViewerOpen && !isPerformanceOpen) {
+          if (isSelectionMode) {
+            if (selectedIds.size > 0) clearSelection();
+            else toggleSelectionMode();
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    veoRetryState, isLoginModalOpen, promptModalConfig, isBatchRemixModalOpen, isDeleteModalOpen,
+    showSystemLogs, showDuplicates, showHealthDashboard,
+    selectedImage, showPerformanceOverview, isSelectionMode, selectedIds,
+    clearSelection, toggleSelectionMode
+  ]);
+
+
   const handleOpenGenerationStudio = () => {
     if (selectedIds.size === 0) return;
     const img = images.find(i => i.id === Array.from(selectedIds)[0]);

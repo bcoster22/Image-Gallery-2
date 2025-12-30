@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Activity, Play, CheckCircle, XCircle, Clock, Eye, Download, Info } from 'lucide-react';
+import { Activity, Play, CheckCircle, XCircle, Clock, Eye, Download, Info, ArrowLeft } from 'lucide-react';
 import { AdminSettings } from '../types';
 
 interface ModelInfo {
@@ -18,6 +18,7 @@ interface TestResult {
     generationTimeMs?: number;
     generatedImageUrl?: string;
     verificationResult?: string;
+    eyeCropUrl?: string;
     error?: string;
 }
 
@@ -32,13 +33,47 @@ export default function PerformanceOverview({ settings, onBack }: PerformanceOve
     const [testResult, setTestResult] = useState<TestResult | null>(null);
     const [showResultModal, setShowResultModal] = useState(false);
     const [testPrompt, setTestPrompt] = useState("hot sexy 22 yo woman in bikini posing for sports illustrated model photo shots. long red hair and hazel-green eyes. big teardrop breasts, attention grabbing cleavage.");
+    const [testImage, setTestImage] = useState<string | null>(null);
+    const [schedulers, setSchedulers] = useState<string[]>([]);
+    const [selectedScheduler, setSelectedScheduler] = useState("dpm++");
 
     const moondreamUrl = settings?.providers.moondream_local.endpoint || 'http://localhost:2020';
     const cleanUrl = moondreamUrl.replace(/\/$/, "").replace(/\/v1$/, "");
 
     useEffect(() => {
         fetchModels();
+        fetchSchedulers();
     }, [cleanUrl]);
+
+    // Handle Escape key
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                if (showResultModal) {
+                    setShowResultModal(false);
+                } else {
+                    onBack();
+                }
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [showResultModal, onBack]);
+
+    const fetchSchedulers = async () => {
+        try {
+            const res = await fetch(`${cleanUrl}/v1/schedulers`);
+            if (res.ok) {
+                const data = await res.json();
+                setSchedulers(data.schedulers || []);
+                // Default to dpm++ if available
+                if (data.schedulers?.includes("dpm++")) setSelectedScheduler("dpm++");
+                else if (data.schedulers?.length > 0) setSelectedScheduler(data.schedulers[0]);
+            }
+        } catch (e) {
+            console.warn("Failed to fetch schedulers", e);
+        }
+    };
 
     const fetchModels = async () => {
         try {
@@ -65,7 +100,7 @@ export default function PerformanceOverview({ settings, onBack }: PerformanceOve
         const startTime = Date.now();
 
         try {
-            // 1. Trigger Generation (360x720) using custom prompt
+            // 1. Trigger Generation (16:9 aspect ratio for better composition) using custom prompt
             const prompt = testPrompt;
 
             let imageUrl: string | undefined;
@@ -80,7 +115,7 @@ export default function PerformanceOverview({ settings, onBack }: PerformanceOve
                         model: model.id,
                         prompt: prompt,
                         n: 1,
-                        size: "360x720", // Custom size as requested
+                        size: "896x512", // 16:9 Aspect Ratio (approx) optimized for SDXL/SD1.5
                         response_format: "b64_json"
                     })
                 });
@@ -95,40 +130,71 @@ export default function PerformanceOverview({ settings, onBack }: PerformanceOve
                 }
 
             } else {
-                // For vision models, we might skip generation or use a placeholder to test their analysis
-                // But user asked to test generation. If it's a vision model, we can't generate.
-                // We'll skip generation for vision models and just test basic checking?
-                // Actually the prompt implies testing GENERATION models.
-                // If it's a vision model, we might just ping it.
-                imageUrl = undefined;
+                // For vision/analysis models, utilize the uploaded test image if available
+                if (testImage) {
+                    imageUrl = testImage;
+                } else {
+                    // Auto-Generate Fallback
+                    const genModel = models.find(m => m.type === 'generation') || { id: 'sdxl-realism' }; // Fallback to ID if list empty
+
+                    // Inform user of auto-generation
+                    setTestResult(prev => ({ ...prev!, status: 'generating' }));
+
+                    // Use /v1/generate endpoint which is supported by the backend
+                    const genRes = await fetch(`${cleanUrl}/v1/generate`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            model: genModel.id,
+                            prompt: prompt,
+                            width: 896,
+                            height: 512,
+                            steps: 30,
+                            scheduler: selectedScheduler
+                        })
+                    });
+
+                    if (!genRes.ok) throw new Error("Auto-generation failed. Please upload an image.");
+
+                    const genData = await genRes.json();
+                    const b64 = genData.data?.[0]?.b64_json || genData.images?.[0];
+
+                    if (b64) {
+                        imageUrl = b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`;
+                        setTestImage(imageUrl);
+                    } else {
+                        throw new Error("No image returned from auto-generation.");
+                    }
+                }
             }
 
             const genTime = Date.now() - startTime;
 
-            // 2. Verification (Using Vision Model)
+            // 2. Verification / Analysis Test
             // Only verify if we have an image
             let verification = "Skipped";
             if (imageUrl) {
                 setTestResult(prev => ({ ...prev!, status: 'verifying', generationTimeMs: genTime, generatedImageUrl: imageUrl }));
 
-                // Assuming moondream-2 is available for verification or we use the current model if it's dual?
-                // We call the default vision endpoint
+                // Use the best available vision model for verification, or the model itself if it IS a vision model
+                const verifyModel = model.type === 'vision' || model.type === 'analysis' ? model.id : "moondream-2";
+
                 try {
                     const verifyRes = await fetch(`${cleanUrl}/v1/chat/completions`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            model: "moondream-2", // Use a known stable validator if possible, or 'moondream-local'
+                            model: verifyModel,
                             messages: [
                                 {
                                     role: "user",
                                     content: [
-                                        { type: "text", text: `Does this image match the prompt: "${prompt}"? Describe what you see.` },
+                                        { type: "text", text: `Analyze this image in detail. Does it match the description: "${prompt}"? Provide a professional breakdown.` },
                                         { type: "image_url", image_url: { url: imageUrl } }
                                     ]
                                 }
                             ],
-                            max_tokens: 50
+                            max_tokens: 150
                         })
                     });
 
@@ -143,12 +209,111 @@ export default function PerformanceOverview({ settings, onBack }: PerformanceOve
                 }
             }
 
+            // 3. Eye/Face Crop (Identity Check)
+            // Perform basic object detection for 'eyes' or 'face' to assist admin review
+            let cropUrl: string | undefined;
+            if (imageUrl) {
+                // Always use moondream-2 for object detection utility as it's optimized for this prompt/json structure
+                const detectorModel = "moondream-2";
+                try {
+                    const detectRes = await fetch(`${cleanUrl}/v1/chat/completions`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            model: detectorModel,
+                            messages: [
+                                {
+                                    role: "user",
+                                    content: [
+                                        { type: "text", text: `Detect face. Return the bounding box coordinates as a JSON object: {"ymin": 0.0, "xmin": 0.0, "ymax": 1.0, "xmax": 1.0}.` },
+                                        { type: "image_url", image_url: { url: imageUrl } }
+                                    ]
+                                }
+                            ],
+                            max_tokens: 256,
+                            response_format: { type: "json_object" }
+                        })
+                    });
+
+                    if (detectRes.ok) {
+                        const dData = await detectRes.json();
+                        const content = dData.choices?.[0]?.message?.content || "{}";
+
+                        // Parse JSON
+                        let bbox: any = null;
+                        try {
+                            const cleanJson = content.replace(/```json/g, '').replace(/```/g, '').trim();
+                            bbox = JSON.parse(cleanJson);
+                        } catch (e) { console.warn("Failed to parse box JSON", e); }
+
+                        if (bbox && typeof bbox.ymin === 'number') {
+                            // Heuristic: If detecting 'face' returns the specific whole image (0,0,1,1), it likely failed to be specific.
+                            // In this case, fallback to a "Top-Center" crop which is usually where the face is in character portraits.
+                            const isFullImage = (bbox.xmax - bbox.xmin) > 0.9 && (bbox.ymax - bbox.ymin) > 0.9;
+
+                            if (isFullImage) {
+                                // Force a "Face" crop prediction (Top middle, 40% width, 40% height)
+                                bbox = {
+                                    xmin: 0.3,
+                                    xmax: 0.7,
+                                    ymin: 0.05,
+                                    ymax: 0.55
+                                };
+                            }
+
+                            // Crop the image using a canvas
+                            // We need to load the image into an HTMLImageElement first
+                            const img = new Image();
+                            img.src = imageUrl;
+                            await new Promise((resolve) => { img.onload = resolve; });
+
+                            const canvas = document.createElement('canvas');
+                            const ctx = canvas.getContext('2d');
+
+                            if (ctx) {
+                                // Add some padding to the crop (20%)
+                                const width = img.width;
+                                const height = img.height;
+
+                                // Convert relative to absolute
+                                let ymin = bbox.ymin * height;
+                                let xmin = bbox.xmin * width;
+                                let ymax = bbox.ymax * height;
+                                let xmax = bbox.xmax * width;
+
+                                // Add padding
+                                const padX = (xmax - xmin) * 0.2;
+                                const padY = (ymax - ymin) * 0.2;
+
+                                xmin = Math.max(0, xmin - padX);
+                                ymin = Math.max(0, ymin - padY);
+                                xmax = Math.min(width, xmax + padX);
+                                ymax = Math.min(height, ymax + padY);
+
+                                const cWidth = xmax - xmin;
+                                const cHeight = ymax - ymin;
+
+                                canvas.width = cWidth;
+                                canvas.height = cHeight;
+
+                                // Draw
+                                ctx.drawImage(img, xmin, ymin, cWidth, cHeight, 0, 0, cWidth, cHeight);
+                                cropUrl = canvas.toDataURL('image/png');
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.warn("Eye detection failed", e);
+                }
+            }
+
             setTestResult({
                 modelId: model.id,
                 status: 'success',
                 generationTimeMs: genTime,
                 generatedImageUrl: imageUrl,
-                verificationResult: verification
+                verificationResult: verification,
+                eyeCropUrl: cropUrl
             });
 
             // trigger unload after test?
@@ -171,8 +336,8 @@ export default function PerformanceOverview({ settings, onBack }: PerformanceOve
                 {/* Header */}
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                        <button onClick={onBack} className="p-3 hover:bg-white/10 rounded-xl transition-colors">
-                            <Clock className="w-6 h-6 rotate-180" /> {/* Conceptually 'Back' arrow, utilizing existing icon for now */}
+                        <button onClick={onBack} className="p-3 hover:bg-white/10 rounded-xl transition-colors" title="Back to Dashboard">
+                            <ArrowLeft className="w-6 h-6" />
                         </button>
                         <div className="p-3 bg-purple-500/20 rounded-xl">
                             <Activity className="w-8 h-8 text-purple-400" />
@@ -264,13 +429,31 @@ export default function PerformanceOverview({ settings, onBack }: PerformanceOve
 
                 {/* Prompt Configuration */}
                 <div className="bg-neutral-900 border border-white/10 rounded-2xl p-6">
-                    <div className="flex items-center gap-3 mb-4">
-                        <div className="p-2 bg-blue-500/20 rounded-lg">
-                            <Info className="w-5 h-5 text-blue-400" />
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 bg-blue-500/20 rounded-lg">
+                                <Info className="w-5 h-5 text-blue-400" />
+                            </div>
+                            <div>
+                                <h2 className="text-lg font-semibold text-white">Test Prompt</h2>
+                                <p className="text-sm text-neutral-400">Used for generation models and vision verification</p>
+                            </div>
                         </div>
-                        <div>
-                            <h2 className="text-lg font-semibold text-white">Test Prompt</h2>
-                            <p className="text-sm text-neutral-400">Used for generation models and vision verification</p>
+
+                        {/* Scheduler Selector */}
+                        <div className="flex items-center gap-3 bg-neutral-800/50 p-2 rounded-lg border border-white/5">
+                            <label className="text-xs font-medium text-neutral-400 uppercase tracking-wide">Scheduler</label>
+                            <select
+                                value={selectedScheduler}
+                                onChange={(e) => setSelectedScheduler(e.target.value)}
+                                className="bg-neutral-900 border border-neutral-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-blue-500 min-w-[120px]"
+                            >
+                                {schedulers.length > 0 ? (
+                                    schedulers.map(s => <option key={s} value={s}>{s}</option>)
+                                ) : (
+                                    <option value="dpm++">dpm++ (Default)</option>
+                                )}
+                            </select>
                         </div>
                     </div>
                     <textarea
@@ -284,85 +467,149 @@ export default function PerformanceOverview({ settings, onBack }: PerformanceOve
                         💡 Generation models will create an image from this prompt. Vision models will verify if the generated image matches.
                     </p>
                 </div>
-            </div>
-
-            {/* Result Modal */}
-            {showResultModal && testResult && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-                    <div className="bg-neutral-900 border border-white/10 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl">
-
-                        <div className="flex items-center justify-between p-4 border-b border-white/10 bg-neutral-800/50">
-                            <h3 className="font-bold text-lg flex items-center gap-2">
-                                {testResult.status === 'loading' || testResult.status === 'generating' ? (
-                                    <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                                ) : testResult.status === 'success' ? (
-                                    <CheckCircle className="w-5 h-5 text-emerald-500" />
-                                ) : (
-                                    <XCircle className="w-5 h-5 text-red-500" />
-                                )}
-                                Performance Test: {testResult.modelId}
-                            </h3>
-                            <button onClick={() => setShowResultModal(false)} className="p-1 hover:bg-white/10 rounded">
-                                <XCircle className="w-6 h-6 text-neutral-400" />
-                            </button>
+                {/* Image Upload for Vision Tests */}
+                <div className="bg-neutral-900 border border-white/10 rounded-2xl p-6 flex flex-col gap-4">
+                    <div className="flex items-center gap-3">
+                        <div className="p-2 bg-purple-500/20 rounded-lg">
+                            <Eye className="w-5 h-5 text-purple-400" />
                         </div>
-
-                        <div className="p-6 space-y-6">
-
-                            {/* Status Steps */}
-                            <div className="flex items-center gap-2 text-sm text-neutral-400">
-                                <div className={`flex items-center gap-2 ${['loading', 'generating', 'verifying', 'success'].includes(testResult.status) ? 'text-blue-400' : ''}`}>
-                                    <div className="w-2 h-2 rounded-full bg-current" />
-                                    Init
-                                </div>
-                                <div className="w-8 h-px bg-white/10" />
-                                <div className={`flex items-center gap-2 ${['generating', 'verifying', 'success'].includes(testResult.status) ? 'text-blue-400' : ''}`}>
-                                    <div className="w-2 h-2 rounded-full bg-current" />
-                                    Generation
-                                </div>
-                                <div className="w-8 h-px bg-white/10" />
-                                <div className={`flex items-center gap-2 ${['verifying', 'success'].includes(testResult.status) ? 'text-blue-400' : ''}`}>
-                                    <div className="w-2 h-2 rounded-full bg-current" />
-                                    Verification
-                                </div>
-                            </div>
-
-                            {testResult.generatedImageUrl && (
-                                <div className="bg-black rounded-lg overflow-hidden border border-white/10 relative group">
-                                    <img src={testResult.generatedImageUrl} alt="Generated Test" className="w-full h-auto max-h-[400px] object-contain mx-auto" />
-                                    <div className="absolute top-2 right-2 bg-black/60 backdrop-blur px-3 py-1 rounded-full text-xs font-mono">
-                                        {testResult.generationTimeMs ? `${(testResult.generationTimeMs / 1000).toFixed(2)}s` : '...'}
-                                    </div>
-                                </div>
-                            )}
-
-                            {testResult.error && (
-                                <div className="bg-red-500/10 border border-red-500/20 text-red-300 p-4 rounded-xl text-sm">
-                                    {testResult.error}
-                                </div>
-                            )}
-
-                            {testResult.verificationResult && (
-                                <div className="bg-blue-500/10 border border-blue-500/20 p-4 rounded-xl">
-                                    <div className="text-xs font-bold text-blue-400 uppercase tracking-wider mb-2 flex items-center gap-2">
-                                        <Eye className="w-3 h-3" />
-                                        AI Verification Result
-                                    </div>
-                                    <p className="text-sm text-blue-100">{testResult.verificationResult}</p>
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="p-4 bg-neutral-800/30 border-t border-white/10 flex justify-end gap-3">
-                            <button onClick={() => setShowResultModal(false)} className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg text-sm">
-                                Close
-                            </button>
+                        <div>
+                            <h2 className="text-lg font-semibold text-white">Test Image</h2>
+                            <p className="text-sm text-neutral-400">Required for testing Vision & Analysis models</p>
                         </div>
                     </div>
+
+                    <div className="flex items-center gap-6">
+                        <div className="flex-1">
+                            <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-neutral-700 border-dashed rounded-lg cursor-pointer bg-neutral-800/50 hover:bg-neutral-800 transition-colors">
+                                <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                                    <Download className="w-8 h-8 mb-3 text-neutral-400 rotate-180" />
+                                    <p className="mb-2 text-sm text-neutral-400"><span className="font-semibold">Click to upload</span> or drag and drop</p>
+                                    <p className="text-xs text-neutral-500">PNG, JPG or WEBP</p>
+                                </div>
+                                <input
+                                    type="file"
+                                    className="hidden"
+                                    accept="image/*"
+                                    onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        if (file) {
+                                            const reader = new FileReader();
+                                            reader.onloadend = () => {
+                                                setTestImage(reader.result as string);
+                                            };
+                                            reader.readAsDataURL(file);
+                                        }
+                                    }}
+                                />
+                            </label>
+                        </div>
+
+                        {testImage && (
+                            <div className="relative group w-32 h-32 bg-black rounded-lg border border-white/10 overflow-hidden shrink-0">
+                                <img src={testImage} alt="Test Preview" className="w-full h-full object-cover" />
+                                <button
+                                    onClick={() => setTestImage(null)}
+                                    className="absolute top-1 right-1 p-1 bg-black/60 rounded-full text-white hover:bg-red-500 transition-colors"
+                                >
+                                    <XCircle className="w-4 h-4" />
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                    {/* Result Modal */}
+                    {showResultModal && testResult && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+                            <div className="bg-neutral-900 border border-white/10 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl">
+
+                                <div className="flex items-center justify-between p-4 border-b border-white/10 bg-neutral-800/50">
+                                    <h3 className="font-bold text-lg flex items-center gap-2">
+                                        {testResult.status === 'loading' || testResult.status === 'generating' ? (
+                                            <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                                        ) : testResult.status === 'success' ? (
+                                            <CheckCircle className="w-5 h-5 text-emerald-500" />
+                                        ) : (
+                                            <XCircle className="w-5 h-5 text-red-500" />
+                                        )}
+                                        Performance Test: {testResult.modelId}
+                                    </h3>
+                                    <button onClick={() => setShowResultModal(false)} className="p-1 hover:bg-white/10 rounded">
+                                        <XCircle className="w-6 h-6 text-neutral-400" />
+                                    </button>
+                                </div>
+
+                                <div className="p-6 space-y-6">
+
+                                    {/* Status Steps */}
+                                    <div className="flex items-center gap-2 text-sm text-neutral-400">
+                                        <div className={`flex items-center gap-2 ${['loading', 'generating', 'verifying', 'success'].includes(testResult.status) ? 'text-blue-400' : ''}`}>
+                                            <div className="w-2 h-2 rounded-full bg-current" />
+                                            Init
+                                        </div>
+                                        <div className="w-8 h-px bg-white/10" />
+                                        <div className={`flex items-center gap-2 ${['generating', 'verifying', 'success'].includes(testResult.status) ? 'text-blue-400' : ''}`}>
+                                            <div className="w-2 h-2 rounded-full bg-current" />
+                                            Generation
+                                        </div>
+                                        <div className="w-8 h-px bg-white/10" />
+                                        <div className={`flex items-center gap-2 ${['verifying', 'success'].includes(testResult.status) ? 'text-blue-400' : ''}`}>
+                                            <div className="w-2 h-2 rounded-full bg-current" />
+                                            Verification
+                                        </div>
+                                    </div>
+
+                                    {testResult.generatedImageUrl && (
+                                        <div className="bg-black rounded-lg overflow-hidden border border-white/10 relative group">
+                                            <img src={testResult.generatedImageUrl} alt="Generated Test" className="w-full h-auto max-h-[400px] object-contain mx-auto" />
+                                            <div className="absolute top-2 right-2 bg-black/60 backdrop-blur px-3 py-1 rounded-full text-xs font-mono">
+                                                {testResult.generationTimeMs ? `${(testResult.generationTimeMs / 1000).toFixed(2)}s` : '...'}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {testResult.error && (
+                                        <div className="bg-red-500/10 border border-red-500/20 text-red-300 p-4 rounded-xl text-sm">
+                                            {testResult.error}
+                                        </div>
+                                    )}
+
+                                    {testResult.verificationResult && (
+                                        <div className="bg-blue-500/10 border border-blue-500/20 p-4 rounded-xl">
+                                            <div className="text-xs font-bold text-blue-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                                                <Eye className="w-3 h-3" />
+                                                AI Verification Result
+                                            </div>
+                                            <p className="text-sm text-blue-100">{testResult.verificationResult}</p>
+                                        </div>
+                                    )}
+
+                                    {testResult.eyeCropUrl && (
+                                        <div className="bg-neutral-800/50 border border-white/10 p-4 rounded-xl">
+                                            <div className="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                                                <Eye className="w-3 h-3 text-purple-400" />
+                                                Detail Check (Eyes)
+                                            </div>
+                                            <div className="flex gap-4 items-start">
+                                                <div className="rounded-lg overflow-hidden border border-white/10 bg-black">
+                                                    <img src={testResult.eyeCropUrl} alt="Eye Crop" className="h-32 object-contain" />
+                                                </div>
+                                                <p className="text-xs text-neutral-500 max-w-[200px]">
+                                                    Automatic crop of detected eyes/face for detailed quality inspection.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="p-4 bg-neutral-800/30 border-t border-white/10 flex justify-end gap-3">
+                                    <button onClick={() => setShowResultModal(false)} className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg text-sm">
+                                        Close
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
-
-
-            )}
+            </div>
         </div>
     );
 }
