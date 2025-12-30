@@ -48,7 +48,7 @@ const Modal: React.FC<ModalProps> = ({
                             leaveTo="opacity-0 scale-95"
                         >
                             <Dialog.Panel
-                                className={`w-full ${maxWidth} transform overflow-hidden rounded-2xl ${panelClassName}`}
+                                className={`${panelClassName.includes('fixed') ? '' : `w-full ${maxWidth}`} transform overflow-hidden rounded-2xl ${panelClassName}`}
                             >
                                 {(title || showCloseButton) && (
                                     <div className="flex items-center justify-between mb-4">
@@ -73,7 +73,7 @@ const Modal: React.FC<ModalProps> = ({
                                     </div>
                                 )}
 
-                                <div className={(title || showCloseButton) ? "mt-2 text-gray-300" : ""}>
+                                <div className={`h-full flex flex-col min-h-0 ${(title || showCloseButton) ? "mt-2 text-gray-300" : ""}`}>
                                     {children}
                                 </div>
                             </Dialog.Panel>

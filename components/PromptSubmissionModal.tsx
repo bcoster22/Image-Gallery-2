@@ -143,8 +143,8 @@ const PromptSubmissionModal: React.FC<PromptSubmissionModalProps> = (props) => {
     // Determine panel classes based on mode
     let panelClasses = "bg-gray-800 text-white rounded-xl shadow-2xl flex flex-col overflow-hidden max-h-[90vh]";
     if (isPlayerMode || isEnhanceMode) {
-        // Use fixed constraints relative to viewport instead of vh height to ensure it fits exactly
-        panelClasses = "bg-black text-white rounded-xl shadow-2xl flex flex-col overflow-hidden fixed inset-2 md:inset-4 lg:inset-8 border border-gray-800";
+        // Fixed positioning with proper insets (no w-full to prevent overflow)
+        panelClasses = "bg-black text-white rounded-xl shadow-2xl flex flex-col overflow-hidden fixed left-2 right-2 top-2 bottom-2 md:left-4 md:right-4 md:top-4 md:bottom-4 lg:left-8 lg:right-8 lg:top-8 lg:bottom-8 border border-gray-800";
     }
 
     const dynamicMaxWidth = (isPlayerMode || isEnhanceMode) ? '100%' : '2xl';

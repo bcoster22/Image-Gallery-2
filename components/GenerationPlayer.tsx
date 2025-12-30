@@ -137,10 +137,10 @@ const GenerationPlayer: React.FC<GenerationPlayerProps> = ({
                 <div className="flex flex-col bg-[#141414] 
                     w-full md:w-[400px] md:min-w-[400px] 
                     flex-grow md:flex-grow-0 
-                    h-full overflow-hidden min-h-0
+                    h-full min-h-0 max-h-full
                 ">
                     {/* Scrollable Steps Area */}
-                    <div className="flex-grow overflow-y-auto custom-scrollbar p-0 min-h-0 overscroll-y-contain supports-scrollbars:pr-2">
+                    <div className="flex-1 overflow-y-auto scrollbar-none pr-2 min-h-0">
 
                         <ConceptStep
                             prompt={prompt}

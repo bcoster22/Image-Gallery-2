@@ -268,7 +268,7 @@ const GenerationWrapper: React.FC<GenerationWrapperProps> = ({
     // We can use `queuedGenerationCount` from props if we pass it down.
 
     return (
-        <div className="flex-grow flex flex-col h-full overflow-hidden bg-black">
+        <div className="flex-grow flex flex-col h-full min-h-0 overflow-hidden bg-black">
             <GenerationPlayer
                 prompt={prompt}
                 onPromptChange={onPromptChange}
