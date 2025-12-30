@@ -103,16 +103,18 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 
-# Debug files
-*.png
-*.jpg
-*.jpeg
-!public/vite.svg
+# Debug files - comprehensive patterns
+*.log
+**/*.log
+*_debug.png
+*_settings*.png
 routing_*.png
-moondream_*.png
+test_*.png
 enhanced_debug.png
-test_eye_*.png
 
-# Debug/test scripts
-debug_manifest.py
-test_list_models.py
+# Debug/test scripts - keep in scripts/debug/
+debug_*.py
+patch_*.py
+test_*.py
+verify_*.py
+!tests/**/*.py
