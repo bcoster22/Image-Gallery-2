@@ -11,7 +11,8 @@ import {
     ArrowPathIcon as RefreshIcon,
     ViewfinderCircleIcon as ViewfinderIcon,
     BoltIcon as ZapIcon,
-    ShieldCheckIcon
+    ShieldCheckIcon,
+    WrenchIcon
 } from '@heroicons/react/24/outline';
 import { testProviderConnection } from '../services/aiService';
 import { MoondreamLocalProvider } from '../services/providers/moondream';
@@ -25,6 +26,7 @@ import { PerformanceTab } from './settings/PerformanceTab';
 import { ResilienceTab } from './settings/ResilienceTab';
 import { ContentSafetyTab } from './settings/ContentSafetyTab';
 import { UsageCostsTab } from './settings/UsageCostsTab';
+import { ToolsTab } from './settings/ToolsTab';
 import { ConnectionStatus } from './settings/SettingsComponents';
 import PromptEngineeringPage from './PromptEngineeringPage';
 import { AdminVersions } from './AdminVersions';
@@ -315,6 +317,8 @@ export const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, on
                 return <PromptEngineeringPage settings={settings} onUpdateSettings={updateSettings} />;
             case 'versions':
                 return <AdminVersions />;
+            case 'tools':
+                return <ToolsTab settings={settings} />;
             default:
                 return null;
         }
@@ -366,6 +370,19 @@ export const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onSave, on
                         <Network className="w-5 h-5" />
                         Routing
                     </button>
+
+                    <div className="my-2 border-t border-gray-700/50"></div>
+
+                    <button
+                        onClick={() => { setActiveTab('tools'); setIsSidebarOpen(false); }}
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'tools' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50' : 'text-gray-400 hover:bg-gray-700/50 hover:text-white'}`}
+                    >
+                        <WrenchIcon className="w-5 h-5" />
+                        Tools & Utils
+                    </button>
+
+                    <div className="my-2 border-t border-gray-700/50"></div>
+
                     <button
                         onClick={() => { setActiveTab('appearance'); setIsSidebarOpen(false); }}
                         className={`w-full flex items-center p-3 rounded-lg transition-colors ${activeTab === 'appearance' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}

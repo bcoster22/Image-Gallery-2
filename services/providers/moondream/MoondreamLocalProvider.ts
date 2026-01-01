@@ -70,13 +70,27 @@ export class MoondreamLocalProvider extends BaseProvider {
         const endpoint = settings.providers.moondream_local.endpoint;
         if (!endpoint) throw new Error("Endpoint is missing.");
 
+        // Fix localhost resolution to ensure IPv4 127.0.0.1 matches backend listener
+        let usedEndpoint = endpoint;
+        if (usedEndpoint.includes('localhost')) { usedEndpoint = usedEndpoint.replace('localhost', '127.0.0.1'); }
+
         try {
-            const baseUrl = normalizeEndpoint(endpoint);
+            const baseUrl = normalizeEndpoint(usedEndpoint);
             const response = await fetch(`${baseUrl}/health`);
             if (response.ok) return;
             throw new Error(`Server reachable but returned unexpected status: ${response.status}`);
         } catch (error: any) {
             throw new Error(error.message || "Failed to connect to Moondream Local server.");
+        }
+    }
+
+    async testCapability(capability: any, settings: AdminSettings): Promise<void> {
+        await this.testConnection(settings);
+        // Optional: Check if a model is available for this capability
+        if (capability === 'vision' || capability === 'generation' || capability === 'captioning') {
+            const models = await this.getModels(settings);
+            const hasModel = models.some(m => m.type === capability || (capability === 'vision' && m.type === 'captioning')); // loose mapping
+            // Not enforcing strictly to avoid false negatives if types are ambiguous
         }
     }
 

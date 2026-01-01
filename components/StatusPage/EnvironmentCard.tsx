@@ -34,22 +34,96 @@ export function EnvironmentCard({ environment, otelMetrics, latestStat, moondrea
 
             {/* Metrics Grid */}
             <div className="grid grid-cols-2 gap-4 mb-4">
-                <div className="bg-black/20 rounded-xl p-4">
-                    <div className="flex items-center gap-2 text-neutral-400 mb-1">
-                        <Zap className="w-4 h-4" />
-                        <span className="text-xs font-medium">CPU Usage</span>
+                <div className="bg-black/20 rounded-xl p-4 relative overflow-hidden group">
+                    <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2 text-neutral-400">
+                            <Zap className="w-4 h-4" />
+                            <span className="text-xs font-medium">CPU Usage</span>
+                        </div>
+                        {otelMetrics?.cpu_details?.cores && (
+                            <span className="text-[10px] bg-neutral-800 px-1.5 py-0.5 rounded text-neutral-400">
+                                {otelMetrics.cpu_details.cores} Cores
+                            </span>
+                        )}
                     </div>
-                    <div className="text-2xl font-bold text-white">
-                        {otelMetrics ? `${(otelMetrics.cpu || 0).toFixed(1)}% ` : (latestStat && moondreamStatus === 'operational' ? (latestStat.tokensPerSec || 0).toFixed(1) + ' t/s' : '0.0%')}
+
+                    <div className="relative z-10">
+                        <div className="text-2xl font-bold text-white mb-1">
+                            {otelMetrics ? `${(otelMetrics.cpu || 0).toFixed(1)}%` : '0.0%'}
+                        </div>
+                        {otelMetrics && (
+                            <div className="w-full h-1.5 bg-gray-700/50 rounded-full overflow-hidden">
+                                <div
+                                    className="h-full bg-blue-500 rounded-full transition-all duration-500"
+                                    style={{ width: `${otelMetrics.cpu}%` }}
+                                />
+                            </div>
+                        )}
                     </div>
                 </div>
-                <div className="bg-black/20 rounded-xl p-4">
-                    <div className="flex items-center gap-2 text-neutral-400 mb-1">
-                        <Cpu className="w-4 h-4" />
-                        <span className="text-xs font-medium">Memory</span>
+
+                <div className="bg-black/20 rounded-xl p-4 relative overflow-hidden group">
+                    <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2 text-neutral-400">
+                            <Cpu className="w-4 h-4" />
+                            <span className="text-xs font-medium">Memory</span>
+                        </div>
+                        {otelMetrics?.memory_details && (
+                            <span className="text-[10px] text-neutral-500">
+                                {otelMetrics.memory_details.total_gb.toFixed(1)} GB Total
+                            </span>
+                        )}
                     </div>
-                    <div className="text-2xl font-bold text-white">
-                        {otelMetrics ? `${(otelMetrics.memory || 0).toFixed(1)}% ` : (latestStat && moondreamStatus === 'operational' ? (latestStat.device === 'GPU' ? 'Unknown' : latestStat.device) : '-')}
+
+                    <div className="relative z-10">
+                        <div className="text-2xl font-bold text-white mb-1">
+                            {otelMetrics?.memory_details ? (
+                                <span>
+                                    {otelMetrics.memory_details.used_gb.toFixed(1)} <span className="text-sm font-normal text-neutral-500">GB</span>
+                                </span>
+                            ) : (
+                                otelMetrics ? `${(otelMetrics.memory || 0).toFixed(1)}%` : '-'
+                            )}
+                        </div>
+                        {otelMetrics && (
+                            <div className="w-full h-1.5 bg-gray-700/50 rounded-full overflow-hidden relative flex">
+                                {/* Remaining System Memory Segment */}
+                                <div
+                                    className={cn("h-full transition-all duration-500 relative group/segment",
+                                        (otelMetrics.memory || 0) > 90 ? "bg-red-500" :
+                                            (otelMetrics.memory || 0) > 75 ? "bg-amber-500" : "bg-emerald-500"
+                                    )}
+                                    style={{
+                                        width: `${(otelMetrics.memory || 0) - (otelMetrics.environment?.process_memory_mb && otelMetrics.memory_details ? (otelMetrics.environment.process_memory_mb / (otelMetrics.memory_details.total_gb * 1024)) * 100 : 0)}%`
+                                    }}
+                                    title={`Other System: ${(otelMetrics.memory_details ? (otelMetrics.memory_details.used_gb - ((otelMetrics.environment?.process_memory_mb || 0) / 1024)) : 0).toFixed(1)} GB`}
+                                />
+
+                                {/* Python Process Memory Segment */}
+                                {otelMetrics.environment?.process_memory_mb && otelMetrics.memory_details && (
+                                    <div
+                                        className="h-full bg-violet-500 transition-all duration-500 relative group/segment"
+                                        style={{
+                                            width: `${(otelMetrics.environment.process_memory_mb / (otelMetrics.memory_details.total_gb * 1024)) * 100}%`
+                                        }}
+                                        title={`Python Process: ${Math.round(otelMetrics.environment.process_memory_mb)} MB`}
+                                    />
+                                )}
+                            </div>
+                        )}
+                        {/* Legend */}
+                        {otelMetrics?.environment?.process_memory_mb && (
+                            <div className="flex items-center gap-3 mt-1.5">
+                                <div className="flex items-center gap-1.5">
+                                    <div className={cn("w-1.5 h-1.5 rounded-full", (otelMetrics.memory || 0) > 90 ? "bg-red-500" : (otelMetrics.memory || 0) > 75 ? "bg-amber-500" : "bg-emerald-500")} />
+                                    <span className="text-[10px] text-neutral-400">System</span>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-violet-500" />
+                                    <span className="text-[10px] text-neutral-400">Python</span>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

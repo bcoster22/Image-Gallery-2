@@ -37,7 +37,10 @@ export function usePerformanceTest(settings: AdminSettings | null) {
                     })
                 });
 
-                if (!genRes.ok) throw new Error("Generation failed");
+                if (!genRes.ok) {
+                    const errText = await genRes.text();
+                    throw new Error(`Generation failed (${genRes.status}): ${errText}`);
+                }
 
                 const genData = await genRes.json();
                 if (genData.data && genData.data[0]) {
@@ -110,7 +113,8 @@ export function usePerformanceTest(settings: AdminSettings | null) {
                         const vData = await verifyRes.json();
                         verification = vData.choices?.[0]?.message?.content || "Verified";
                     } else {
-                        verification = "Verification Service Unavailable";
+                        const errText = await verifyRes.text();
+                        verification = `Verification Service Unavailable (${verifyRes.status}): ${errText}`;
                     }
                 } catch (e) {
                     verification = "Verification Failed: " + String(e);

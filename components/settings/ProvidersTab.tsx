@@ -50,8 +50,8 @@ export const ProvidersTab: React.FC<ProvidersTabProps> = ({
         // 2. Moondream Local (Endpoint only)
         if (provider === 'moondream_local') {
             // Filter models by type
-            const visionModels = availableMoondreamModels.filter(m => m.type === 'vision');
-            const analysisModels = availableMoondreamModels.filter(m => m.type === 'analysis');
+            const visionModels = availableMoondreamModels.filter(m => m.type === 'vision' || m.type === 'captioning');
+            const analysisModels = availableMoondreamModels.filter(m => m.type === 'tagging' || m.type === 'analysis');
             let generationModels = availableMoondreamModels.filter(m => m.type === 'generation');
 
             // Sort generation models: curated first (alphabetically), then custom (alphabetically)

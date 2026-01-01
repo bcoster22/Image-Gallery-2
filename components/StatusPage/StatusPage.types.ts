@@ -12,6 +12,15 @@ export interface OtelMetrics {
     cpu: number;
     memory: number;
     device: string;
+    cpu_details?: {
+        usage: number;
+        cores: number;
+    };
+    memory_details?: {
+        used_gb: number;
+        total_gb: number;
+        percent: number;
+    };
     environment?: {
         platform: string;
         accelerator_available: boolean;

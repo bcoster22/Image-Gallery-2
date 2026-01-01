@@ -9,6 +9,7 @@ import { EnvironmentCard } from './StatusPage/EnvironmentCard';
 import { PerformanceStats } from './StatusPage/PerformanceStats';
 import { GPUMetrics } from './StatusPage/GPUMetrics';
 import { QueueMonitor } from './StatusPage/QueueMonitor';
+import { SystemControls } from './StatusPage/SystemControls';
 
 export default function StatusPage({
   statsHistory, settings, queueStatus, onPauseQueue, onClearQueue, onRemoveFromQueue,
@@ -115,12 +116,16 @@ export default function StatusPage({
               />
             )}
 
+
+
             <GPUMetrics
               otelMetrics={otelMetrics}
               settings={settings}
               moondreamUrl={moondreamUrl}
               onRefreshMetrics={fetchMetrics}
             />
+
+            <SystemControls moondreamUrl={moondreamUrl} />
           </MoondreamCard>
         </div>
 
