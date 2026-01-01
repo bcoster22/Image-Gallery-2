@@ -2,6 +2,7 @@ import React from 'react';
 import { Server, Zap, Cpu } from 'lucide-react';
 import { cn } from '../../utils/statusUtils';
 import { OtelMetrics, StatPoint } from './StatusPage.types';
+import { VRAMChart } from '../status/ModelLoadTest/VRAMChart';
 
 interface EnvironmentCardProps {
     environment: OtelMetrics['environment'];
@@ -155,6 +156,18 @@ export function EnvironmentCard({ environment, otelMetrics, latestStat, moondrea
                     </div>
                 </div>
             </div>
+
+            {/* VRAM Chart (Moved from Model Load Test) */}
+            {otelMetrics?.gpus?.[0] && (
+                <div className="mt-4 pt-4 border-t border-white/5">
+                    <VRAMChart
+                        metricsVram={otelMetrics.gpus[0].memory_used}
+                        totalVram={otelMetrics.gpus[0].memory_total}
+                    // Optional: Pass system RAM if we want that context in the chart too, though EnvironmentCard has its own RAM bar.
+                    // We leave test-specific props (vramMb, peakVramMb) undefined as this is the general view.
+                    />
+                </div>
+            )}
         </div>
     );
 }

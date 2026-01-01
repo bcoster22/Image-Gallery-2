@@ -3,7 +3,7 @@ import { Cpu, HardDrive, AlertTriangle, Zap, Clock } from 'lucide-react';
 import { AreaChart, Area, ResponsiveContainer, YAxis } from 'recharts';
 import { statusColor, getSmoothColor } from '../../../utils/statusUtils';
 import { OtelMetrics, AdminSettings } from '../StatusPage.types';
-import ModelLoadTestPanel from '../../status/ModelLoadTestPanel';
+
 
 interface GPUControlCardProps {
     gpu: OtelMetrics['gpus'][0];
@@ -509,12 +509,7 @@ export function GPUControlCard({ gpu, otelMetrics, settings, moondreamUrl, onRef
                     </div>
                 </div>
 
-                {/* Models Section */}
-                <ModelLoadTestPanel
-                    otelMetrics={otelMetrics}
-                    settings={settings}
-                    onRefreshMetrics={onRefreshMetrics}
-                />
+
 
             </div>
         </div>

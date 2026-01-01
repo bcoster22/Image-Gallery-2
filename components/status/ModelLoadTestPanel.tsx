@@ -3,7 +3,7 @@ import { AdminSettings } from '../../types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { ModelSelector } from './ModelLoadTest/ModelSelector';
-import { VRAMChart } from './ModelLoadTest/VRAMChart';
+
 import { TestStatusDisplay } from './ModelLoadTest/TestStatusDisplay';
 import { AvailableModel } from './ModelLoadTest/types';
 import { useModelTest } from '../../hooks/useModelTest';
@@ -60,9 +60,7 @@ export default function ModelLoadTestPanel({ otelMetrics, settings, onRefreshMet
         fetchModels();
     }, [settings]);
 
-    const metricsVram = useMemo(() => otelMetrics?.gpus?.[0]?.memory_used || 0, [otelMetrics]);
-    const totalVram = useMemo(() => otelMetrics?.gpus?.[0]?.memory_total || 24576, [otelMetrics]); // Default 24GB
-    const ramMb = useMemo(() => (otelMetrics?.memory || 0) / 1024 / 1024, [otelMetrics]);
+
 
     return (
         <div className="bg-neutral-900 border border-white/10 rounded-xl overflow-hidden shadow-sm h-full flex flex-col">
@@ -78,14 +76,7 @@ export default function ModelLoadTestPanel({ otelMetrics, settings, onRefreshMet
 
             <div className="flex-1 overflow-y-auto p-4 space-y-6">
 
-                {/* VRAM Visualization */}
-                <VRAMChart
-                    metricsVram={metricsVram}
-                    totalVram={totalVram}
-                    vramMb={modelTestResult?.vramMb}
-                    peakVramMb={modelTestResult?.peakVramMb}
-                    ramMb={ramMb}
-                />
+
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {/* Left Col: Selector */}

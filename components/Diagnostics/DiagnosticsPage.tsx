@@ -58,18 +58,19 @@ export default function DiagnosticsPage({ onClose, moondreamUrl }: DiagnosticsPa
                 })()
             ]);
 
-            const backendData: DiagnosticResult[] = Array.isArray(backendRes)
+            const backendData: DiagnosticResult[] = (Array.isArray(backendRes)
                 ? backendRes
-                : (backendRes?.checks && Array.isArray(backendRes.checks) ? backendRes.checks : []);
+                : (backendRes?.checks && Array.isArray(backendRes.checks) ? backendRes.checks : []))
+                .map((r: any) => ({ ...r, source: 'backend' }));
 
             // Combine all results
             const allResults = [
                 ...backendData,
-                storageRes,
-                dbRes,
-                webglRes,
-                latencyRes,
-                ...apiKeysRes
+                { ...storageRes, source: 'frontend' as const },
+                { ...dbRes, source: 'frontend' as const },
+                { ...webglRes, source: 'frontend' as const },
+                { ...latencyRes, source: 'frontend' as const },
+                ...apiKeysRes.map(r => ({ ...r, source: 'frontend' as const }))
             ];
 
             setResults(allResults);
