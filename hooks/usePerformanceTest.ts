@@ -17,6 +17,7 @@ export function usePerformanceTest(settings: AdminSettings | null) {
         setShowResultModal(true);
 
         const startTime = Date.now();
+        const vramMode = settings?.performance?.vramUsage || 'balanced';
 
         try {
             // 1. Trigger Generation
@@ -27,7 +28,10 @@ export function usePerformanceTest(settings: AdminSettings | null) {
 
                 const genRes = await fetch(`${cleanUrl}/v1/images/generations`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-VRAM-Mode': vramMode
+                    },
                     body: JSON.stringify({
                         model: model.id,
                         prompt: prompt,
@@ -57,7 +61,10 @@ export function usePerformanceTest(settings: AdminSettings | null) {
                     // Auto-Generate Fallback
                     const genRes = await fetch(`${cleanUrl}/v1/generate`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-VRAM-Mode': vramMode
+                        },
                         body: JSON.stringify({
                             model: 'sdxl-realism', // Default fallback
                             prompt: prompt,
@@ -93,7 +100,10 @@ export function usePerformanceTest(settings: AdminSettings | null) {
                 try {
                     const verifyRes = await fetch(`${cleanUrl}/v1/chat/completions`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-VRAM-Mode': vramMode
+                        },
                         body: JSON.stringify({
                             model: verifyModel,
                             messages: [
@@ -164,6 +174,8 @@ export function usePerformanceTest(settings: AdminSettings | null) {
 
                             xmin = Math.max(0, xmin - padX);
                             ymin = Math.max(0, ymin - padY);
+                            xmax = Math.min(width, xmax + padX);
+                            ymax = Math.min(height, ymax + padY);
                             xmax = Math.min(width, xmax + padX);
                             ymax = Math.min(height, ymax + padY);
 
