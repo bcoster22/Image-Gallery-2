@@ -66,10 +66,18 @@ export function QueueMonitor({
                         <p className="text-xs text-neutral-400">Adaptive Concurrency</p>
                     </div>
                 </div>
-                <div className={cn("px-2 py-1 rounded text-xs font-medium uppercase",
-                    queueStatus.isPaused ? "bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30" : "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30"
+                <div className={cn("px-2 py-1 rounded text-xs font-medium uppercase transition-all duration-300",
+                    queueStatus.isPaused
+                        ? "bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30"
+                        : queueStatus.concurrencyLimit < 4
+                            ? "bg-yellow-500/15 text-yellow-300 ring-1 ring-yellow-500/30"
+                            : "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30"
                 )}>
-                    {queueStatus.isPaused ? 'Paused (Backpressure)' : 'Running'}
+                    {queueStatus.isPaused
+                        ? 'Paused (Cooldown)'
+                        : queueStatus.concurrencyLimit < 4
+                            ? `Running (Throttled: ${queueStatus.concurrencyLimit}x)`
+                            : 'Running (Optimal)'}
                 </div>
                 <div className="flex items-center gap-2">
                     {/* Calibration Controls */}

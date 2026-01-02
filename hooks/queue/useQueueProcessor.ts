@@ -385,10 +385,59 @@ export const useQueueProcessor = ({
                     else if (isConnError && settings?.resilience?.pauseOnLocalFailure) {
                         isPausedRef.current = true;
                         queueRef.current.unshift(task);
-                    } else if (msg.includes("queue is full")) {
-                        isPausedRef.current = true;
+                        syncQueueStatus();
+                    } else if (msg.includes("queue is full") || isOOMError) {
+                        // AUTO-RESUME LOGIC
+                        console.warn(`[Queue] Overload detected (${isOOMError ? 'OOM' : 'Full'}). Throttling & Auto-Resuming...`);
+
+                        // 1. Throttle hard
+                        setConcurrencyLimit(1);
+                        setOptimalBatchSize(Math.max(1, Math.floor(optimalBatchSize / 2)));
+
+                        // 2. Requeue current task
                         queueRef.current.unshift(task);
-                        setConcurrencyLimit(p => Math.max(1, Math.floor(p / 2)));
+
+                        // 3. Pause temporarily
+                        isPausedRef.current = true;
+                        syncQueueStatus();
+
+                        // 4. Auto-Resume Logic with VRAM Check
+                        const attemptResume = async () => {
+                            if (!isPausedRef.current) return;
+
+                            try {
+                                // Check VRAM status via Models endpoint (lightweight)
+                                const res = await fetch('http://127.0.0.1:2020/v1/models');
+                                const usedStr = res.headers.get('X-VRAM-Used');
+                                const totalStr = res.headers.get('X-VRAM-Total');
+
+                                if (usedStr && totalStr) {
+                                    const used = parseInt(usedStr);
+                                    const total = parseInt(totalStr);
+                                    const pct = (used / total) * 100;
+
+                                    if (pct > 85) {
+                                        console.warn(`[Queue] VRAM still high (${pct.toFixed(1)}%). Extending cooldown...`);
+                                        setTimeout(attemptResume, 5000); // Wait another 5s
+                                        return;
+                                    }
+                                }
+
+                                console.log("[Queue] VRAM levels nominal. Auto-resuming queue...");
+                                isPausedRef.current = false;
+                                consecutiveErrorsRef.current = 0;
+                                syncQueueStatus();
+                                if (processQueueRef.current) processQueueRef.current();
+
+                            } catch (e) {
+                                // If backend is unreachable, keep waiting
+                                console.error("[Queue] Backend unreachable. Extending cooldown...");
+                                setTimeout(attemptResume, 5000);
+                            }
+                        };
+
+                        setTimeout(attemptResume, 5000);
+
                     } else {
                         // Get retry count for this task
                         const currentRetryCount = task.retryCount || 0;
