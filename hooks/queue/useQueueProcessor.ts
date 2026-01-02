@@ -416,9 +416,10 @@ export const useQueueProcessor = ({
                                     const total = parseInt(totalStr);
                                     const pct = (used / total) * 100;
 
-                                    if (pct > 85) {
-                                        console.warn(`[Queue] VRAM still high (${pct.toFixed(1)}%). Extending cooldown...`);
-                                        setTimeout(attemptResume, 5000); // Wait another 5s
+                                    // User requested relaxation: Only blocking if literally full (approx 100%)
+                                    if (pct > 99) {
+                                        console.warn(`[Queue] VRAM Critical (${pct.toFixed(1)}%). Extending cooldown...`);
+                                        setTimeout(attemptResume, 5000);
                                         return;
                                     }
                                 }
