@@ -35,6 +35,7 @@ interface UseBatchOperationsProps {
         aspectRatio: AspectRatio,
         isRetry?: boolean
     ) => Promise<void>;
+    setAnalysisProgress: React.Dispatch<React.SetStateAction<any>>;
 }
 
 export const useBatchOperations = ({
@@ -51,7 +52,8 @@ export const useBatchOperations = ({
     setStatsHistory,
     handleSaveGeneratedImage,
     handleGenerationSubmit,
-    handleStartAnimation
+    handleStartAnimation,
+    setAnalysisProgress
 }: UseBatchOperationsProps) => {
     const [isBatchRemixModalOpen, setIsBatchRemixModalOpen] = useState(false);
 
@@ -62,6 +64,7 @@ export const useBatchOperations = ({
         addNotification({ status: 'success', message: `Starting caption regeneration for ${ids.length} images...` });
         toggleSelectionMode(false);
         setSelectedIds(new Set());
+        setAnalysisProgress({ current: 0, total: ids.length, fileName: 'Initializing Batch...' });
 
         ids.forEach(id => {
             handleRegenerateCaption(id);

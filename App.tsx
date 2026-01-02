@@ -222,7 +222,7 @@ const App: React.FC = () => {
     queuedAnalysisIds, queuedGenerationIds, removeFromQueue, clearQueue, startCalibration, stopCalibration, calibrationStatus,
     toggleBatchMode,
     optimalBatchSize, batchSizeCalibrated, calibrateBatchSize, batchCalibrationInProgress,
-    resilienceLog
+    resilienceLog, setAnalysisProgress
   } = useQueueSystem({
     settings, addNotification, updateNotification, setImages, setSelectedImage, setSimilarImages, setStatsHistory, handleSaveGeneratedImage
   });
@@ -407,7 +407,7 @@ const App: React.FC = () => {
   } = useBatchOperations({
     images, setImages, selectedIds, setSelectedIds, toggleSelectionMode, addNotification,
     handleRegenerateCaption, settings, currentUser, setGenerationTasks, setStatsHistory,
-    handleSaveGeneratedImage, handleGenerationSubmit, handleStartAnimation
+    handleSaveGeneratedImage, handleGenerationSubmit, handleStartAnimation, setAnalysisProgress
   });
 
 

@@ -24,7 +24,11 @@ export const useAnalysisExecutor = ({ settings, setStatsHistory, setImages, setS
         const img = task.data.image!;
 
         try {
-            setAnalysisProgress((p: any) => p ? { ...p, fileName: img.fileName } : { current: 0, total: 1, fileName: img.fileName });
+            // Update progress (Init if null, else keep total)
+            setAnalysisProgress((p: any) => p
+                ? { ...p, fileName: img.fileName }
+                : { current: 0, total: 1, fileName: img.fileName }
+            );
             addNotification({ id: img.id, status: 'processing', message: `Analyzing ${img.fileName}...` });
 
             let imageForAnalysis = { ...img };
@@ -42,9 +46,20 @@ export const useAnalysisExecutor = ({ settings, setStatsHistory, setImages, setS
             saveImage(updated);
             updateNotification(img.id, { status: 'success', message: `Analyzed ${img.fileName}.` });
 
+            // Cleanup & Increment Progress
             setAnalyzingIds(p => { const s = new Set(p); s.delete(img.id); return s; });
             queuedAnalysisIds.current.delete(img.id);
-            setAnalysisProgress(null);
+
+            setAnalysisProgress((p: any) => {
+                if (!p) return null;
+                // If queue is empty and this was the last one (total == current + 1), clear it
+                // Or if we just check queue size directly.
+                // We'll optimistically increment.
+                const nextCurrent = p.current + 1;
+                // If we reached total, or queue is truly empty (excluding this one which we just deleted), clear.
+                if (nextCurrent >= p.total || queuedAnalysisIds.current.size === 0) return null;
+                return { ...p, current: nextCurrent };
+            });
 
             return metadata.stats?.devicePerformance;
         } catch (e: any) {
@@ -58,7 +73,14 @@ export const useAnalysisExecutor = ({ settings, setStatsHistory, setImages, setS
             // Clean up state
             setAnalyzingIds(p => { const s = new Set(p); s.delete(img.id); return s; });
             queuedAnalysisIds.current.delete(img.id);
-            setAnalysisProgress(null);
+
+            setAnalysisProgress((p: any) => {
+                if (!p) return null;
+                // Increment even on failure to advance bar
+                const nextCurrent = p.current + 1;
+                if (nextCurrent >= p.total || queuedAnalysisIds.current.size === 0) return null;
+                return { ...p, current: nextCurrent };
+            });
 
             // Update notification
             updateNotification(img.id, { status: 'error', message: e.message || `Failed: ${img.fileName}` });

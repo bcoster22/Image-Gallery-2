@@ -69,4 +69,26 @@ Run the commit script:
 ```bash
 cd ~/Documents/Github_Projects/Gallery/Image-Gallery-2
 ./commit_moondream_station.sh
-```
+
+## Phase 3: VRAM Headers & Queue Stability
+
+### Backend Updates
+Modified `moondream_station/core/rest_server.py`:
+
+**1. VRAM Metrics Headers**
+Added `X-VRAM-Used` and `X-VRAM-Total` headers to `/v1/chat/completions` and `/v1/models` endpoints to allow real-time frontend monitoring and adaptive scaling.
+
+**2. NameError & Loop Crash Fix**
+Defensively initialized `vram_mode`, `function_name`, and `kwargs` at the start of `_handle_chat_completion` to prevent `NameError` crashes during error handling (e.g., when "Image required" exception occurs early). This resolved a critical loop where generation errors caused backend Service crashes.
+
+### Frontend Updates
+Modified `hooks/queue/useQueueProcessor.ts`:
+
+**1. Queue Wake-Up Fix**
+Fixed a bug where jobs added back to the queue (retry or resume) would "sit" indefinitely because the processor wasn't explicitly triggered. Added automatic trigger on re-queue.
+
+## Result
+- ✅ Accurate VRAM reporting (no longer "undefined")
+- ✅ Reliable Adaptive Concurrency (scales down on VRAM pressure)
+- ✅ Queue automatically resumes after transient errors
+- ✅ Backend handles early exceptions without crashing

@@ -142,6 +142,7 @@ export const useQueueSystem = ({
         batchSizeCalibrated,
         calibrateBatchSize,
         batchCalibrationInProgress,
-        resilienceLog
+        resilienceLog,
+        setAnalysisProgress
     };
 };

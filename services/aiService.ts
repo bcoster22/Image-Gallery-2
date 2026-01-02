@@ -205,10 +205,42 @@ export const analyzeImage = async (
 
         const [recreationPrompt, keywords] = await Promise.all([captionPromise, taggingPromise]);
 
+        // CRITICAL FIX: Return stats from split calls too
+        // We'll use the tagging provider's stats since it typically includes VRAM metrics
+        // If that fails, try to get fresh VRAM metrics
+        let stats = undefined;
+        try {
+            const provider = registry.getProvider(effectiveTaggingProvider);
+            if (provider) {
+                // Most providers attach stats to their last response
+                // For now, we'll fetch current VRAM state if moondream_local
+                if (effectiveTaggingProvider === 'moondream_local') {
+                    const endpoint = settings.providers.moondream_local.endpoint || 'http://localhost:2020';
+                    const res = await fetch(`${endpoint}/v1/models`);
+                    const vramUsed = parseFloat(res.headers.get('X-VRAM-Used') || '0');
+                    const vramTotal = parseFloat(res.headers.get('X-VRAM-Total') || '0');
+
+                    if (vramTotal > 0) {
+                        stats = {
+                            device: 'GPU',
+                            duration: 0, // Unknown for split calls
+                            devicePerformance: {
+                                vramUsedMB: vramUsed,
+                                vramTotalMB: vramTotal,
+                                vramUsagePercent: (vramUsed / vramTotal) * 100
+                            }
+                        };
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to fetch VRAM stats for split routing:', e);
+        }
+
         result = {
             recreationPrompt,
             keywords,
-            // Stats omitted for combined calls
+            stats
         };
     }
 
