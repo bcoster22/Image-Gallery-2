@@ -1,20 +1,61 @@
 import React from 'react';
-import { CheckCircle, Download, Play } from 'lucide-react';
-import { ModelInfo } from './types';
+import { CheckCircle, Download, Play, Clock, Loader2, XCircle } from 'lucide-react';
+import { ModelInfo, TestResult } from './types';
 
 interface ModelListProps {
     models: ModelInfo[];
     loading: boolean;
+    testStatuses?: Record<string, TestResult>;
     onTestLoad: (model: ModelInfo) => void;
 }
 
-export function ModelList({ models, loading, onTestLoad }: ModelListProps) {
+export function ModelList({ models, loading, testStatuses = {}, onTestLoad }: ModelListProps) {
+    const getStatusBadge = (modelId: string) => {
+        const result = testStatuses[modelId];
+        if (!result) return null;
+
+        switch (result.status) {
+            case 'queued':
+                return (
+                    <div className="flex items-center gap-1.5 text-blue-400 text-xs font-medium">
+                        <Clock className="w-4 h-4" />
+                        <span>Queued</span>
+                    </div>
+                );
+            case 'generating':
+            case 'verifying':
+            case 'loading':
+                return (
+                    <div className="flex items-center gap-1.5 text-blue-400 text-xs font-medium">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span className="capitalize">{result.status}...</span>
+                    </div>
+                );
+            case 'success':
+                return (
+                    <div className="flex items-center gap-1.5 text-emerald-400 text-xs font-medium">
+                        <CheckCircle className="w-4 h-4" />
+                        <span>Pas</span>
+                    </div>
+                ); // Typo "Pas" -> "Pass" intended? User said "success/fail". "Pass" is good.
+            case 'failure':
+                return (
+                    <div className="flex items-center gap-1.5 text-red-400 text-xs font-medium" title={result.error}>
+                        <XCircle className="w-4 h-4" />
+                        <span>Fail</span>
+                    </div>
+                );
+            default:
+                return null;
+        }
+    };
+
     return (
         <div className="bg-neutral-900 border border-white/10 rounded-2xl overflow-hidden">
             <div className="grid grid-cols-12 gap-4 p-4 border-b border-white/5 text-xs font-semibold text-neutral-400 uppercase tracking-wider">
                 <div className="col-span-4">Model Name</div>
                 <div className="col-span-2">Type</div>
-                <div className="col-span-2">Status</div>
+                <div className="col-span-2">Test Status</div>
                 <div className="col-span-1 text-right">VRAM</div>
                 <div className="col-span-1 text-center">Config</div>
                 <div className="col-span-2 text-right">Action</div>
@@ -38,16 +79,18 @@ export function ModelList({ models, loading, onTestLoad }: ModelListProps) {
                         </div>
 
                         <div className="col-span-2 flex items-center gap-2">
-                            {model.is_downloaded ? (
-                                <div className="flex items-center gap-1.5 text-emerald-400 text-sm">
-                                    <CheckCircle className="w-4 h-4" />
-                                    <span>Ready</span>
-                                </div>
-                            ) : (
-                                <div className="flex items-center gap-1.5 text-neutral-500 text-sm">
-                                    <Download className="w-4 h-4" />
-                                    <span>Remote</span>
-                                </div>
+                            {getStatusBadge(model.id) || (
+                                model.is_downloaded ? (
+                                    <div className="flex items-center gap-1.5 text-neutral-500 text-sm opacity-50">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-neutral-600" />
+                                        <span>Idle</span>
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center gap-1.5 text-neutral-500 text-sm">
+                                        <Download className="w-4 h-4" />
+                                        <span>Remote</span>
+                                    </div>
+                                )
                             )}
                         </div>
 

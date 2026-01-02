@@ -551,7 +551,12 @@ const App: React.FC = () => {
           )}
 
           {showPerformanceOverview ? (
-            <PerformanceOverview settings={settings} onBack={() => setShowPerformanceOverview(false)} />
+            <PerformanceOverview
+              settings={settings}
+              onBack={() => setShowPerformanceOverview(false)}
+              addToQueue={addToQueue}
+              generationResults={generationResults}
+            />
           ) : galleryView === 'status' ? (
             <StatusPage
               statsHistory={statsHistory}

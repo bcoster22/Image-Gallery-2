@@ -10,7 +10,7 @@ export interface ModelInfo {
 
 export interface TestResult {
     modelId: string;
-    status: 'idle' | 'loading' | 'generating' | 'verifying' | 'success' | 'failure';
+    status: 'idle' | 'queued' | 'loading' | 'generating' | 'verifying' | 'success' | 'failure';
     generationTimeMs?: number;
     generatedImageUrl?: string;
     verificationResult?: string;

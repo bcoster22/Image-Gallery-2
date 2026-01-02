@@ -44,6 +44,7 @@ export const useAnalysisExecutor = ({ settings, setStatsHistory, setImages, setS
 
             setAnalyzingIds(p => { const s = new Set(p); s.delete(img.id); return s; });
             queuedAnalysisIds.current.delete(img.id);
+            setAnalysisProgress(null);
 
             return metadata.stats?.devicePerformance;
         } catch (e: any) {
@@ -111,6 +112,7 @@ export const useAnalysisExecutor = ({ settings, setStatsHistory, setImages, setS
                 setAnalyzingIds(p => { const s = new Set(p); s.delete(id); return s; });
                 queuedAnalysisIds.current.delete(id);
             });
+            setAnalysisProgress(null);
 
         } catch (e: any) {
             console.error("[Batch Analysis] Batch failed:", e);

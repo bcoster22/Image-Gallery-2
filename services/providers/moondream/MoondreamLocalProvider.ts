@@ -428,7 +428,8 @@ export class MoondreamLocalProvider extends BaseProvider {
         };
 
         try {
-            const { text: responseText } = await callMoondreamApi(apiUrl, "", body, false);
+            const vramMode = settings.performance?.vramUsage || 'balanced';
+            const { text: responseText } = await callMoondreamApi(apiUrl, "", body, false, 120, vramMode);
 
             let bbox = null;
             try {

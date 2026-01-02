@@ -3,6 +3,7 @@ import { Activity, ArrowLeft } from 'lucide-react';
 import { AdminSettings } from '../types';
 import { ModelInfo } from './PerformanceOverview/types';
 import { usePerformanceTest } from '../hooks/usePerformanceTest';
+import { useAutoTestRunner } from '../hooks/useAutoTestRunner';
 import { ModelList } from './PerformanceOverview/ModelList';
 import { PromptConfig } from './PerformanceOverview/PromptConfig';
 import { ImageUpload } from './PerformanceOverview/ImageUpload';
@@ -11,9 +12,11 @@ import { TestResultModal } from './PerformanceOverview/TestResultModal';
 interface PerformanceOverviewProps {
     settings: AdminSettings | null;
     onBack: () => void;
+    addToQueue: (items: any[]) => void;
+    generationResults: { id: string, url: string }[];
 }
 
-export default function PerformanceOverview({ settings, onBack }: PerformanceOverviewProps) {
+export default function PerformanceOverview({ settings, onBack, addToQueue, generationResults }: PerformanceOverviewProps) {
     const [models, setModels] = useState<ModelInfo[]>([]);
     const [loading, setLoading] = useState(true);
     const [testPrompt, setTestPrompt] = useState("hot sexy 22 yo woman in bikini posing for sports illustrated model photo shots. long red hair and hazel-green eyes. big teardrop breasts, attention grabbing cleavage.");
@@ -24,8 +27,13 @@ export default function PerformanceOverview({ settings, onBack }: PerformanceOve
     const moondreamUrl = settings?.providers.moondream_local.endpoint || 'http://localhost:2020';
     const cleanUrl = moondreamUrl.replace(/\/$/, "").replace(/\/v1$/, "");
 
-    // Use Custom Hook for Logic
+    // Custom Hooks
+    const { useAutoTestRunner } = require('../hooks/useAutoTestRunner'); // Dynamic import to avoid top-Level if not exists yet? No, just standard import.
+    // I will fix imports in next block.
+
+
     const { testResult, showResultModal, setShowResultModal, runTest } = usePerformanceTest(settings);
+    const { testStatuses, startAutoTest, isAutoTesting } = useAutoTestRunner({ addToQueue, settings, generationResults });
 
     useEffect(() => {
         fetchModels();
@@ -93,15 +101,26 @@ export default function PerformanceOverview({ settings, onBack }: PerformanceOve
                             <p className="text-neutral-400">Validate model integrity and generation benchmarks</p>
                         </div>
                     </div>
-                    <button onClick={fetchModels} className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg transition-colors">
-                        Refresh List
-                    </button>
+                    <div className="flex items-center gap-3">
+                        <button
+                            onClick={() => startAutoTest(models, testPrompt)}
+                            disabled={loading || isAutoTesting}
+                            className={`px-4 py-2 rounded-lg transition-colors flex items-center gap-2 ${isAutoTesting ? 'bg-indigo-600/50 cursor-wait' : 'bg-indigo-600 hover:bg-indigo-500'
+                                }`}
+                        >
+                            {isAutoTesting ? 'Testing All Models...' : 'Auto Test All'}
+                        </button>
+                        <button onClick={fetchModels} className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg transition-colors">
+                            Refresh List
+                        </button>
+                    </div>
                 </div>
 
                 {/* Sub-Components */}
                 <ModelList
                     models={models}
                     loading={loading}
+                    testStatuses={testStatuses}
                     onTestLoad={(model) => runTest(model, testPrompt, testImage, selectedScheduler)}
                 />
 
