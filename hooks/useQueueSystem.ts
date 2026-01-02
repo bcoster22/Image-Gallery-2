@@ -26,7 +26,8 @@ export const useQueueSystem = ({
         queueStatus,
         queueRef, activeRequestsRef, activeJobsRef, isPausedRef,
         checkBackendHealthRef, queuedAnalysisIds, queuedGenerationIds,
-        syncQueueStatus, analysisProgressTimeoutRef
+        syncQueueStatus, analysisProgressTimeoutRef,
+        resilienceLog, setResilienceLog
     } = useQueueState();
 
     // Local State for UI exposure logic that was in original hook
@@ -59,7 +60,7 @@ export const useQueueSystem = ({
     } = useQueueProcessor({
         settings, queueRef, activeRequestsRef, activeJobsRef, isPausedRef, concurrencyLimit, setConcurrencyLimit,
         checkBackendHealthRef, queuedAnalysisIds, queuedGenerationIds, syncQueueStatus, updateNotification,
-        setImages, setAnalyzingIds, executeAnalysis, executeGeneration, isBatchMode, executeBatchAnalysis
+        setImages, setAnalyzingIds, executeAnalysis, executeGeneration, isBatchMode, executeBatchAnalysis, setResilienceLog
     });
 
     // Recursion Handling: The processor needs to trigger itself. 
@@ -140,6 +141,7 @@ export const useQueueSystem = ({
         optimalBatchSize,
         batchSizeCalibrated,
         calibrateBatchSize,
-        batchCalibrationInProgress
+        batchCalibrationInProgress,
+        resilienceLog
     };
 };

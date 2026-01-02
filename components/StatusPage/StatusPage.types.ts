@@ -71,4 +71,5 @@ export interface StatusPageProps {
     batchSizeCalibrated?: boolean;
     onCalibrateBatchSize?: () => void;
     batchCalibrationInProgress?: boolean;
+    resilienceLog: { timestamp: number, type: 'info' | 'warn' | 'error', message: string }[];
 }

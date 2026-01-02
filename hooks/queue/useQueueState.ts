@@ -12,6 +12,8 @@ export const useQueueState = () => {
         concurrencyLimit: 1
     });
 
+    const [resilienceLog, setResilienceLog] = useState<{ timestamp: number, type: 'info' | 'warn' | 'error', message: string }[]>([]);
+
     const queueRef = useRef<QueueItem[]>([]);
     const activeRequestsRef = useRef<number>(0);
     const activeJobsRef = useRef<ActiveJob[]>([]);
@@ -44,8 +46,9 @@ export const useQueueState = () => {
         concurrencyLimit, setConcurrencyLimit,
         queueStatus, setQueueStatus,
         queueRef, activeRequestsRef, activeJobsRef, isPausedRef,
-        consecutiveSuccesses, recoveryIntervalRef, checkBackendHealthRef,
+        checkBackendHealthRef,
         analysisProgressTimeoutRef, queuedAnalysisIds, queuedGenerationIds,
-        syncQueueStatus
+        syncQueueStatus,
+        resilienceLog, setResilienceLog
     };
 };

@@ -221,7 +221,8 @@ const App: React.FC = () => {
     addToQueue, processQueue, isPausedRef, activeRequestsRef, checkBackendHealthRef,
     queuedAnalysisIds, queuedGenerationIds, removeFromQueue, clearQueue, startCalibration, stopCalibration, calibrationStatus,
     toggleBatchMode,
-    optimalBatchSize, batchSizeCalibrated, calibrateBatchSize, batchCalibrationInProgress
+    optimalBatchSize, batchSizeCalibrated, calibrateBatchSize, batchCalibrationInProgress,
+    resilienceLog
   } = useQueueSystem({
     settings, addNotification, updateNotification, setImages, setSelectedImage, setSimilarImages, setStatsHistory, handleSaveGeneratedImage
   });
@@ -576,6 +577,7 @@ const App: React.FC = () => {
               batchSizeCalibrated={batchSizeCalibrated}
               onCalibrateBatchSize={calibrateBatchSize}
               batchCalibrationInProgress={batchCalibrationInProgress}
+              resilienceLog={resilienceLog}
             />
           ) : galleryView === 'profile-settings' && currentUser ? (
             <UserProfilePage user={currentUser} onUpdateUser={setCurrentUser} galleryImages={images} settings={settings} addNotification={addNotification} onClose={() => setGalleryView('my-gallery')} />

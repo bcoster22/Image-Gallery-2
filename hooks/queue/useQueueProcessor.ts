@@ -17,16 +17,17 @@ interface UseQueueProcessorProps {
     updateNotification: (id: string, updates: any) => void;
     setImages: React.Dispatch<React.SetStateAction<ImageInfo[]>>;
     setAnalyzingIds: React.Dispatch<React.SetStateAction<Set<string>>>;
-    executeAnalysis: (task: QueueItem) => Promise<DevicePerformanceMetrics | undefined>;
-    executeGeneration: (task: QueueItem) => Promise<DevicePerformanceMetrics | undefined>;
+    executeAnalysis: (item: QueueItem) => Promise<any>;
+    executeGeneration: (item: QueueItem) => Promise<any>;
     isBatchMode: boolean;
-    executeBatchAnalysis: (tasks: QueueItem[]) => Promise<void>;
+    executeBatchAnalysis: (items: QueueItem[]) => Promise<void>;
+    setResilienceLog: React.Dispatch<React.SetStateAction<{ timestamp: number, type: 'info' | 'warn' | 'error', message: string }[]>>;
 }
 
 export const useQueueProcessor = ({
     settings, queueRef, activeRequestsRef, activeJobsRef, isPausedRef, concurrencyLimit, setConcurrencyLimit,
     checkBackendHealthRef, queuedAnalysisIds, queuedGenerationIds, syncQueueStatus, updateNotification, setImages, setAnalyzingIds,
-    executeAnalysis, executeGeneration, isBatchMode, executeBatchAnalysis
+    executeAnalysis, executeGeneration, isBatchMode, executeBatchAnalysis, setResilienceLog
 }: UseQueueProcessorProps) => {
 
     const processQueueRef = React.useRef<() => Promise<void>>();
@@ -34,19 +35,13 @@ export const useQueueProcessor = ({
     // Batch Size State (for VRAM-aware adaptive batching)
     const [optimalBatchSize, setOptimalBatchSize] = React.useState<number>(4);
     const [batchSizeCalibrated, setBatchSizeCalibrated] = React.useState<boolean>(false);
-    const [batchCalibrationInProgress, setBatchCalibrationInProgress] = React.useState<boolean>(false);
+    const [batchCalibrationInProgress, setBatchCalibrationInProgress] = React.useRef<boolean>(false); // Changed to useRef
 
     // Calibration State (for concurrency)
-    const calibrationRef = React.useRef<{
-        isActive: boolean;
-        startTime: number;
-        stepStartTime: number;
-        currentConcurrency: number;
-        metrics: { vram: number[], tps: number[] };
-        results: BenchmarkResult[];
-    }>({
-        isActive: false, startTime: 0, stepStartTime: 0, currentConcurrency: 0,
-        metrics: { vram: [], tps: [] }, results: []
+    const calibrationRef = React.useRef<any>({
+        isActive: false, startConcurrency: 1, endConcurrency: 4, stepDurationMs: 10000,
+        currentConcurrency: 1, startTime: 0, results: [], timeRemainingInStep: 0,
+        completedSteps: new Set()
     });
 
     const metricsHistoryRef = React.useRef<{ vram: number[], tps: number[] }>({ vram: [], tps: [] });

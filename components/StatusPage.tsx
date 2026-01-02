@@ -15,7 +15,8 @@ export default function StatusPage({
   statsHistory, settings, queueStatus, onPauseQueue, onClearQueue, onRemoveFromQueue,
   onShowPerformance, onShowDiagnostics, startCalibration, stopCalibration, calibrationStatus,
   isBatchMode, onToggleBatchMode,
-  optimalBatchSize, batchSizeCalibrated, onCalibrateBatchSize, batchCalibrationInProgress
+  optimalBatchSize, batchSizeCalibrated, onCalibrateBatchSize, batchCalibrationInProgress,
+  resilienceLog
 }: StatusPageProps) {
   // Global State (Fetched here, passed down)
   const [otelMetrics, setOtelMetrics] = useState<OtelMetrics | null>(null);
@@ -80,6 +81,7 @@ export default function StatusPage({
         <PerformanceStats
           statsHistory={statsHistory}
           timeRange={timeRange}
+          resilienceLog={resilienceLog}
         />
 
         {queueStatus && (
