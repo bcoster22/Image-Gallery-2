@@ -34,18 +34,31 @@ export function TestResultModal({ testResult, show, onClose }: TestResultModalPr
                 <div className="p-6 space-y-6">
 
                     {/* Status Steps */}
-                    <div className="flex items-center gap-2 text-sm text-neutral-400">
-                        <div className={`flex items-center gap-2 ${['loading', 'generating', 'verifying', 'success'].includes(testResult.status) ? 'text-blue-400' : ''}`}>
+                    <div className="flex items-center gap-2 text-sm text-neutral-400 font-medium">
+                        {/* Init Step */}
+                        <div className={`flex items-center gap-2 ${['generating', 'verifying', 'success'].includes(testResult.status) ? 'text-emerald-500' :
+                            testResult.status === 'loading' ? 'text-blue-400 animate-pulse' : ''
+                            }`}>
                             <div className="w-2 h-2 rounded-full bg-current" />
                             Init
                         </div>
-                        <div className="w-8 h-px bg-white/10" />
-                        <div className={`flex items-center gap-2 ${['generating', 'verifying', 'success'].includes(testResult.status) ? 'text-blue-400' : ''}`}>
+
+                        <div className={`w-8 h-px ${['generating', 'verifying', 'success'].includes(testResult.status) ? 'bg-emerald-500/50' : 'bg-white/10'}`} />
+
+                        {/* Generation Step */}
+                        <div className={`flex items-center gap-2 ${['verifying', 'success'].includes(testResult.status) ? 'text-emerald-500' :
+                            testResult.status === 'generating' ? 'text-blue-400 animate-pulse' : ''
+                            }`}>
                             <div className="w-2 h-2 rounded-full bg-current" />
                             Generation
                         </div>
-                        <div className="w-8 h-px bg-white/10" />
-                        <div className={`flex items-center gap-2 ${['verifying', 'success'].includes(testResult.status) ? 'text-blue-400' : ''}`}>
+
+                        <div className={`w-8 h-px ${['verifying', 'success'].includes(testResult.status) ? 'bg-emerald-500/50' : 'bg-white/10'}`} />
+
+                        {/* Verification Step */}
+                        <div className={`flex items-center gap-2 ${testResult.status === 'success' ? 'text-emerald-500' :
+                            testResult.status === 'verifying' ? 'text-blue-400 animate-pulse' : ''
+                            }`}>
                             <div className="w-2 h-2 rounded-full bg-current" />
                             Verification
                         </div>
@@ -72,7 +85,17 @@ export function TestResultModal({ testResult, show, onClose }: TestResultModalPr
                                 <Eye className="w-3 h-3" />
                                 AI Verification Result
                             </div>
-                            <p className="text-sm text-blue-100">{testResult.verificationResult}</p>
+                            {testResult.verificationResult.includes(',') ? (
+                                <div className="flex flex-wrap gap-2 text-sm text-blue-100">
+                                    {testResult.verificationResult.split(',').map((tag, i) => (
+                                        <span key={i} className="px-2 py-1 bg-blue-500/20 rounded border border-blue-500/30 text-xs">
+                                            {tag.trim()}
+                                        </span>
+                                    ))}
+                                </div>
+                            ) : (
+                                <p className="text-sm text-blue-100 whitespace-pre-wrap">{testResult.verificationResult}</p>
+                            )}
                         </div>
                     )}
 

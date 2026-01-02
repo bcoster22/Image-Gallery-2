@@ -121,7 +121,11 @@ export function usePerformanceTest(settings: AdminSettings | null) {
 
                     if (verifyRes.ok) {
                         const vData = await verifyRes.json();
-                        verification = vData.choices?.[0]?.message?.content || "Verified";
+                        verification = vData.choices?.[0]?.message?.content
+                            || vData.text
+                            || vData.caption
+                            || (Array.isArray(vData) && vData[0]?.text)
+                            || "Verified";
                     } else {
                         const errText = await verifyRes.text();
                         verification = `Verification Service Unavailable (${verifyRes.status}): ${errText}`;

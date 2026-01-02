@@ -127,6 +127,7 @@ def start_backend_process():
             # stdout=subprocess.PIPE, 
             # stderr=subprocess.PIPE
         )
+        _log_internal("INFO", f"Backend process started (PID: {BACKEND_PROCESS.pid})")
         return True, "Started"
     except Exception as e:
         return False, str(e)
@@ -157,8 +158,26 @@ def stop_backend_process():
             
     if not msg:
         msg = "Already stopped"
+    else:
+        # Log successful stop
+        _log_internal("INFO", f"Backend stopped: {msg}")
         
     return True, msg
+
+def _log_internal(level, message):
+    """Helper to log internal events to the in-memory store"""
+    try:
+        logs.append({
+            "timestamp": datetime.now().isoformat(),
+            "level": level,
+            "message": message,
+            "source": "StationManager"
+        })
+        # Keep log size in check
+        if len(logs) > MAX_LOGS:
+            logs.pop(0)
+    except:
+        pass
 
 @app.route('/control/status', methods=['GET'])
 def control_status():
@@ -261,6 +280,7 @@ def monitor_memory_loop():
 
 if __name__ == '__main__':
     print("Starting Station Manager on port 3001...")
+    _log_internal("INFO", "Station Manager System Started")
 
     # Start Monitor Thread
     monitor_thread = threading.Thread(target=monitor_memory_loop, daemon=True)
