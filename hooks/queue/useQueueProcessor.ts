@@ -33,9 +33,10 @@ export const useQueueProcessor = ({
     const processQueueRef = React.useRef<() => Promise<void>>();
 
     // Batch Size State (for VRAM-aware adaptive batching)
+    // Batch Size State (for VRAM-aware adaptive batching)
     const [optimalBatchSize, setOptimalBatchSize] = React.useState<number>(4);
     const [batchSizeCalibrated, setBatchSizeCalibrated] = React.useState<boolean>(false);
-    const [batchCalibrationInProgress, setBatchCalibrationInProgress] = React.useRef<boolean>(false); // Changed to useRef
+    const batchCalibrationInProgress = React.useRef<boolean>(false);
 
     // Calibration State (for concurrency)
     const calibrationRef = React.useRef<any>({
@@ -61,13 +62,13 @@ export const useQueueProcessor = ({
 
     // Batch Size Calibration Function
     const calibrateBatchSize = useCallback(async () => {
-        if (batchCalibrationInProgress) {
+        if (batchCalibrationInProgress.current) {
             console.log("[Batch Calibration] Already in progress, skipping");
             return;
         }
 
         console.log("[Batch Calibration] Starting VRAM-aware batch size calibration");
-        setBatchCalibrationInProgress(true);
+        batchCalibrationInProgress.current = true;
 
         try {
             // Use moondream backend URL (hardcoded for now, will be configurable later)
@@ -103,7 +104,7 @@ export const useQueueProcessor = ({
             setOptimalBatchSize(4); // Safe fallback
             setBatchSizeCalibrated(true);
         } finally {
-            setBatchCalibrationInProgress(false);
+            batchCalibrationInProgress.current = false;
         }
     }, [settings, batchCalibrationInProgress]);
 
