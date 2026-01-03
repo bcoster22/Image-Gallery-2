@@ -1,11 +1,13 @@
 # WD14 Batch Processing Implementation
 
 **Date:** 2026-01-04  
-**Status:** Functional (with known issues)
+**Status:** Functional ✅  
 **Last Updated By:** Claude
 
 ## Overview
 The WD14 Tagger backend supports efficient batch processing of images, allowing multiple images to be tagged in a single inference call. This significantly improves throughput when processing queues of images.
+
+**Fast TAG Mode** automatically uses the WD14 model for optimal performance, regardless of the user's configured tagging model. This ensures consistency and maximum speed during batch operations.
 
 ## Architecture
 

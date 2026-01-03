@@ -127,7 +127,9 @@ export const useAnalysisExecutor = ({ settings, setStatsHistory, setImages, setS
             }
 
             // Execute Batch
+            const batchStartTime = Date.now();
             const results = await batchTagImages(resizedImages, settings);
+            const batchDuration = (Date.now() - batchStartTime) / 1000; // in seconds
 
             // Handle Results
             results.forEach(res => {
@@ -144,6 +146,19 @@ export const useAnalysisExecutor = ({ settings, setStatsHistory, setImages, setS
                     updateNotification(original.id, { status: 'success', message: 'Tagged.' });
                 }
             });
+
+            // Record batch stats for TPS graph
+            // Estimate TPS based on batch processing time and typical token counts
+            // WD14 batch processing is very fast but doesn't return token counts
+            // We'll estimate ~50 tokens per image for visualization purposes
+            const estimatedTokens = imagesToProcess.length * 50;
+            const tokensPerSec = estimatedTokens / batchDuration;
+
+            setStatsHistory(p => [...p, {
+                timestamp: Date.now(),
+                tokensPerSec: tokensPerSec,
+                device: 'GPU' // Batch tagging uses GPU
+            }]);
 
             // Cleanup ids
             tasks.forEach(t => {

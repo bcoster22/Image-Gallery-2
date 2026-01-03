@@ -17,6 +17,11 @@ interface UseQueueRetryProps {
         action: string,
         metrics?: Record<string, string | number>
     ) => void;
+    retryQueueRef: React.MutableRefObject<Map<string, {
+        item: QueueItem;
+        retryTime: number;
+        retryCount: number;
+    }>>;
 }
 
 export const useQueueRetry = ({
@@ -25,18 +30,13 @@ export const useQueueRetry = ({
     syncQueueStatus,
     processQueueRef,
     logResilience,
-    logResilienceWithMetrics
+    logResilienceWithMetrics,
+    retryQueueRef
 }: UseQueueRetryProps) => {
 
     // Retry Queue Configuration
     const RETRY_DELAY_MS = 120000; // 120 seconds
     const MAX_RETRY_ATTEMPTS = 30;
-
-    const retryQueueRef = useRef<Map<string, {
-        item: QueueItem;
-        retryTime: number;
-        retryCount: number;
-    }>>(new Map());
 
     // Consecutive Error Tracking for Auto-Pause
     const consecutiveErrorsRef = useRef<number>(0);

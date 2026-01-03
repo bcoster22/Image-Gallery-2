@@ -20,7 +20,7 @@ interface UseQueueProcessorProps {
     checkBackendHealthRef: React.MutableRefObject<(() => Promise<void>) | null>;
     queuedAnalysisIds: React.MutableRefObject<Set<string>>;
     queuedGenerationIds: React.MutableRefObject<Set<string>>;
-    syncQueueStatus: () => void;
+    syncQueueStatus: (retryCount?: number) => void;
     updateNotification: (id: string, updates: any) => void;
     setImages: React.Dispatch<React.SetStateAction<ImageInfo[]>>;
     setAnalyzingIds: React.Dispatch<React.SetStateAction<Set<string>>>;
@@ -29,12 +29,15 @@ interface UseQueueProcessorProps {
     isBatchMode: boolean;
     executeBatchAnalysis: (items: QueueItem[]) => Promise<void>;
     setResilienceLog: React.Dispatch<React.SetStateAction<{ timestamp: number, type: 'info' | 'warn' | 'error', message: string }[]>>;
+    completedCountRef: React.MutableRefObject<number>;
+    retryQueueRef: React.MutableRefObject<Map<string, any>>;
 }
 
 export const useQueueProcessor = ({
     settings, queueRef, activeRequestsRef, activeJobsRef, isPausedRef, concurrencyLimit, setConcurrencyLimit,
     checkBackendHealthRef, queuedAnalysisIds, queuedGenerationIds, syncQueueStatus, updateNotification, setImages, setAnalyzingIds,
-    executeAnalysis, executeGeneration, isBatchMode, executeBatchAnalysis, setResilienceLog
+    executeAnalysis, executeGeneration, isBatchMode, executeBatchAnalysis, setResilienceLog,
+    completedCountRef, retryQueueRef
 }: UseQueueProcessorProps) => {
 
     const processQueueRef = React.useRef<() => Promise<void>>();
@@ -59,7 +62,7 @@ export const useQueueProcessor = ({
     });
 
     const {
-        retryQueueRef,
+        // Retry queue ref is now passed in
         consecutiveErrorsRef,
         MAX_CONSECUTIVE_ERRORS,
         resumeAttemptsRef,
@@ -74,7 +77,8 @@ export const useQueueProcessor = ({
         syncQueueStatus,
         processQueueRef,
         logResilience,
-        logResilienceWithMetrics
+        logResilienceWithMetrics,
+        retryQueueRef
     });
 
     const {
@@ -209,6 +213,10 @@ export const useQueueProcessor = ({
 
                     // Reset consecutive error counter on success
                     consecutiveErrorsRef.current = 0;
+
+                    // Increment completed count for successful tasks
+                    completedCountRef.current += currentBatch.length;
+                    syncQueueStatus(retryQueueRef.current.size);
 
                     // Log job completion
                     if (metrics) {
@@ -410,6 +418,13 @@ export const useQueueProcessor = ({
     React.useEffect(() => {
         processQueueRef.current = processQueue;
     }, [processQueue]);
+
+    // React to concurrency limit changes: If bandwidth opened up, process!
+    React.useEffect(() => {
+        if (!isPausedRef.current && queueRef.current.length > 0 && activeRequestsRef.current < concurrencyLimit) {
+            processQueue();
+        }
+    }, [concurrencyLimit, processQueue, queueRef, activeRequestsRef, isPausedRef]);
 
     return {
         processQueue,

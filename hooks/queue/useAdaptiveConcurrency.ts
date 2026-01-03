@@ -77,8 +77,8 @@ export const useAdaptiveConcurrency = ({
                     metricsHistoryRef.current.tps.pop();
             }
 
-            // 1. High VRAM Pressure (>90%) -> Aggressive Step Down
-            if (vramUsagePercent && vramUsagePercent > 90) {
+            // 1. High VRAM Pressure (>95%) -> Aggressive Step Down
+            if (vramUsagePercent && vramUsagePercent > 95) {
                 if (concurrencyLimit > 1) {
                     logResilienceWithMetrics('warn', 'VRAM Pressure', {
                         VRAM: `${vramUsagePercent.toFixed(1)}%`,
@@ -99,13 +99,13 @@ export const useAdaptiveConcurrency = ({
                 setConcurrencyLimit(p => Math.max(1, p - 1));
             }
             // 3. Recovery / Step Up
-            // If VRAM < 80% AND TPS > 5 AND Queue > 0 -> Slowly try to increase
-            else if ((vramUsagePercent || 0) < 80 && (tokensPerSecond || 10) > 5 && queueRef.current.length > 2) {
+            // If VRAM < 90% AND TPS > 2 AND Queue > 0 -> Slowly try to increase
+            else if ((vramUsagePercent || 0) < 90 && (tokensPerSecond || 10) > 2 && queueRef.current.length > 0) {
                 // Only if we haven't increased recently (debouncing logic omitted for simplicity, relying on react updates)
                 if (concurrencyLimit < 4) { // Cap adaptive auto-scale at 4 safely
                     logResilienceWithMetrics('info', 'Scale Up', {
-                        VRAM: `${vramUsagePercent}%`,
-                        TPS: tokensPerSecond.toFixed(1),
+                        VRAM: `${vramUsagePercent || 0}%`,
+                        TPS: tokensPerSecond ? tokensPerSecond.toFixed(1) : 'N/A',
                         Action: `Concurrency ${concurrencyLimit}→${concurrencyLimit + 1}`,
                         Queue: queueRef.current.length
                     });

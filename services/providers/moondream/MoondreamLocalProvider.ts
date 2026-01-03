@@ -250,18 +250,17 @@ export class MoondreamLocalProvider extends BaseProvider {
 
     async batchTagImages(images: ImageInfo[], settings: AdminSettings): Promise<{ tags: string[], imageId: string }[]> {
         const config = settings.providers.moondream_local;
-        const modelOverride = config.taggingModel || "wd-vit-tagger-v3";
 
-        if (!modelOverride.includes('wd14') && !modelOverride.includes('tagger') && !modelOverride.includes('vit')) {
-            throw new Error("Batch tagging is only supported for WD14 models.");
-        }
+        // FAST TAG Mode: Always use WD14 for optimal batch performance
+        // Override user's tagging model setting when in batch mode
+        const batchModel = "wd14-vit-v2";  // Hardcoded for speed and compatibility
 
         const endpoint = config.endpoint || 'http://127.0.0.1:2020/v1';
         const baseUrl = normalizeEndpoint(endpoint.includes('localhost') ? endpoint.replace('localhost', '127.0.0.1') : endpoint);
         const apiUrl = `${baseUrl}/v1/vision/batch-caption`;
 
         const body = {
-            model: modelOverride,
+            model: batchModel,
             images: images.map(img => img.dataUrl.split(',')[1])
         };
 
@@ -480,9 +479,31 @@ export class MoondreamLocalProvider extends BaseProvider {
             else if (aspectRatio === "21:9") { width = 1536; height = 640; }
         }
 
+        let modelToUse = overrides?.model;
+        if (!modelToUse) {
+            // Check for explicit generation model setting first
+            if ((config as any).generationModel) {
+                modelToUse = (config as any).generationModel;
+            }
+            // Only use generic 'model' if it looks like a generation model
+            else if (config.model && (
+                config.model.includes('sdxl') ||
+                config.model.includes('diffusion') ||
+                config.model.includes('flux') ||
+                config.model.includes('anime') ||
+                config.model.includes('realism')
+            )) {
+                modelToUse = config.model;
+            }
+            // Fallback default
+            else {
+                modelToUse = "sdxl-realism";
+            }
+        }
+
         const body: any = {
             prompt: prompt,
-            model: overrides?.model || config.model || "sdxl-realism",
+            model: modelToUse,
             width: overrides?.width || width,
             height: overrides?.height || height,
             steps: overrides?.steps || 30,

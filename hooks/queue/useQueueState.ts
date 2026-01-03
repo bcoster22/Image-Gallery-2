@@ -25,7 +25,12 @@ export const useQueueState = () => {
     const queuedAnalysisIds = useRef<Set<string>>(new Set());
     const queuedGenerationIds = useRef<Set<string>>(new Set());
 
-    const syncQueueStatus = useCallback(() => {
+    // Track completed and retry counts
+    const completedCountRef = useRef<number>(0);
+    const retryQueueRef = useRef<Map<string, any>>(new Map());  // For retry queue tracking
+
+
+    const syncQueueStatus = useCallback((retryCount?: number) => {
         setQueueStatus({
             activeCount: activeRequestsRef.current,
             pendingCount: queueRef.current.length,
@@ -38,7 +43,9 @@ export const useQueueState = () => {
                 startTime: item.addedAt,
                 taskType: item.taskType
             })),
-            concurrencyLimit
+            concurrencyLimit,
+            completedCount: completedCountRef.current,
+            retryCount: retryCount !== undefined ? retryCount : retryQueueRef.current.size
         });
     }, [concurrencyLimit]);
 
@@ -49,6 +56,7 @@ export const useQueueState = () => {
         checkBackendHealthRef,
         analysisProgressTimeoutRef, queuedAnalysisIds, queuedGenerationIds,
         syncQueueStatus,
-        resilienceLog, setResilienceLog
+        resilienceLog, setResilienceLog,
+        completedCountRef, retryQueueRef
     };
 };

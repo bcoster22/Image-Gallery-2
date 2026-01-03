@@ -128,20 +128,25 @@ export function QueueMonitor({
                             <button
                                 onClick={onToggleBatchMode}
                                 className={cn(
-                                    "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-colors border",
+                                    "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all border",
                                     isBatchMode
-                                        ? "bg-blue-500/10 text-blue-400 border-blue-500/20 hover:bg-blue-500/20"
+                                        ? "bg-gradient-to-r from-amber-500/20 to-yellow-500/20 text-amber-400 border-amber-500/30 shadow-lg shadow-amber-500/10"
                                         : "bg-neutral-800 text-neutral-500 border-neutral-700 hover:bg-neutral-700"
                                 )}
                             >
-                                <Zap className={cn("w-3.5 h-3.5", isBatchMode && "text-blue-400")} />
-                                Batch Tag: {isBatchMode ? `${optimalBatchSize} imgs` : "OFF"}
+                                <Zap className={cn("w-3.5 h-3.5", isBatchMode && "text-amber-400 animate-pulse")} />
+                                Fast TAG: {isBatchMode ? `${optimalBatchSize} imgs` : "OFF"}
                             </button>
                             <div className="group relative">
-                                <Info className="w-3.5 h-3.5 text-neutral-500 cursor-help" />
-                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-neutral-900 border border-white/10 rounded-lg text-[10px] text-neutral-300 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50 shadow-xl">
-                                    High-speed tagging (WD14 only). <br />
-                                    <span className="text-amber-400">Skips detailed captions.</span>
+                                <Zap className="w-3.5 h-3.5 text-amber-400/60 cursor-help" />
+                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-3 bg-neutral-900 border border-amber-500/30 rounded-lg text-[11px] text-neutral-300 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50 shadow-xl">
+                                    <p className="font-bold text-amber-400 mb-1.5">⚡ Fast TAG Mode</p>
+                                    <p className="mb-2">Processes {optimalBatchSize} images simultaneously with WD14 for lightning-fast tagging.</p>
+                                    <div className="text-[10px] text-neutral-400 space-y-0.5">
+                                        <p>✓ 2-3x faster than normal</p>
+                                        <p>✓ Auto-uses WD14 model</p>
+                                        <p>✓ Tags only (no captions)</p>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -212,6 +217,38 @@ export function QueueMonitor({
                             </div>
                         </div>
                         <div className="h-10 w-10 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-400">
+                            <Clock className="w-5 h-5" />
+                        </div>
+                    </div>
+
+                    {/* Completed Tasks */}
+                    <div className="bg-black/20 rounded-xl p-4 flex justify-between items-center">
+                        <div>
+                            <div className="text-neutral-400 text-xs font-medium mb-1">Completed</div>
+                            <div className="text-2xl font-bold text-emerald-400">
+                                {queueStatus.completedCount || 0}
+                            </div>
+                        </div>
+                        <div className="h-10 w-10 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+                            <Activity className="w-5 h-5" />
+                        </div>
+                    </div>
+
+                    {/* Retry Queue */}
+                    <div className="bg-black/20 rounded-xl p-4 flex justify-between items-center">
+                        <div>
+                            <div className="text-neutral-400 text-xs font-medium mb-1">Retry Queue</div>
+                            <div className={cn("text-2xl font-bold",
+                                (queueStatus.retryCount || 0) > 0 ? "text-amber-400" : "text-neutral-600"
+                            )}>
+                                {queueStatus.retryCount || 0}
+                            </div>
+                        </div>
+                        <div className={cn("h-10 w-10 rounded-full flex items-center justify-center",
+                            (queueStatus.retryCount || 0) > 0
+                                ? "bg-amber-500/10 text-amber-400"
+                                : "bg-neutral-800/50 text-neutral-600"
+                        )}>
                             <Clock className="w-5 h-5" />
                         </div>
                     </div>

@@ -37,6 +37,8 @@ export interface QueueStatus {
     queuedJobs: { id: string; fileName: string; size: number; startTime: number; taskType: string }[];
     concurrencyLimit: number;
     calibrationStatus?: CalibrationStatus;
+    completedCount?: number;  // Total completed tasks this session
+    retryCount?: number;       // Current items in retry queue
 }
 export interface BenchmarkResult {
     concurrency: number;
