@@ -1,4 +1,4 @@
-import { ImageInfo, AdminSettings, AspectRatio, ProviderCapabilities } from "../../types";
+import { ImageInfo, AdminSettings, AspectRatio, ProviderCapabilities, GenerationResult } from "../../types";
 import { BaseProvider } from "../baseProvider";
 import { registry } from "../providerRegistry";
 
@@ -89,11 +89,13 @@ export class ComfyUIProvider extends BaseProvider {
     }
   }
 
-  async generateImage(
+  async generateImageFromPrompt(
     prompt: string,
-    settings: AdminSettings,
-    aspectRatio?: AspectRatio
-  ): Promise<string> {
+    aspectRatio: AspectRatio,
+    sourceImage: ImageInfo | undefined,
+    overrides: any,
+    settings: AdminSettings
+  ): Promise<GenerationResult> {
     const endpoint = settings.providers.comfyui.endpoint || 'http://127.0.0.1:8188';
 
     const workflow = JSON.parse(JSON.stringify(DEFAULT_WORKFLOW));
@@ -152,7 +154,12 @@ export class ComfyUIProvider extends BaseProvider {
       const type = images[0].type;
 
       const imageUrl = `${endpoint}/view?filename=${filename}&subfolder=${subfolder}&type=${type}`;
-      return imageUrl;
+      return {
+        image: imageUrl,
+        metadata: {
+          format: 'url'
+        }
+      };
 
     } catch (error) {
       console.error("ComfyUI Generation Error:", error);

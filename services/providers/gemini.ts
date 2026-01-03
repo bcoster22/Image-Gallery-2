@@ -170,6 +170,7 @@ export class GeminiProvider extends BaseProvider {
     prompt: string,
     aspectRatio: AspectRatio,
     sourceImage: ImageInfo | undefined,
+    overrides: any,
     settings: AdminSettings
   ): Promise<GenerationResult> {
     const apiKey = settings.providers.gemini.apiKey;

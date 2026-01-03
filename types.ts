@@ -103,8 +103,8 @@ export interface IAiProvider {
     prompt: string,
     aspectRatio: AspectRatio,
     sourceImage: ImageInfo | undefined,
-    settings: AdminSettings,
-    overrides?: GenerationSettings
+    overrides: GenerationSettings | undefined,
+    settings: AdminSettings
   ): Promise<GenerationResult>;
 
   /**

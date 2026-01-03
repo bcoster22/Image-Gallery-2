@@ -1,4 +1,4 @@
-import { ImageInfo, AdminSettings, AspectRatio, ImageAnalysisResult, ProviderCapabilities } from "../../types";
+import { ImageInfo, AdminSettings, AspectRatio, ImageAnalysisResult, ProviderCapabilities, GenerationResult } from "../../types";
 import { BaseProvider } from "../baseProvider";
 import { registry } from "../providerRegistry";
 
@@ -101,11 +101,13 @@ export class GrokProvider extends BaseProvider {
     }
   }
 
-  async generateImage(
+  async generateImageFromPrompt(
     prompt: string,
-    settings: AdminSettings,
-    aspectRatio?: AspectRatio
-  ): Promise<string> {
+    aspectRatio: AspectRatio,
+    sourceImage: ImageInfo | undefined,
+    overrides: any,
+    settings: AdminSettings
+  ): Promise<GenerationResult> {
     const apiKey = settings.providers.grok.apiKey;
     const model = settings.providers.grok.generationModel;
     if (!apiKey) throw new Error("API key is missing for Grok.");
@@ -140,7 +142,12 @@ export class GrokProvider extends BaseProvider {
         throw new Error("Grok image generation failed to produce an image.");
       }
 
-      return b64Json;
+      return {
+        image: b64Json,
+        metadata: {
+          format: 'base64'
+        }
+      };
 
     } catch (e: any) {
       console.error("Error during Grok API call for image generation:", e);

@@ -456,8 +456,8 @@ export class MoondreamLocalProvider extends BaseProvider {
         prompt: string,
         aspectRatio: any,
         sourceImage: ImageInfo,
-        settings: AdminSettings,
-        overrides?: any
+        overrides: any,
+        settings: AdminSettings
     ): Promise<any> {
         const config = settings?.providers?.moondream_local;
         if (!config) {
@@ -521,6 +521,6 @@ export class MoondreamLocalProvider extends BaseProvider {
     ): Promise<any> {
         // Edit is just Generation with a source image and strength
         // We reuse the same endpoint
-        return this.generateImageFromPrompt(prompt, undefined, image, settings, { strength: strength ?? 0.6 });
+        return this.generateImageFromPrompt(prompt, undefined, image, { strength: strength ?? 0.6 }, settings);
     }
 }

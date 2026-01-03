@@ -1,4 +1,4 @@
-import { ImageInfo, AdminSettings, AspectRatio, ImageAnalysisResult, ProviderCapabilities } from "../../types";
+import { ImageInfo, AdminSettings, AspectRatio, ImageAnalysisResult, ProviderCapabilities, GenerationResult } from "../../types";
 import { BaseProvider } from "../baseProvider";
 import { registry } from "../providerRegistry";
 
@@ -101,11 +101,13 @@ export class OpenAIProvider extends BaseProvider {
     if (!response.ok) throw new Error("Failed to connect to OpenAI.");
   }
 
-  async generateImage(
+  async generateImageFromPrompt(
     prompt: string,
-    settings: AdminSettings,
-    aspectRatio?: AspectRatio
-  ): Promise<string> {
+    aspectRatio: AspectRatio,
+    sourceImage: ImageInfo | undefined,
+    overrides: any,
+    settings: AdminSettings
+  ): Promise<GenerationResult> {
     const { apiKey, organizationId, projectId, generationModel } = settings.providers.openai;
     if (!apiKey) throw new Error("API key is missing for OpenAI.");
     if (!generationModel) throw new Error("Image generation model is not configured for OpenAI.");
@@ -145,7 +147,12 @@ export class OpenAIProvider extends BaseProvider {
         throw new Error("OpenAI image generation failed to produce an image.");
       }
 
-      return b64Json;
+      return {
+        image: b64Json,
+        metadata: {
+          format: 'base64'
+        }
+      };
 
     } catch (e: any) {
       console.error("Error during OpenAI API call for image generation:", e);
