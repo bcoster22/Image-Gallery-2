@@ -19,7 +19,7 @@ These files are monolithic and should be prioritized for immediate refactoring t
 ### Frontend (TypeScript/React)
 | File | Lines | Responsibility | Suggested Action |
 |------|-------|----------------|------------------|
-| `hooks/queue/useQueueProcessor.ts` | **765** | Queue Logic | **Critical:** Extract `execution` logic and `retry` logic into separate hooks. |
+| ~~`hooks/queue/useQueueProcessor.ts`~~ | ~~**765**~~ → **425** | Queue Logic | ✅ **COMPLETED** - Extracted into 5 hooks: useQueueResilience.ts, useVRAMManagement.ts, useQueueRetry.ts, useQueueCalibration.ts, useAdaptiveConcurrency.ts. Refactored by Claude on 2026-01-03. |
 | `App.tsx` | **672** | Main Entry | Move context providers to `AppProviders.tsx`; extract modal logic. |
 | `components/ImageGrid.tsx` | **658** | Gallery Grid | Extract `SelectionLogic` and `ImageCard` sub-components. |
 | `components/EnhancePlayer.tsx` | **630** | Compare View | Extract `Slider` and `Controls` components. |
