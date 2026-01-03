@@ -1,7 +1,7 @@
 import React, { useCallback } from 'react';
 import { analyzeImage, batchTagImages } from '../../services/aiService';
 import { logger } from '../../services/loggingService';
-import { resizeImage } from '../../utils/fileUtils';
+import { resizeImage, extractAIGenerationMetadata } from '../../utils/fileUtils';
 import { saveImage } from '../../utils/idb';
 import { ImageInfo, AdminSettings } from '../../types';
 
@@ -31,6 +31,23 @@ export const useAnalysisExecutor = ({ settings, setStatsHistory, setImages, setS
             );
             addNotification({ id: img.id, status: 'processing', message: `Analyzing ${img.fileName}...` });
 
+            // Attempt to recover metadata from file if missing (e.g. was uploaded before support added)
+            let recoveredMetadata = {};
+            if (!img.originalMetadataPrompt || !img.resourceUsage) {
+                try {
+                    const fileMeta = await extractAIGenerationMetadata(img.file);
+                    if (fileMeta) {
+                        recoveredMetadata = fileMeta;
+                        // Add to notification so user knows we found something
+                        if (fileMeta.originalMetadataPrompt) {
+                            updateNotification(img.id, { message: `Found hidden metadata in ${img.fileName}...` });
+                        }
+                    }
+                } catch (e) {
+                    console.warn("Metadata recovery failed:", e);
+                }
+            }
+
             let imageForAnalysis = { ...img };
             if (settings?.performance?.downscaleImages) {
                 imageForAnalysis.dataUrl = await resizeImage(img.dataUrl, { maxDimension: settings.performance.maxAnalysisDimension });
@@ -39,7 +56,7 @@ export const useAnalysisExecutor = ({ settings, setStatsHistory, setImages, setS
             const metadata = await analyzeImage(imageForAnalysis, settings!, undefined, (msg) => updateNotification(img.id, { message: msg }));
             if (metadata.stats) setStatsHistory(p => [...p, { timestamp: Date.now(), tokensPerSec: metadata.stats!.tokensPerSec, device: metadata.stats!.device }]);
 
-            const updated = { ...img, ...metadata, analysisFailed: false };
+            const updated = { ...img, ...recoveredMetadata, ...metadata, analysisFailed: false };
             setImages(p => p.map(i => i.id === img.id ? updated : i));
             setSelectedImage(p => (p?.id === img.id ? updated : p));
             setSimilarImages(p => p.map(i => i.id === img.id ? updated : i));

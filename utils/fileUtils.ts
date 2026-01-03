@@ -285,9 +285,97 @@ const parseA1111Extended = (data: string): ResourceUsage | undefined => {
   return result;
 }
 
+export const extractExifUserComment = (buffer: ArrayBuffer): string | null => {
+  const view = new DataView(buffer);
+  if (view.byteLength < 2 || view.getUint16(0) !== 0xFFD8) return null; // Not JPEG
+
+  let offset = 2;
+  while (offset < view.byteLength) {
+    if (view.getUint8(offset) !== 0xFF) return null; // Invalid marker
+
+    const marker = view.getUint8(offset + 1);
+    const length = view.getUint16(offset + 2); // Length includes size bytes
+
+    if (marker === 0xE1) { // APP1
+      // Check Exif header
+      if (view.getUint32(offset + 4) === 0x45786966 && view.getUint16(offset + 8) === 0x0000) {
+        // Parse Exif
+        const tiffStart = offset + 10;
+        const littleEndian = view.getUint16(tiffStart) === 0x4949; // 'II'
+
+        const getU16 = (o: number) => view.getUint16(o, littleEndian);
+        const getU32 = (o: number) => view.getUint32(o, littleEndian);
+
+        if (getU16(tiffStart + 2) !== 0x002A) return null; // Not TIFF
+
+        const firstIFDOffset = getU32(tiffStart + 4);
+        if (firstIFDOffset < 8) return null;
+
+        const readIFD = (ifdOffset: number): string | null => {
+          const numEntries = getU16(tiffStart + ifdOffset);
+          for (let i = 0; i < numEntries; i++) {
+            const entryOffset = tiffStart + ifdOffset + 2 + (i * 12);
+            const tag = getU16(entryOffset);
+
+            // Exif Offset Tag
+            if (tag === 0x8769) {
+              const exifOffset = getU32(entryOffset + 8);
+              const found = readIFD(exifOffset);
+              if (found) return found;
+            }
+
+            // UserComment Tag
+            if (tag === 0x9286) {
+              const count = getU32(entryOffset + 4);
+              const valueOffset = count > 4 ? getU32(entryOffset + 8) : (entryOffset + 8);
+
+              const encodingOffset = tiffStart + valueOffset;
+
+              // Skip 8 byte encoding header
+              const dataStart = encodingOffset + 8;
+              const dataLen = count - 8;
+
+              if (dataLen <= 0) return null;
+
+              // Simply try to decode as UTF-8/ASCII first as it handles 99% of cases even if header claims Unicode
+              // A1111 JPEGS often set UNICODE header but perform simple encoding.
+              // Let's rely on TextDecoder('utf-8') first.
+              try {
+                const dataSlice = buffer.slice(dataStart, dataStart + dataLen);
+                // Remove null bytes which might be present in wide chars or padding
+                const text = new TextDecoder('utf-8').decode(dataSlice).replace(/\0/g, '');
+                if (text && text.length > 5 && text.includes('Steps:')) return text;
+              } catch (e) { }
+
+              // Fallback for proper UNICODE/UCS-2
+              try {
+                const dataSlice = buffer.slice(dataStart, dataStart + dataLen);
+                const decoder = new TextDecoder(littleEndian ? 'utf-16le' : 'utf-16be');
+                return decoder.decode(dataSlice).replace(/\0/g, '');
+              } catch (e) { }
+
+              // Fallback ASCII
+              try {
+                const dataSlice = buffer.slice(dataStart, dataStart + dataLen);
+                return new TextDecoder('ascii').decode(dataSlice).replace(/\0/g, '');
+              } catch (e) { }
+            }
+          }
+          return null;
+        };
+
+        const result = readIFD(firstIFDOffset);
+        if (result) return result;
+      }
+    }
+
+    offset += 2 + length;
+  }
+  return null;
+};
+
 export const extractAIGenerationMetadata = async (file: File): Promise<{ originalMetadataPrompt?: string; keywords?: string[], resourceUsage?: ResourceUsage } | null> => {
-  // We will only support PNG for now as it's common and simpler to parse client-side
-  if (file.type !== 'image/png') {
+  if (file.type !== 'image/png' && file.type !== 'image/jpeg' && file.type !== 'image/jpg') {
     return null;
   }
 
@@ -297,6 +385,25 @@ export const extractAIGenerationMetadata = async (file: File): Promise<{ origina
       const buffer = e.target?.result as ArrayBuffer;
       if (!buffer) return resolve(null);
 
+      // JPEG Handling
+      if (file.type === 'image/jpeg' || file.type === 'image/jpg') {
+        const comment = extractExifUserComment(buffer);
+        if (comment) {
+          const prompt = parseA1111Parameters(comment);
+          if (prompt) {
+            const resources = parseA1111Extended(comment);
+            resolve({
+              originalMetadataPrompt: prompt,
+              resourceUsage: resources
+            });
+            return;
+          }
+        }
+        resolve(null);
+        return;
+      }
+
+      // PNG Handling
       const dataView = new DataView(buffer);
       // Check for PNG signature: 89 50 4E 47 0D 0A 1A 0A
       if (dataView.getUint32(0) !== 0x89504E47 || dataView.getUint32(4) !== 0x0D0A1A0A) {

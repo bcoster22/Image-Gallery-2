@@ -17,6 +17,8 @@ interface MainLayoutProps {
     onLogin: () => void;
     settings: AdminSettings | null;
     onToggleNsfwBlur: () => void;
+    onDrop?: (e: React.DragEvent) => void;
+    onDragOver?: (e: React.DragEvent) => void;
 }
 
 export const MainLayout: React.FC<MainLayoutProps> = ({
@@ -32,10 +34,16 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     onLogout,
     onLogin,
     settings,
-    onToggleNsfwBlur
+    onToggleNsfwBlur,
+    onDrop,
+    onDragOver
 }) => {
     return (
-        <div className="h-screen bg-gray-900 text-gray-100 font-sans selection:bg-indigo-500/30 relative overflow-x-hidden overflow-y-auto scrollbar-none">
+        <div
+            onDrop={onDrop}
+            onDragOver={onDragOver}
+            className="h-screen bg-gray-900 text-gray-100 font-sans selection:bg-indigo-500/30 relative overflow-x-hidden overflow-y-auto scrollbar-none"
+        >
             {/* Global Background Banner */}
             {currentUser?.bannerUrl && (
                 <div className="fixed inset-0 z-0 pointer-events-none">

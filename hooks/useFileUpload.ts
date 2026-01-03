@@ -9,6 +9,7 @@ interface UseFileUploadProps {
     setImages: React.Dispatch<React.SetStateAction<ImageInfo[]>>;
     addNotification: (notification: any) => void;
     runImageAnalysis: (images: ImageInfo[]) => void;
+    onUploadSuccess?: () => void;
 }
 
 export const useFileUpload = ({
@@ -16,12 +17,13 @@ export const useFileUpload = ({
     settings,
     setImages,
     addNotification,
-    runImageAnalysis
+    runImageAnalysis,
+    onUploadSuccess
 }: UseFileUploadProps) => {
     const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
     const uploadAbortRef = useRef<boolean>(false);
 
-    const handleFilesChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const processFiles = useCallback(async (incomingFiles: FileList | File[]) => {
         if (!currentUser) {
             addNotification({ status: 'error', message: 'Please sign in.' });
             return;
@@ -31,9 +33,11 @@ export const useFileUpload = ({
             return;
         }
 
-        const files = event.target.files;
-        if (!files?.length) return;
-        const imageFiles: File[] = Array.from(files).filter((f: any) => f.type && f.type.startsWith('image/')) as File[];
+        const filesArray = Array.from(incomingFiles);
+        if (!filesArray.length) return;
+        const imageFiles: File[] = filesArray.filter((f: any) => f.type && f.type.startsWith('image/')) as File[];
+
+        if (imageFiles.length === 0) return;
 
         setUploadProgress({ current: 0, total: imageFiles.length, eta: -1, speed: 0, fileName: '' });
         uploadAbortRef.current = false;
@@ -60,7 +64,8 @@ export const useFileUpload = ({
                     authorAvatarUrl: currentUser.avatarUrl,
                     likes: 0,
                     commentsCount: 0,
-                    ...(aiData?.originalMetadataPrompt ? { originalMetadataPrompt: aiData.originalMetadataPrompt } : {})
+                    ...(aiData?.originalMetadataPrompt ? { originalMetadataPrompt: aiData.originalMetadataPrompt } : {}),
+                    ...(aiData?.resourceUsage ? { resourceUsage: aiData.resourceUsage } : {})
                 };
                 newImages.push(newImg);
             } catch (e) {
@@ -68,11 +73,29 @@ export const useFileUpload = ({
             }
         }
 
-        setImages(prev => [...prev, ...newImages]);
+        setImages(prev => [...newImages, ...prev]);
         newImages.forEach(img => saveImage(img));
         setUploadProgress(null);
         runImageAnalysis(newImages.filter(img => !img.recreationPrompt));
-    }, [currentUser, settings, addNotification, setImages, runImageAnalysis]);
+        if (onUploadSuccess) onUploadSuccess();
+    }, [currentUser, settings, addNotification, setImages, runImageAnalysis, onUploadSuccess]);
+
+    const handleFilesChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+        if (event.target.files) processFiles(event.target.files);
+    }, [processFiles]);
+
+    const handleDrop = useCallback((event: React.DragEvent) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.dataTransfer.files && event.dataTransfer.files.length > 0) {
+            processFiles(event.dataTransfer.files);
+        }
+    }, [processFiles]);
+
+    const handleDragOver = useCallback((event: React.DragEvent) => {
+        event.preventDefault();
+        event.stopPropagation();
+    }, []);
 
     const cancelUpload = useCallback(() => {
         uploadAbortRef.current = true;
@@ -81,6 +104,8 @@ export const useFileUpload = ({
     return {
         uploadProgress,
         handleFilesChange,
+        handleDrop,
+        handleDragOver,
         cancelUpload
     };
 };

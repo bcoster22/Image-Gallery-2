@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Server, Play, Pause, Zap, Clock, Activity, Trash2, X } from 'lucide-react';
+import { Server, Play, Pause, Zap, Clock, Activity, Trash2, X, Info } from 'lucide-react';
 import { cn } from '../../utils/statusUtils';
 import { QueueStatus } from '../../types';
 
@@ -124,18 +124,27 @@ export function QueueMonitor({
                     )}
 
                     {onToggleBatchMode && (
-                        <button
-                            onClick={onToggleBatchMode}
-                            className={cn(
-                                "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-colors border",
-                                isBatchMode
-                                    ? "bg-blue-500/10 text-blue-400 border-blue-500/20 hover:bg-blue-500/20"
-                                    : "bg-neutral-800 text-neutral-500 border-neutral-700 hover:bg-neutral-700"
-                            )}
-                        >
-                            <Zap className={cn("w-3.5 h-3.5", isBatchMode && "text-blue-400")} />
-                            Batch: {isBatchMode ? `${optimalBatchSize} imgs` : "OFF"}
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                            <button
+                                onClick={onToggleBatchMode}
+                                className={cn(
+                                    "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-colors border",
+                                    isBatchMode
+                                        ? "bg-blue-500/10 text-blue-400 border-blue-500/20 hover:bg-blue-500/20"
+                                        : "bg-neutral-800 text-neutral-500 border-neutral-700 hover:bg-neutral-700"
+                                )}
+                            >
+                                <Zap className={cn("w-3.5 h-3.5", isBatchMode && "text-blue-400")} />
+                                Batch Tag: {isBatchMode ? `${optimalBatchSize} imgs` : "OFF"}
+                            </button>
+                            <div className="group relative">
+                                <Info className="w-3.5 h-3.5 text-neutral-500 cursor-help" />
+                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-neutral-900 border border-white/10 rounded-lg text-[10px] text-neutral-300 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50 shadow-xl">
+                                    High-speed tagging (WD14 only). <br />
+                                    <span className="text-amber-400">Skips detailed captions.</span>
+                                </div>
+                            </div>
+                        </div>
                     )}
 
                     {onPauseQueue && (

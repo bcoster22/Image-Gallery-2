@@ -14,7 +14,7 @@ export const NOTIFICATION_EXIT_ANIMATION_MS = 300;
 export const SCROLL_START_DELAY_MS = 2000;
 export const SCROLL_INTERVAL_MS = 100;
 export const SCROLL_PAUSE_AT_BOTTOM_MS = 2000;
-export const KEYWORDS_SCROLL_INTERVAL_MS = 50;
+export const KEYWORDS_SCROLL_INTERVAL_MS = 250;
 export const KEYWORDS_SCROLL_DELAY_MS = 2000;
 
 // === Slideshow Timings ===

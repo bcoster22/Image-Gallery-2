@@ -213,12 +213,13 @@ const App: React.FC = () => {
 
 
   // --- 8. File Upload Hook ---
-  const { uploadProgress, handleFilesChange, cancelUpload } = useFileUpload({
+  const { uploadProgress, handleFilesChange, cancelUpload, handleDrop, handleDragOver } = useFileUpload({
     currentUser,
     settings,
     setImages,
     addNotification,
-    runImageAnalysis
+    runImageAnalysis,
+    onUploadSuccess: () => setGalleryView('my-gallery')
   });
 
   // --- 9. Generation Hook ---
@@ -384,6 +385,8 @@ const App: React.FC = () => {
       onLogin={() => setIsLoginModalOpen(true)}
       settings={settings || undefined}
       onToggleNsfwBlur={() => { /* Toggle logic */ }}
+      onDrop={handleDrop}
+      onDragOver={handleDragOver}
     >
       {isDbLoading ? (
         <div className="flex justify-center h-[60vh]"><Spinner /></div>
@@ -452,13 +455,13 @@ const App: React.FC = () => {
       {selectedImage && (
         <ImageViewer
           initialImage={selectedImage} contextImages={filteredImages} isLoading={isLoading} error={error} onClose={() => setSelectedImage(null)}
-          settings={settings || undefined} onKeywordClick={setSearchQuery}
+          settings={settings || undefined} onKeywordClick={(tag) => { setSearchQuery(tag); setSelectedImage(null); }}
           onSaveGeneratedImage={handleSaveGeneratedImage} onSaveEnhancedImage={handleSaveEnhancedImage}
           onRegenerateCaption={handleRegenerateCaption} onStartAnimation={handleStartAnimation}
           onTogglePublicStatus={handleToggleImagePublicStatus} currentUser={currentUser} promptHistory={promptHistory}
           setPromptModalConfig={setPromptModalConfig} addNotification={addNotification}
           onRetryAnalysis={(id) => handleRetryAnalysis(id)} onSmartCrop={(img) => performSmartCrop(img)}
-          processingSmartCropIds={processingSmartCropIds}
+          processingSmartCropIds={processingSmartCropIds} analyzingIds={analyzingIds}
         />
       )}
 

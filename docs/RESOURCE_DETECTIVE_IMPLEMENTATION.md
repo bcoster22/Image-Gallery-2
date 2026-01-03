@@ -17,6 +17,10 @@ The system now parses "A1111/Forge" style metadata from PNG `tEXt` chunks to ide
 *   **File:** `components/ImageViewer.tsx` (New rendering logic in `MetadataPanel`)
 *   **Types:** Added `ResourceHash` and `ResourceUsage` interfaces in `types.ts`.
 
+### Updates (2026-01-04)
+*   **JPEG Support:** Added support for parsing A1111 metadata from JPEG `EXIF UserComment` tags (via custom parser in `fileUtils.ts`).
+*   **Metadata Recovery:** `useAnalysisExecutor` now attempts to extract metadata from the source file if it was missing during the initial upload (e.g. legacy uploads).
+
 ---
 
 ## 2. Centralized Log Server

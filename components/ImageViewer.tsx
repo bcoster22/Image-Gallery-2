@@ -30,7 +30,8 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
   onRetryAnalysis,
   onRegenerateCaption,
   onSmartCrop,
-  processingSmartCropIds
+  processingSmartCropIds,
+  analyzingIds
 }) => {
   // Navigation State
   const navigationImages = useMemo(() => {
@@ -99,6 +100,15 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
       onSmartCrop(safeImage);
     }
   }, [currentIndex, isSmartFilled, safeImage?.smartCrop, safeImage?.id]);
+
+  // Proactive Analysis in Slideshow
+  useEffect(() => {
+    if (isSlideshowActive && safeImage && !safeImage.recreationPrompt &&
+      !safeImage.analysisFailed && !safeImage.isVideo &&
+      onRetryAnalysis && (!analyzingIds || !analyzingIds.has(safeImage.id))) {
+      onRetryAnalysis(safeImage.id);
+    }
+  }, [isSlideshowActive, safeImage, analyzingIds, onRetryAnalysis]);
 
   // --- Handlers ---
 

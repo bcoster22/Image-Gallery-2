@@ -9,6 +9,7 @@ import {
     SCROLL_START_DELAY_MS,
     SCROLL_INTERVAL_MS,
     SCROLL_PAUSE_AT_BOTTOM_MS,
+    KEYWORDS_SCROLL_INTERVAL_MS,
 } from '../../constants/timings';
 
 export const MetadataPanel: React.FC<MetadataPanelProps> = ({
@@ -93,15 +94,20 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
                 if (el.scrollLeft + el.clientWidth >= el.scrollWidth) return;
                 el.scrollLeft += 1;
             };
-            scrollInterval = setInterval(scroll, 50);
+            scrollInterval = setInterval(scroll, KEYWORDS_SCROLL_INTERVAL_MS);
             return () => clearInterval(scrollInterval);
         }, 2000);
         return () => clearTimeout(startTimeout);
     }, [image?.keywords, isHoveringKeywords, isVisible]);
 
     const handleKeywordsWheel = (e: React.WheelEvent) => {
-        if (keywordsScrollRef.current && e.deltaY !== 0) {
-            keywordsScrollRef.current.scrollLeft += e.deltaY;
+        if (keywordsScrollRef.current) {
+            e.stopPropagation();
+            if (e.deltaY !== 0) {
+                keywordsScrollRef.current.scrollLeft += e.deltaY;
+            } else if (e.deltaX !== 0) {
+                keywordsScrollRef.current.scrollLeft += e.deltaX;
+            }
         }
     };
 
@@ -249,7 +255,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
                                             className={`text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 transition-colors ${activeContext === 'metadata' ? 'text-white' : 'text-white/40 hover:text-white/70'}`}
                                         >
                                             <span className={`w-1 h-1 rounded-full ${activeContext === 'metadata' ? 'bg-blue-400' : 'bg-gray-600'}`}></span>
-                                            Metadata
+                                            Generation Data
                                         </button>
                                     </>
                                 )}
@@ -280,7 +286,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
                                 </div>
                             ) : (
                                 <div className="text-sm text-white/40 italic bg-black/20 p-4 rounded-xl border border-white/5 border-dashed">
-                                    {activeContext === 'caption' ? 'No AI description available.' : 'No original prompt metadata found.'}
+                                    {activeContext === 'caption' ? 'No AI description available.' : 'No generation data found.'}
                                 </div>
                             )}
 

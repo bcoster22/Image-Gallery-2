@@ -23,6 +23,7 @@ export interface ImageViewerProps {
     onRegenerateCaption?: (imageId: string) => void;
     onSmartCrop: (image: ImageInfo) => void;
     processingSmartCropIds?: Set<string>;
+    analyzingIds?: Set<string>;
 }
 
 export interface ActionButtonsProps {
