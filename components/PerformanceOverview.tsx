@@ -28,8 +28,6 @@ export default function PerformanceOverview({ settings, onBack, addToQueue, gene
     const cleanUrl = moondreamUrl.replace(/\/$/, "").replace(/\/v1$/, "");
 
     // Custom Hooks
-    const { useAutoTestRunner } = require('../hooks/useAutoTestRunner'); // Dynamic import to avoid top-Level if not exists yet? No, just standard import.
-    // I will fix imports in next block.
 
 
     const { testResult, showResultModal, setShowResultModal, runTest } = usePerformanceTest(settings);

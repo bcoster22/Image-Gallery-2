@@ -174,10 +174,11 @@ fetch('http://localhost:2020/v1/chat/completions', {
 
 ---
 
-### 3. Image Generation
+### 3. Image Generation & Editing
 ```http
 POST /v1/generate
 ```
+*(Note: 'Editing' tasks fallback to this endpoint if no dedicated provider is found)*
 
 **Frontend Call:**
 ```typescript
@@ -346,7 +347,7 @@ User Action → Create QueueItem → Add to Queue (priority-sorted)
                                       ↓
                     ┌─────────────────┴─────────────────┐
                     │                                   │
-              'analysis' task                     'generate' task
+              'analysis' task                 'generate' / 'enhance' task
                     │                                   │
                     ▼                                   ▼
          POST /v1/chat/completions            POST /v1/generate

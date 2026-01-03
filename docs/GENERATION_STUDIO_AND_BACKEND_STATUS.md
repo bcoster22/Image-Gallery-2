@@ -1,9 +1,24 @@
-# Generation Studio & Moondream Station Status (Dec 2025)
+# Generation Studio & Moondream Station Status (Jan 2026)
 
 ## Overview
 This document outlines the recent fixes and current operational status of the Generation Studio (Frontend) and Moondream Station (Backend).
 
-## Generation Studio (Frontend) Fixes
+## Recent Critical Fixes (Jan 2026)
+### 1. Job Submission & Enhance Studio
+- **Fixed:** 'Enhance' tasks were failing to process because the queue processor did not recognize the `enhance` task type.
+- **Resolution:** Updated `useQueueProcessor.ts` to route `enhance` tasks through the generation pipeline.
+- **Improved:** Added detailed error logging to the queue processor catch block for better debugging.
+- **Fallback:** Patched `aiService.ts` to automatically route 'editing' requests to 'generation' providers if no specific editing provider is configured, ensuring compatibility with legacy settings.
+
+### 2. Slideshow Toggle
+- **Fixed:** The Slideshow Toggle was enabling the state but not triggering the slideshow loop.
+- **Resolution:** Re-implemented the missing `idleTimer` logic in `App.tsx`. The slideshow now automatically starts after **10 seconds** of inactivity when enabled.
+
+### 3. Performance Page Crash
+- **Fixed:** The "Performance & Benchmarks" page was crashing (Black Screen).
+- **Resolution:** Removed an invalid dynamic `require` statement in `PerformanceOverview.tsx` and replaced it with a proper top-level import.
+
+## Generation Studio (Frontend) Fixes (Dec 2025)
 The "Play" button in the Generation Studio (PromptSubmissionModal) was previously failing to apply user settings or handle errors correctly. The following fixes have been applied:
 1.  **Queue Processing**: `App.tsx` was modified to correctly pass `generationSettings` (Model, Steps, CFG Scale, etc.) from the queue task to the `aiService`. Previously, these settings were dropped, causing the backend to use defaults.
 2.  **Settings Propagation**: The `PromptSubmissionModal` now correctly packages `advancedSettings` into the `QueueItem` data.

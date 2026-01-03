@@ -105,7 +105,12 @@ async function executeWithFallback<T>(
     onStatus?: (message: string) => void
 ): Promise<T> {
     const requiredCapability = getCapabilityForFunction(funcName);
-    const providerOrder = settings.routing[requiredCapability] || [];
+    let providerOrder = settings.routing[requiredCapability] || [];
+
+    // Fallback: If 'editing' is not routed (legacy settings), try 'generation' providers
+    if (requiredCapability === 'editing' && providerOrder.length === 0) {
+        providerOrder = settings.routing.generation || [];
+    }
     let lastError: Error | null = null;
     const failedAttempts: { provider: AiProvider; error: string }[] = [];
 

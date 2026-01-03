@@ -385,18 +385,6 @@ const App: React.FC = () => {
     // Wait, 'enhance' was NOT in queue logic in hooks/useQueueSystem.ts.
     // I need to add 'enhance' to useQueueSystem or execute it here.
     // I'll execute 'enhance' here manually for safety.
-    if (taskType === 'enhance') {
-      (async () => {
-        try {
-          const result = await editImage(sourceImage, prompt, settings);
-          await handleSaveEnhancedImage(result.image, false, prompt);
-          setGenerationTasks(prev => prev.filter(t => t.id !== taskId));
-        } catch (e: any) {
-          setGenerationTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: 'failed', error: e.message } : t));
-          addNotification({ status: 'error', message: 'Enhance failed.' });
-        }
-      })();
-    }
 
   }, [currentUser, settings, addNotification, addPromptToHistory, addToQueue, handleSaveEnhancedImage]);
 
@@ -411,7 +399,43 @@ const App: React.FC = () => {
   });
 
 
-  // --- 13. Modal Handlers ---
+  // --- 13. Autoshow Idle Trigger ---
+  useEffect(() => {
+    if (idleTimerRef.current) {
+      window.clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
+    }
+
+    // Only set timer if enabled AND not already active
+    if (!isSlideshowEnabled || isSlideshowActive) return;
+
+    const startIdleTimer = () => {
+      if (idleTimerRef.current) window.clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = window.setTimeout(() => {
+        setIsSlideshowActive(true);
+      }, 10000); // 10s idle timeout
+    };
+
+    startIdleTimer();
+
+    const handleActivity = () => startIdleTimer();
+
+    window.addEventListener('mousemove', handleActivity);
+    window.addEventListener('keydown', handleActivity);
+    window.addEventListener('touchstart', handleActivity);
+    window.addEventListener('wheel', handleActivity);
+
+    return () => {
+      if (idleTimerRef.current) window.clearTimeout(idleTimerRef.current);
+      window.removeEventListener('mousemove', handleActivity);
+      window.removeEventListener('keydown', handleActivity);
+      window.removeEventListener('touchstart', handleActivity);
+      window.removeEventListener('wheel', handleActivity);
+    };
+  }, [isSlideshowEnabled, isSlideshowActive]);
+
+
+  // --- 14. Modal Handlers ---
 
   // --- Global Keyboard Shortcuts (Valid) ---
   useEffect(() => {

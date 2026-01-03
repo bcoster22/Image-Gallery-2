@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import { generateImageFromPrompt } from '../../services/aiService';
+import { generateImageFromPrompt, editImage } from '../../services/aiService';
 import { AdminSettings } from '../../types';
 
 interface UseGenerationExecutorProps {
@@ -11,18 +11,30 @@ interface UseGenerationExecutorProps {
 
 export const useGenerationExecutor = ({ settings, addNotification, handleSaveGeneratedImage, setGenerationResults }: UseGenerationExecutorProps) => {
     return useCallback(async (task: any) => { // task is QueueItem
-        addNotification({ id: task.id, status: 'processing', message: `Generating: ${task.fileName}...` });
+        let result;
 
-        const result = await generateImageFromPrompt(
-            task.data.prompt!,
-            settings!,
-            task.data.aspectRatio!,
-            task.data.sourceImage,
-            task.data.generationSettings
-        );
+        if (task.taskType === 'enhance') {
+            addNotification({ id: task.id, status: 'processing', message: `Enhancing: ${task.fileName}...` });
+            result = await editImage(
+                task.data.sourceImage!,
+                task.data.prompt!,
+                settings!,
+                task.data.generationSettings?.strength
+            );
+        } else {
+            addNotification({ id: task.id, status: 'processing', message: `Generating: ${task.fileName}...` });
+            result = await generateImageFromPrompt(
+                task.data.prompt!,
+                settings!,
+                task.data.aspectRatio!,
+                task.data.sourceImage,
+                task.data.generationSettings
+            );
+        }
 
         if (result.image) {
-            const providerKey = settings!.routing.generation[0];
+            const capability = task.taskType === 'enhance' ? 'editing' : 'generation';
+            const providerKey = (settings!.routing as any)[capability]?.[0] || 'moondream_local';
             const providerConfig = settings!.providers[providerKey];
             const hasApiKey = providerConfig && 'apiKey' in providerConfig && (providerConfig as any).apiKey;
 

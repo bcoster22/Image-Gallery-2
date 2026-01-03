@@ -381,7 +381,7 @@ export const useQueueProcessor = ({
                         // SINGLE EXECUTION (Loop if we somehow grabbed multiple non-analysis or single analysis)
                         for (const t of currentBatch) {
                             if (t.taskType === 'analysis') metrics = await executeAnalysis(t);
-                            else if (t.taskType === 'generate') metrics = await executeGeneration(t);
+                            else if (t.taskType === 'generate' || t.taskType === 'enhance') metrics = await executeGeneration(t);
 
                             // Low VRAM Mode: Unload after EACH image (not after entire batch)
                             if (settings?.performance?.vramUsage === 'low') {
@@ -474,6 +474,7 @@ export const useQueueProcessor = ({
                     }
 
                 } catch (err: any) {
+                    console.error("[Queue] Processing Error:", err);
                     const msg = String(err?.message || err || 'Unknown error').toLowerCase();
                     const isOOMError = msg.includes('out of memory') ||
                         msg.includes('oom') ||
@@ -684,7 +685,7 @@ export const useQueueProcessor = ({
                     activeJobsRef.current = activeJobsRef.current.filter(j => !batchIds.has(j.id));
 
                     currentBatch.forEach(t => {
-                        if (t.taskType === 'generate') queuedGenerationIds.current.delete(t.id);
+                        if (t.taskType === 'generate' || t.taskType === 'enhance') queuedGenerationIds.current.delete(t.id);
                     });
                     syncQueueStatus();
 

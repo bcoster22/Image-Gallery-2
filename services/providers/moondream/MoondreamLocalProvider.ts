@@ -452,4 +452,72 @@ export class MoondreamLocalProvider extends BaseProvider {
             return null;
         }
     }
+    async generateImageFromPrompt(
+        prompt: string,
+        settings: AdminSettings,
+        aspectRatio: any,
+        sourceImage?: ImageInfo,
+        overrides?: any
+    ): Promise<any> {
+        const config = settings.providers.moondream_local;
+        let usedEndpoint = config.endpoint || 'http://127.0.0.1:2020/v1';
+        if (usedEndpoint.includes('localhost')) { usedEndpoint = usedEndpoint.replace('localhost', '127.0.0.1'); }
+        const baseUrl = normalizeEndpoint(usedEndpoint);
+        const apiUrl = `${baseUrl}/v1/images/generations`;
+
+        // Calculate dims from aspect ratio or use defaults
+        // Simple mapping for now
+        let width = 1024;
+        let height = 1024;
+        if (aspectRatio) {
+            // If aspect ratio is a string "16:9", etc.
+            // This is a simplified logic, ideally use a helper
+            if (aspectRatio === "16:9") { width = 1216; height = 832; }
+            else if (aspectRatio === "9:16") { width = 832; height = 1216; }
+            else if (aspectRatio === "21:9") { width = 1536; height = 640; }
+        }
+
+        const body: any = {
+            prompt: prompt,
+            model: overrides?.model || config.model || "sdxl-realism",
+            width: overrides?.width || width,
+            height: overrides?.height || height,
+            steps: overrides?.steps || 30,
+            scheduler: overrides?.scheduler || "euler",
+            strength: overrides?.strength || 0.75
+        };
+
+        if (sourceImage) {
+            body.image = sourceImage.dataUrl.split(',')[1]; // Remove data:image/...;base64,
+        }
+
+        const vramMode = settings.performance?.vramUsage || 'balanced';
+
+        try {
+            const result = await callMoondreamApi(apiUrl, "", body, false, 240, vramMode);
+            const json = JSON.parse(result.text);
+
+            if (json.data && json.data.length > 0) {
+                return {
+                    image: json.data[0].b64_json || json.data[0].url,
+                    stats: result.stats
+                };
+            }
+            throw new Error("No image data returned from backend");
+        } catch (e: any) {
+            console.error("Local Generation Failed:", e);
+            throw e;
+        }
+    }
+
+    async editImage(
+        image: ImageInfo,
+        prompt: string,
+        settings: AdminSettings,
+        strength?: number
+    ): Promise<any> {
+        // Edit is just Generation with a source image and strength
+        // We reuse the same endpoint
+        return this.generateImageFromPrompt(prompt, settings, undefined, image, { strength: strength ?? 0.6 });
+    }
 }
