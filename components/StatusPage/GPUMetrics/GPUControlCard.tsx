@@ -13,7 +13,7 @@ interface GPUControlCardProps {
     onRefreshMetrics: () => Promise<void>;
 }
 
-export function GPUControlCard({ gpu, otelMetrics, settings, moondreamUrl, onRefreshMetrics }: GPUControlCardProps) {
+export const GPUControlCard: React.FC<GPUControlCardProps> = ({ gpu, otelMetrics, settings, moondreamUrl, onRefreshMetrics }) => {
     // Local State for History (Self-managed visualization buffers)
     const [vramHistory, setVramHistory] = useState<{ timestamp: number; used: number; total: number }[]>([]);
     const [loadHistory, setLoadHistory] = useState<{ timestamp: number; load: number }[]>([]);

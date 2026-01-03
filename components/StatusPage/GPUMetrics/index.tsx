@@ -28,7 +28,7 @@ export function GPUMetrics({ otelMetrics, settings, moondreamUrl, onRefreshMetri
                         otelMetrics={otelMetrics}
                         settings={settings}
                         moondreamUrl={moondreamUrl}
-                        onRefreshMetrics={onRefreshMetrics}
+                        onRefreshMetrics={async () => onRefreshMetrics()}
                     />
                 ))}
             </div>

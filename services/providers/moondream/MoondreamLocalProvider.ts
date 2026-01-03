@@ -454,12 +454,15 @@ export class MoondreamLocalProvider extends BaseProvider {
     }
     async generateImageFromPrompt(
         prompt: string,
-        settings: AdminSettings,
         aspectRatio: any,
-        sourceImage?: ImageInfo,
+        sourceImage: ImageInfo,
+        settings: AdminSettings,
         overrides?: any
     ): Promise<any> {
-        const config = settings.providers.moondream_local;
+        const config = settings?.providers?.moondream_local;
+        if (!config) {
+            throw new Error("Moondream Local provider is not configured or settings are missing.");
+        }
         let usedEndpoint = config.endpoint || 'http://127.0.0.1:2020/v1';
         if (usedEndpoint.includes('localhost')) { usedEndpoint = usedEndpoint.replace('localhost', '127.0.0.1'); }
         const baseUrl = normalizeEndpoint(usedEndpoint);
@@ -513,11 +516,11 @@ export class MoondreamLocalProvider extends BaseProvider {
     async editImage(
         image: ImageInfo,
         prompt: string,
-        settings: AdminSettings,
-        strength?: number
+        strength: number,
+        settings: AdminSettings
     ): Promise<any> {
         // Edit is just Generation with a source image and strength
         // We reuse the same endpoint
-        return this.generateImageFromPrompt(prompt, settings, undefined, image, { strength: strength ?? 0.6 });
+        return this.generateImageFromPrompt(prompt, undefined, image, settings, { strength: strength ?? 0.6 });
     }
 }

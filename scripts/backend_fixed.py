@@ -227,6 +227,11 @@ class SDXLBackend:
             traceback.print_exc()
             return False
 
+    def unload_model(self):
+        """Unload the model and free resources"""
+        # Call the global unload function
+        unload_backend()
+
     def get_img2img(self):
         if self.img2img_pipeline:
             return self.img2img_pipeline

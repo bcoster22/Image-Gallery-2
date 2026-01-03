@@ -1,12 +1,10 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { MainLayout } from './components/layout/MainLayout';
 import { NavBar } from './components/layout/NavBar';
-import { ImageInfo, GenerationTask, Notification, AspectRatio, GalleryView, UploadProgress, GenerationResult, GenerationSettings, UpscaleSettings, AdminSettings } from './types';
+import { ImageInfo, GenerationTask, AspectRatio, GalleryView } from './types';
 import type { QueueItem } from './types/queue';
-import { animateImage, editImage, generateImageFromPrompt } from './services/aiService';
-import { getFriendlyErrorMessage } from './utils/errorUtils';
-import { fileToDataUrl, getImageMetadata, dataUrlToBlob, generateVideoThumbnail, createGenericPlaceholder, extractAIGenerationMetadata, getClosestSupportedAspectRatio } from './utils/fileUtils';
-import { saveImage, deleteImages, NegativePrompt } from './utils/idb';
+import { getClosestSupportedAspectRatio } from './utils/fileUtils';
+import { deleteImages } from './utils/idb';
 import ImageGrid from './components/ImageGrid';
 import ImageViewer from './components/ImageViewer';
 import UploadArea from './components/UploadArea';
@@ -21,7 +19,6 @@ import PromptHistoryPage from './components/PromptHistoryPage';
 import SelectionActionBar from './components/SelectionActionBar';
 import ConfirmationModal from './components/ConfirmationModal';
 import PromptSubmissionModal from './components/PromptSubmissionModal';
-import { PromptModalConfig } from './components/PromptModal/types';
 import BatchRemixModal from './components/BatchRemixModal';
 import Spinner from './components/Spinner';
 import StatusPage from './components/StatusPage';
@@ -40,7 +37,12 @@ import { useBatchOperations } from './hooks/useBatchOperations';
 import { useLogWatcher } from './hooks/useLogWatcher';
 import { useQueueSystem } from './hooks/useQueueSystem';
 import { useSmartCrop } from './hooks/useSmartCrop';
-import { useAppInitialization } from './hooks/useAppInitialization';
+import { useGlobalState } from './contexts/GlobalContext';
+import { useNotification } from './contexts/NotificationContext';
+import { useAppModals } from './hooks/useAppModals';
+import { useFileUpload } from './hooks/useFileUpload';
+import { useImageSave } from './hooks/useImageSave';
+import { useGeneration } from './hooks/useGeneration';
 
 // Component Imports
 import { TagFilterBar } from './components/TagFilterBar';
@@ -75,36 +77,19 @@ const MOCK_USERS = {
 
 const App: React.FC = () => {
   // --- 1. Core State & Notifications ---
-  const [galleryView, setGalleryView] = useState<GalleryView>('public');
-  const [showSystemLogs, setShowSystemLogs] = useState(false);
-  const [showDuplicates, setShowDuplicates] = useState(false);
-  const [showHealthDashboard, setShowHealthDashboard] = useState(false);
-  const [showPerformanceOverview, setShowPerformanceOverview] = useState(false);
-  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
-
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const addNotification = useCallback((notification: Omit<Notification, 'id'> & { id?: string }) => {
-    const id = notification.id || self.crypto.randomUUID();
-    setNotifications(prev => [...prev.filter(n => n.id !== id), { ...notification, id }]);
-  }, []);
-  const updateNotification = useCallback((id: string, updates: Partial<Omit<Notification, 'id'>>) => {
-    setNotifications(prev => prev.map(n => n.id === id ? { ...n, ...updates } : n));
-  }, []);
-  const removeNotification = useCallback((id: string) => {
-    setNotifications(prev => prev.filter(n => n.id !== id));
-  }, []);
-
-  useLogWatcher(addNotification);
-
-
-  // --- 2. App Initialization (Settings, User, Data) ---
   const {
     settings, setSettings,
     currentUser, setCurrentUser,
     images, setImages,
     negativePromptHistory, setNegativePromptHistory,
     isDbLoading
-  } = useAppInitialization({ addNotification });
+  } = useGlobalState();
+
+  const { notifications, addNotification, updateNotification, removeNotification } = useNotification();
+
+  // Log Watcher uses the notification context
+  useLogWatcher(addNotification);
+
 
   const [promptHistory, setPromptHistory] = useState<string[]>(() => {
     try {
@@ -120,8 +105,7 @@ const App: React.FC = () => {
     });
   }, []);
 
-
-  // --- 3. Shared State ---
+  // --- 2. Shared State ---
   const [selectedImage, setSelectedImage] = useState<ImageInfo | null>(null);
   const [similarImages, setSimilarImages] = useState<ImageInfo[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -129,11 +113,7 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [activeTags, setActiveTags] = useState<Set<string>>(new Set());
-  const [promptModalConfig, setPromptModalConfig] = useState<PromptModalConfig | null>(null);
   const [generationTasks, setGenerationTasks] = useState<GenerationTask[]>([]);
-  const [veoRetryState, setVeoRetryState] = useState<{ sourceImage: ImageInfo | null, prompt: string, aspectRatio: AspectRatio } | null>(null);
-  const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
-  const uploadAbortRef = useRef<boolean>(false);
   const [triggerBulkDownload, setTriggerBulkDownload] = useState(false);
 
   // Slideshow State
@@ -148,8 +128,11 @@ const App: React.FC = () => {
   });
   useEffect(() => { localStorage.setItem('moondream_stats', JSON.stringify(statsHistory)); }, [statsHistory]);
 
-  // --- 4. Hooks & Actions ---
+  // --- 3. Hooks & Actions ---
   const { selectedIds, isSelectionMode, toggleSelectionMode, toggleSelection, selectAll, clearSelection, setSelection: setSelectedIds } = useSelection();
+
+  // Layout State
+  const [galleryView, setGalleryView] = useState<GalleryView>('public');
 
   const {
     isDeleteModalOpen, setIsDeleteModalOpen, handleDeleteSelected, handleConfirmDelete, handleCancelDelete,
@@ -159,62 +142,21 @@ const App: React.FC = () => {
   });
 
 
-  // --- 5. Circular Dependency Handling ---
+  // --- 4. Circular Dependency Handling ---
   const runImageAnalysisRef = useRef<(images: ImageInfo[], isRetry?: boolean) => void>(() => { });
 
-  // --- 6. Save Handlers ---
-  const saveImageToGallery = useCallback(async (dataUrl: string, isPublic: boolean, prompt?: string, source?: ImageInfo['source'], savedToGallery?: boolean, generationMetadata?: any) => {
-    if (!currentUser) {
-      addNotification({ status: 'error', message: 'You must be signed in to save an image.' });
-      return;
-    }
-    try {
-      const fileName = `${source || 'ai-creation'}-${Date.now()}.png`;
-      const blob = await dataUrlToBlob(dataUrl);
-      const file = new File([blob], fileName, { type: 'image/png' });
-      const metadata = await getImageMetadata(dataUrl);
-      const newImage: ImageInfo = {
-        id: self.crypto.randomUUID(),
-        file, fileName, dataUrl, ...metadata,
-        ownerId: currentUser.id, isPublic, recreationPrompt: prompt, source, savedToGallery, generationMetadata,
-        authorName: currentUser.name, authorAvatarUrl: currentUser.avatarUrl, likes: 0, commentsCount: 0,
-      };
-      setImages(prev => [newImage, ...prev]);
-      saveImage(newImage).catch(e => { console.error(e); addNotification({ status: 'error', message: 'Failed to save image.' }); });
-      addNotification({ status: 'success', message: `New ${source || 'creation'} saved!` });
 
-      if (settings && !prompt) {
-        // Run analysis if no prompt (Import/DragNDrop)
-        runImageAnalysisRef.current([newImage]);
-      }
-    } catch (e: any) {
-      addNotification({ status: 'error', message: `Could not save: ${e.message}` });
-    }
-  }, [settings, currentUser, addNotification, setImages]);
+  // --- 5. Image Save Hooks ---
+  const { saveImageToGallery, handleSaveGeneratedImage, handleSaveEnhancedImage } = useImageSave({
+    currentUser,
+    settings,
+    setImages,
+    addNotification,
+    runImageAnalysis: (images) => runImageAnalysisRef.current(images, false),
+    addPromptToHistory
+  });
 
-  const handleSaveGeneratedImage = useCallback(async (imageInput: string | any, prompt: string | boolean, metadata?: any) => {
-    let base64Image = '';
-    if (typeof imageInput === 'string') base64Image = imageInput;
-    else if (imageInput?.image) base64Image = imageInput.image;
-
-    if (!base64Image) return;
-
-    const safePrompt = typeof prompt === 'string' ? prompt : (typeof metadata === 'string' ? metadata : '');
-    if (safePrompt) addPromptToHistory(safePrompt);
-
-    const dataUrl = base64Image.startsWith('data:') ? base64Image : `data:image/png;base64,${base64Image}`;
-    const shouldSaveToGallery = metadata?.autoSaveToGallery ?? currentUser?.autoSaveToGallery;
-    await saveImageToGallery(dataUrl, false, safePrompt, 'generated', shouldSaveToGallery, metadata);
-  }, [addPromptToHistory, saveImageToGallery, currentUser]);
-
-  const handleSaveEnhancedImage = useCallback(async (base64Image: string, isPublic: boolean, prompt: string) => {
-    addPromptToHistory(prompt);
-    const dataUrl = base64Image.startsWith('data:') ? base64Image : `data:image/png;base64,${base64Image}`;
-    saveImageToGallery(dataUrl, isPublic, prompt, 'enhanced', currentUser?.autoSaveToGallery);
-  }, [addPromptToHistory, saveImageToGallery, currentUser]);
-
-
-  // --- 7. Queue System ---
+  // --- 6. Queue System ---
   const {
     queueStatus, analyzingIds, processingSmartCropIds, setProcessingSmartCropIds,
     isBatchMode, analysisProgress, generationResults, setGenerationResults,
@@ -228,7 +170,7 @@ const App: React.FC = () => {
   });
 
 
-  // --- 8. Helper Functions dependent on Queue ---
+  // --- 7. Helper Functions dependent on Queue ---
   // Run Analysis Implementation
   const runImageAnalysis = useCallback((imagesToAnalyze: ImageInfo[], isRetry: boolean = false) => {
     if (imagesToAnalyze.length === 0 || !settings) return;
@@ -245,7 +187,7 @@ const App: React.FC = () => {
     }
 
     addToQueue(items);
-  }, [settings, addToQueue, setImages]);
+  }, [settings, addToQueue, setImages, queuedAnalysisIds]);
 
   // Bind Ref
   useEffect(() => { runImageAnalysisRef.current = runImageAnalysis; }, [runImageAnalysis]);
@@ -270,48 +212,35 @@ const App: React.FC = () => {
   }, [images, addToQueue, addNotification]);
 
 
-  // --- 9. Smart Crop & Slideshow ---
+  // --- 8. File Upload Hook ---
+  const { uploadProgress, handleFilesChange, cancelUpload } = useFileUpload({
+    currentUser,
+    settings,
+    setImages,
+    addNotification,
+    runImageAnalysis
+  });
+
+  // --- 9. Generation Hook ---
+  const { handleStartAnimation, handleGenerationSubmit } = useGeneration({
+    currentUser,
+    settings,
+    generationTasks,
+    setGenerationTasks,
+    setImages,
+    addNotification,
+    addPromptToHistory,
+    addToQueue
+  });
+
+  // --- 10. Smart Crop & Slideshow ---
   const { performSmartCrop, handleSmartCrop } = useSmartCrop({
     settings, currentUser, images, setImages, addNotification, processingSmartCropIds, setProcessingSmartCropIds, activeRequestsRef, syncQueueStatus: () => { }
   });
 
 
-  // --- 10. File Handling ---
-  const handleFilesChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (!currentUser) { addNotification({ status: 'error', message: 'Please sign in.' }); return; }
-    if (!settings) { addNotification({ status: 'error', message: 'Configure settings.' }); return; }
 
-    const files = event.target.files;
-    if (!files?.length) return;
-    const imageFiles: File[] = Array.from(files).filter((f: any) => f.type && f.type.startsWith('image/')) as File[];
 
-    setUploadProgress({ current: 0, total: imageFiles.length, eta: -1, speed: 0, fileName: '' });
-    uploadAbortRef.current = false;
-    const newImages: ImageInfo[] = [];
-
-    for (let i = 0; i < imageFiles.length; i++) {
-      if (uploadAbortRef.current) break;
-      const file = imageFiles[i];
-      try {
-        setUploadProgress(prev => ({ ...prev!, current: i + 1, fileName: file.name }));
-        const aiData = await extractAIGenerationMetadata(file);
-        const dataUrl = await fileToDataUrl(file);
-        const meta = await getImageMetadata(dataUrl);
-        const newImg: ImageInfo = {
-          id: self.crypto.randomUUID(), file, fileName: file.name, dataUrl, ...meta,
-          ownerId: currentUser.id, isPublic: false, source: 'upload',
-          authorName: currentUser.name, authorAvatarUrl: currentUser.avatarUrl, likes: 0, commentsCount: 0,
-          ...(aiData?.originalMetadataPrompt ? { originalMetadataPrompt: aiData.originalMetadataPrompt } : {})
-        };
-        newImages.push(newImg);
-      } catch (e) { }
-    }
-
-    setImages(prev => [...prev, ...newImages]);
-    newImages.forEach(img => saveImage(img));
-    setUploadProgress(null);
-    runImageAnalysis(newImages.filter(img => !img.recreationPrompt));
-  }, [currentUser, settings, addNotification, setImages, runImageAnalysis]);
 
   const handleDragEnd = useCallback((e: React.DragEvent) => {
     if (e.dataTransfer.dropEffect === 'none' && selectedIds.size > 0) {
@@ -320,76 +249,7 @@ const App: React.FC = () => {
     }
   }, [selectedIds]);
 
-
-  // --- 11. Generation & Animation Handlers ---
-  const handleStartAnimation = useCallback(async (sourceImage: ImageInfo | null, prompt: string, aspectRatio: AspectRatio, isRetry: boolean = false) => {
-    if (!settings || !currentUser) return;
-    if (!isRetry && generationTasks.filter(t => t.type === 'video' && t.status === 'processing').length >= 2) {
-      addNotification({ status: 'error', message: 'Too many video tasks.' }); return;
-    }
-    addPromptToHistory(prompt);
-    const taskId = self.crypto.randomUUID();
-
-    const placeholder: ImageInfo = {
-      id: taskId, dataUrl: sourceImage?.dataUrl || createGenericPlaceholder(aspectRatio),
-      fileName: `Generating video...`, file: new File([], ''), ownerId: currentUser.id, isPublic: false,
-      isGenerating: true, source: 'video', recreationPrompt: prompt,
-      width: sourceImage?.width, height: sourceImage?.height, aspectRatio: sourceImage?.aspectRatio
-    };
-    setImages(prev => [placeholder, ...prev]);
-    setGenerationTasks(prev => [...prev, { id: taskId, type: 'video', status: 'processing', sourceImageId: sourceImage?.id, sourceImageName: sourceImage?.fileName || '', prompt }]);
-
-    (async () => {
-      try {
-        const { uri, apiKey } = await animateImage(sourceImage || placeholder, prompt, aspectRatio, settings);
-        const response = await fetch(`${uri}&key=${apiKey}`);
-        if (!response.ok) throw new Error("Failed to download video");
-        const blob = await response.blob();
-        const thumb = await generateVideoThumbnail(blob);
-        const meta = await getImageMetadata(thumb);
-        const videoUrl = URL.createObjectURL(blob);
-        const final: ImageInfo = {
-          ...placeholder, isGenerating: false, isVideo: true, videoUrl, file: new File([blob], 'video.mp4', { type: 'video/mp4' }),
-          dataUrl: thumb, width: meta.width, height: meta.height, aspectRatio: meta.aspectRatio
-        };
-        setImages(prev => prev.map(img => img.id === taskId ? final : img));
-        saveImage(final);
-        setGenerationTasks(prev => prev.filter(t => t.id !== taskId));
-        addNotification({ status: 'success', message: 'Video saved!' });
-      } catch (e: any) {
-        setImages(prev => prev.filter(img => img.id !== taskId));
-        setGenerationTasks(prev => prev.filter(t => t.id !== taskId));
-        addNotification({ status: 'error', message: `Animation failed: ${e.message}` });
-      }
-    })();
-
-  }, [settings, currentUser, generationTasks, addNotification, addPromptToHistory, setImages]);
-
-  const handleGenerationSubmit = useCallback(async (sourceImage: ImageInfo, prompt: string, taskType: 'image' | 'enhance', aspectRatio: AspectRatio, providerOverride?: any, generationSettings?: any, autoSaveToGallery?: boolean) => {
-    if (!currentUser || !settings) return;
-    addPromptToHistory(prompt);
-    const taskId = self.crypto.randomUUID();
-    const newTask: GenerationTask = { id: taskId, type: taskType, status: 'processing', sourceImageId: sourceImage.id, sourceImageName: sourceImage.fileName, prompt };
-    setGenerationTasks(prev => [...prev, newTask]);
-    addNotification({ status: 'success', message: `Starting ${taskType}...` });
-
-    addToQueue([{
-      id: taskId, taskType: (taskType === 'image' ? 'generate' : taskType) as any, fileName: sourceImage.fileName, addedAt: Date.now(),
-      data: { image: sourceImage, prompt, aspectRatio, generationSettings, providerOverride, sourceImage }
-    }]);
-
-    // Fallback/Direct Execution logic if queue doesn't pick it up or for eager Feedback:
-    // Note: useQueueSystem logic matches this execution flow, so we don't duplicate via async IIFE like before.
-    // EXCEPT 'enhance' which useQueueSystem currently might SKIP if logic isn't there.
-    // Let's rely on queue.
-    // Wait, 'enhance' was NOT in queue logic in hooks/useQueueSystem.ts.
-    // I need to add 'enhance' to useQueueSystem or execute it here.
-    // I'll execute 'enhance' here manually for safety.
-
-  }, [currentUser, settings, addNotification, addPromptToHistory, addToQueue, handleSaveEnhancedImage]);
-
-
-  // --- 12. Batch Operations ---
+  // --- 11. Batch Operations ---
   const {
     isBatchRemixModalOpen, setIsBatchRemixModalOpen, handleBatchRegenerate, handleConfirmBatchRemix, handleBatchEnhance, handleBatchAnimate
   } = useBatchOperations({
@@ -398,6 +258,22 @@ const App: React.FC = () => {
     handleSaveGeneratedImage, handleGenerationSubmit, handleStartAnimation, setAnalysisProgress
   });
 
+  // --- 12. App Modals ---
+  const {
+    isLoginModalOpen, setIsLoginModalOpen,
+    promptModalConfig, setPromptModalConfig,
+    veoRetryState, setVeoRetryState,
+    showSystemLogs, setShowSystemLogs,
+    showDuplicates, setShowDuplicates,
+    showHealthDashboard, setShowHealthDashboard,
+    showPerformanceOverview, setShowPerformanceOverview
+  } = useAppModals({
+    selectedImage,
+    isSelectionMode,
+    selectedIds,
+    clearSelection,
+    toggleSelectionMode
+  });
 
   // --- 13. Autoshow Idle Trigger ---
   useEffect(() => {
@@ -436,50 +312,6 @@ const App: React.FC = () => {
 
 
   // --- 14. Modal Handlers ---
-
-  // --- Global Keyboard Shortcuts (Valid) ---
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore if input/textarea is focused to prevent closing while typing
-      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
-
-      if (e.key === 'Escape') {
-        // Priority 1: High-level modals managed by App.tsx
-        if (veoRetryState) { setVeoRetryState(null); return; }
-        if (isLoginModalOpen) { setIsLoginModalOpen(false); return; }
-        if (promptModalConfig) { setPromptModalConfig(null); return; }
-        if (isBatchRemixModalOpen) { setIsBatchRemixModalOpen(false); return; }
-        if (isDeleteModalOpen) { setIsDeleteModalOpen(false); return; }
-
-        // Priority 2: Full-screen overrides managed by App.tsx
-        if (showSystemLogs) { setShowSystemLogs(false); return; }
-        if (showDuplicates) { setShowDuplicates(false); return; }
-        if (showHealthDashboard) { setShowHealthDashboard(false); return; }
-
-        // Priority 3: Selection Mode (low priority)
-        // Only clear selection if NO other high-level view is active
-        // And ensure we don't interfere with ImageViewer (selectedImage) or PerformanceOverview which have their own handlers
-        // Note: ImageViewer has its own Listener, so we don't need to handle it here, but we check to prevent double-firing logic on Selection
-        const isImageViewerOpen = !!selectedImage;
-        const isPerformanceOpen = showPerformanceOverview;
-
-        if (!isImageViewerOpen && !isPerformanceOpen) {
-          if (isSelectionMode) {
-            if (selectedIds.size > 0) clearSelection();
-            else toggleSelectionMode();
-          }
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [
-    veoRetryState, isLoginModalOpen, promptModalConfig, isBatchRemixModalOpen, isDeleteModalOpen,
-    showSystemLogs, showDuplicates, showHealthDashboard,
-    selectedImage, showPerformanceOverview, isSelectionMode, selectedIds,
-    clearSelection, toggleSelectionMode
-  ]);
 
 
   const handleOpenGenerationStudio = () => {
@@ -630,7 +462,7 @@ const App: React.FC = () => {
         />
       )}
 
-      <UploadProgressIndicator progress={uploadProgress} onCancel={() => uploadAbortRef.current = true} />
+      <UploadProgressIndicator progress={uploadProgress} onCancel={cancelUpload} />
       <AnalysisProgressIndicator progress={analysisProgress} />
       <NotificationArea notifications={notifications} onDismiss={removeNotification} />
 

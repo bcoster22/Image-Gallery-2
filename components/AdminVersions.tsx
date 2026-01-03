@@ -204,7 +204,7 @@ export const AdminVersions: React.FC = () => {
                             {backendInfo ? Object.entries(backendInfo.versions).map(([lib, ver]) => (
                                 <div key={lib} className="flex justify-between items-center p-2 bg-gray-900/50 rounded border border-gray-700">
                                     <span className="text-gray-300 font-mono text-sm">{lib}</span>
-                                    <span className={`font-mono text-sm ${ver.includes('Not') ? 'text-red-400' : 'text-green-400'}`}>
+                                    <span className={`font-mono text-sm ${String(ver).includes('Not') ? 'text-red-400' : 'text-green-400'}`}>
                                         {ver}
                                     </span>
                                 </div>

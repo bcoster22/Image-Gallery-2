@@ -1,5 +1,5 @@
 import { ImageInfo, AdminSettings, User, AspectRatio } from '../../types';
-import { PromptModalConfig } from '../PromptSubmissionModal';
+import { PromptModalConfig } from '../PromptModal/types';
 
 export type AnimationState = 'idle' | 'generatingKeywords' | 'selectingKeywords' | 'enhancingPrompt';
 
