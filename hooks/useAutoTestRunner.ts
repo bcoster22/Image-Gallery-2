@@ -11,7 +11,8 @@ interface AutoTestRunnerProps {
 export function useAutoTestRunner({ addToQueue, settings, generationResults }: AutoTestRunnerProps) {
     const [testStatuses, setTestStatuses] = useState<Record<string, TestResult>>({});
     const [isAutoTesting, setIsAutoTesting] = useState(false);
-    const pendingVerificationRef = useRef<Record<string, number>>({}); // Map modelId to startTime
+    const pendingVerificationRef = useRef<Record<string, number>>({}); // Map jobId to startTime
+    const jobIdToModelIdRef = useRef<Record<string, string>>({}); // Map jobId to modelId
 
 
     // 1. Start Auto Test for a list of models
@@ -83,6 +84,7 @@ export function useAutoTestRunner({ addToQueue, settings, generationResults }: A
 
         // Track that we are waiting for this job
         pendingVerificationRef.current[jobId] = Date.now();
+        jobIdToModelIdRef.current[jobId] = model.id; // Store modelId for this job
 
         addToQueue([task]);
     };
@@ -94,21 +96,16 @@ export function useAutoTestRunner({ addToQueue, settings, generationResults }: A
 
         generationResults.forEach(res => {
             // Check if this result matches one of our pending jobs
-            // The ID format is `autotest-{modelId}-{timestamp}`
             if (pendingVerificationRef.current[res.id]) {
                 const startTime = pendingVerificationRef.current[res.id];
-                // const modelId = res.id.split('-')[1]; // Extract model ID (naive parse) - Unused
-                // Better regex or storage:
-                // We should store a map of jobId -> modelId
+                const modelId = jobIdToModelIdRef.current[res.id];
 
-                // Let's iterate keys to be safe or store better map
-                const verifiedModelId = Object.keys(testStatuses).find(mid => res.id.includes(`autotest-${mid}-`));
-
-                if (verifiedModelId) {
+                if (modelId) {
                     delete pendingVerificationRef.current[res.id];
+                    delete jobIdToModelIdRef.current[res.id];
 
                     // Trigger Verification Phase
-                    verifyResult(verifiedModelId, res.url, Date.now() - startTime);
+                    verifyResult(modelId, res.url, Date.now() - startTime);
                 }
             }
         });
@@ -170,25 +167,82 @@ export function useAutoTestRunner({ addToQueue, settings, generationResults }: A
                 // Ignore resolution extraction errors
             }
 
-            // 4. Smart Crop / Eye Crop (Basic Center Crop Fallback if no detection)
+            // 4. Smart Crop / Eye Crop (Face Detection)
             let eyeCropUrl: string | undefined;
             try {
-                const img = new Image();
-                img.src = imageUrl;
-                await new Promise(r => { img.onload = r; });
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
-                if (ctx) {
-                    const s = Math.min(img.width, img.height) * 0.3; // 30% center crop
-                    const x = (img.width - s) / 2;
-                    const y = (img.height - s) / 5; // Higher up for face/eyes usually
-                    canvas.width = s;
-                    canvas.height = s;
-                    ctx.drawImage(img, x, y, s, s, 0, 0, s, s);
-                    eyeCropUrl = canvas.toDataURL('image/png');
+                const tempImage: any = {
+                    id: 'autotest-image',
+                    dataUrl: imageUrl,
+                    width: 1024,
+                    height: 1024,
+                    analysis: null
+                };
+
+                const { MoondreamLocalProvider } = await import('../services/providers/moondream');
+                const provider = new MoondreamLocalProvider();
+
+                let bbox = await provider.detectObject(tempImage, 'face', settings || { providers: { moondream_local: { endpoint: cleanUrl } } } as any);
+
+                // Fallback Heuristic if detection fails
+                if (!bbox || ((bbox.xmax - bbox.xmin) > 0.9 && (bbox.ymax - bbox.ymin) > 0.9)) {
+                    bbox = { xmin: 0.3, xmax: 0.7, ymin: 0.05, ymax: 0.55 };
                 }
-            } catch {
-                // Ignore crop errors
+
+                if (bbox) {
+                    const img = new Image();
+                    img.src = imageUrl;
+                    await new Promise((resolve) => { img.onload = resolve; });
+
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+
+                    if (ctx) {
+                        const width = img.width;
+                        const height = img.height;
+                        let ymin = bbox.ymin * height;
+                        let xmin = bbox.xmin * width;
+                        let ymax = bbox.ymax * height;
+                        let xmax = bbox.xmax * width;
+
+                        const padX = (xmax - xmin) * 0.2;
+                        const padY = (ymax - ymin) * 0.2;
+
+                        xmin = Math.max(0, xmin - padX);
+                        ymin = Math.max(0, ymin - padY);
+                        xmax = Math.min(width, xmax + padX);
+                        ymax = Math.min(height, ymax + padY);
+
+                        const cWidth = xmax - xmin;
+                        const cHeight = ymax - ymin;
+
+                        canvas.width = cWidth;
+                        canvas.height = cHeight;
+
+                        ctx.drawImage(img, xmin, ymin, cWidth, cHeight, 0, 0, cWidth, cHeight);
+                        eyeCropUrl = canvas.toDataURL('image/png');
+                    }
+                }
+            } catch (e) {
+                console.warn("Face detection failed in AutoTest, using fallback crop", e);
+                // Fallback to simple center crop
+                try {
+                    const img = new Image();
+                    img.src = imageUrl;
+                    await new Promise(r => { img.onload = r; });
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    if (ctx) {
+                        const s = Math.min(img.width, img.height) * 0.3;
+                        const x = (img.width - s) / 2;
+                        const y = (img.height - s) / 5;
+                        canvas.width = s;
+                        canvas.height = s;
+                        ctx.drawImage(img, x, y, s, s, 0, 0, s, s);
+                        eyeCropUrl = canvas.toDataURL('image/png');
+                    }
+                } catch {
+                    // Ignore fallback crop errors
+                }
             }
 
 

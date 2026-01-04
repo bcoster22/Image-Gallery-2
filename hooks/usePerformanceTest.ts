@@ -95,7 +95,7 @@ export function usePerformanceTest(settings: AdminSettings | null) {
             if (imageUrl) {
                 setTestResult(prev => ({ ...prev!, status: 'verifying', generationTimeMs: genTime, generatedImageUrl: imageUrl }));
 
-                const verifyModel = model.type === 'vision' || model.type === 'analysis' ? model.id : "moondream-2";
+                const verifyModel = "moondream-2"; // Always use moondream-2 for verification
 
                 try {
                     const verifyRes = await fetch(`${cleanUrl}/v1/chat/completions`, {

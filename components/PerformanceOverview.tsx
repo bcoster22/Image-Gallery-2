@@ -39,7 +39,7 @@ export default function PerformanceOverview({ settings, onBack, addToQueue, gene
     const [testStatuses, setTestStatuses] = useState<Record<string, any>>({});
 
     // Custom Hooks
-    const { testResult, showResultModal, setShowResultModal } = usePerformanceTest(settings);
+    const { testResult, showResultModal, setShowResultModal, runTest } = usePerformanceTest(settings);
     const { testStatuses: autoTestStatuses, startAutoTest, runSingleTest, isAutoTesting } = useAutoTestRunner({ addToQueue, settings, generationResults });
 
     // Merge single test results into table state
@@ -151,8 +151,8 @@ export default function PerformanceOverview({ settings, onBack, addToQueue, gene
                     loading={loading}
                     testStatuses={testStatuses}
                     onTestLoad={(model) => {
-                        // Queue the single test
-                        runSingleTest(model, testPrompt, selectedScheduler, selectedResolution);
+                        // Use the modal-based test runner for individual tests
+                        runTest(model, testPrompt, testImage, selectedScheduler, selectedResolution);
                     }}
                 />
 

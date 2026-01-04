@@ -163,7 +163,7 @@ export function ModelList({ models, loading, testStatuses = {}, onTestLoad }: Mo
                             {/* Enhanced Comparison Layout */}
                             {showResult && (
                                 <div className="bg-gradient-to-r from-black via-neutral-950 to-black border-b border-white/5 p-6">
-                                    <div className="grid grid-cols-12 gap-6 items-stretch">
+                                    <div className="grid grid-cols-12 gap-6 items-start">
                                         {/* Generated Image - Equal width */}
                                         <div className="col-span-4 flex flex-col">
                                             <div className="flex items-center justify-between mb-3">
@@ -172,7 +172,7 @@ export function ModelList({ models, loading, testStatuses = {}, onTestLoad }: Mo
                                                     {model.name.split('/').pop()}
                                                 </span>
                                             </div>
-                                            <div className="rounded-lg overflow-hidden border border-white/10 bg-black relative group flex-1">
+                                            <div className="rounded-lg overflow-hidden border border-white/10 bg-black relative group max-h-80">
                                                 <img
                                                     src={result.generatedImageUrl}
                                                     alt="Generated"
@@ -202,33 +202,32 @@ export function ModelList({ models, loading, testStatuses = {}, onTestLoad }: Mo
                                                     {getResultBadge(model.id)}
                                                 </div>
 
-                                                {/* Generation Time */}
-                                                <div className="bg-white/5 p-3 rounded-lg border border-white/5">
-                                                    <div className="text-xs text-neutral-500 mb-1">Generation Time</div>
-                                                    <div className="text-lg font-mono text-white">
-                                                        {(result.generationTimeMs ? (result.generationTimeMs / 1000).toFixed(2) : '0')}s
+                                                {/* Generation Time, Eye Color, Resolution - Combined Row */}
+                                                <div className="grid grid-cols-3 gap-2">
+                                                    {/* Generation Time */}
+                                                    <div className="bg-white/5 p-3 rounded-lg border border-white/5">
+                                                        <div className="text-xs text-neutral-500 mb-1">Gen. Time</div>
+                                                        <div className="text-base font-mono text-white">
+                                                            {(result.generationTimeMs ? (result.generationTimeMs / 1000).toFixed(2) : '0')}s
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Eye Color */}
+                                                    <div className="bg-white/5 p-3 rounded-lg border border-white/5">
+                                                        <div className="text-xs text-neutral-500 mb-1">Eye Color</div>
+                                                        <div className="text-sm font-medium text-white capitalize">
+                                                            {result.eyeColor || 'N/A'}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Image Resolution */}
+                                                    <div className="bg-white/5 p-3 rounded-lg border border-white/5">
+                                                        <div className="text-xs text-neutral-500 mb-1">Resolution</div>
+                                                        <div className="text-sm font-mono text-white">
+                                                            {result.imageResolution || 'N/A'}
+                                                        </div>
                                                     </div>
                                                 </div>
-
-                                                {/* Eye Color */}
-                                                {result.eyeColor && (
-                                                    <div className="bg-white/5 p-3 rounded-lg border border-white/5">
-                                                        <div className="text-xs text-neutral-500 mb-1">Eye Color Detected</div>
-                                                        <div className="text-sm font-medium text-white capitalize">
-                                                            {result.eyeColor}
-                                                        </div>
-                                                    </div>
-                                                )}
-
-                                                {/* Image Resolution */}
-                                                {result.imageResolution && (
-                                                    <div className="bg-white/5 p-3 rounded-lg border border-white/5">
-                                                        <div className="text-xs text-neutral-500 mb-1">Image Resolution</div>
-                                                        <div className="text-sm font-mono text-white">
-                                                            {result.imageResolution}
-                                                        </div>
-                                                    </div>
-                                                )}
 
                                                 {/* Verification Result */}
                                                 {result.verificationResult && (
@@ -246,7 +245,7 @@ export function ModelList({ models, loading, testStatuses = {}, onTestLoad }: Mo
                                         <div className="col-span-4 flex flex-col">
                                             <h4 className="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-3">Detail Crop</h4>
                                             {result.eyeCropUrl ? (
-                                                <div className="rounded-lg overflow-hidden border border-white/10 bg-black flex-1 flex items-center justify-center">
+                                                <div className="rounded-lg overflow-hidden border border-white/10 bg-black max-h-80 flex items-center justify-center">
                                                     <img
                                                         src={result.eyeCropUrl}
                                                         alt="Detail"
@@ -254,7 +253,7 @@ export function ModelList({ models, loading, testStatuses = {}, onTestLoad }: Mo
                                                     />
                                                 </div>
                                             ) : (
-                                                <div className="rounded-lg border border-white/10 bg-white/5 flex-1 flex items-center justify-center">
+                                                <div className="rounded-lg border border-white/10 bg-white/5 max-h-80 flex items-center justify-center">
                                                     <div className="text-neutral-600 text-xs italic">
                                                         No detail crop available
                                                     </div>
