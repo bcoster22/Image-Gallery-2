@@ -538,4 +538,6 @@ export interface QueueStatus {
   activeJobs: ActiveJob[];
   queuedJobs: ActiveJob[];
   concurrencyLimit: number;
+  completedCount?: number;
+  retryCount?: number;
 }
