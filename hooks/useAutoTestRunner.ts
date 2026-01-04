@@ -13,29 +13,30 @@ export function useAutoTestRunner({ addToQueue, settings, generationResults }: A
     const [isAutoTesting, setIsAutoTesting] = useState(false);
     const pendingVerificationRef = useRef<Record<string, number>>({}); // Map modelId to startTime
 
+
     // 1. Start Auto Test for a list of models
-    const startAutoTest = useCallback((models: ModelInfo[], prompt: string) => {
+    const startAutoTest = useCallback((models: ModelInfo[], prompt: string, scheduler: string, resolution: string) => {
         setIsAutoTesting(true);
         const newStatuses: Record<string, TestResult> = {};
 
         models.forEach(model => {
-            // Skip detection models for now if desired, or handle them differently
-            // if (model.type === 'detection' || model.type === 'classification') return;
-
             newStatuses[model.id] = {
                 modelId: model.id,
                 status: 'queued'
             };
 
-            queueTestForModel(model, prompt);
+            queueTestForModel(model, prompt, scheduler, resolution);
         });
 
         setTestStatuses(prev => ({ ...prev, ...newStatuses }));
     }, [addToQueue]);
 
     // 2. Queue a single test
-    const queueTestForModel = (model: ModelInfo, prompt: string) => {
+    const queueTestForModel = (model: ModelInfo, prompt: string, scheduler: string, resolution: string) => {
         const jobId = `autotest-${model.id}-${Date.now()}`;
+
+        // Parse resolution (e.g., "512x896" -> width: 512, height: 896)
+        const [width, height] = resolution.split('x').map(Number);
 
         // We use the existing "Generation" task type, but we might need a way to distinguish it?
         // Actually, the user wants to use the "Generation Queue". 
@@ -46,7 +47,7 @@ export function useAutoTestRunner({ addToQueue, settings, generationResults }: A
             id: jobId,
             taskType: 'generate',
             fileName: `AutoTest: ${model.name}`,
-            priority: 10, // Low priority (High number = Lower priority?? No, usually 1 is high. Let's check App.tsx)
+            priority: 1, // Low priority for auto tests
             // App.tsx uses priority: 3 for analysis.
             // Let's assume lower number = higher priority? Or check sort logic.
             // useQueueSystem: `queueRef.current.findIndex(i => (i.priority || 0) < prio);`
@@ -65,11 +66,12 @@ export function useAutoTestRunner({ addToQueue, settings, generationResults }: A
 
             data: {
                 prompt: prompt,
-                aspectRatio: "16:9", // Default
                 generationSettings: {
                     model: model.id,
                     steps: 20,
-                    // Force this model
+                    scheduler: scheduler,  // Use selected scheduler
+                    width: width,          // Use selected width
+                    height: height,        // Use selected height
                 },
                 // We pass a custom "sourceImage" or similar if needed, 
                 // but for text-to-image cache check, we just need the prompt.

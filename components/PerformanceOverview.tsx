@@ -112,7 +112,7 @@ export default function PerformanceOverview({ settings, onBack, addToQueue, gene
                                 if ((window as any).__clearConsoleLogs) {
                                     (window as any).__clearConsoleLogs();
                                 }
-                                startAutoTest(models, testPrompt);
+                                startAutoTest(models, testPrompt, selectedScheduler, selectedResolution);
                             }}
                             disabled={loading || isAutoTesting}
                             className={`px-4 py-2 rounded-lg transition-colors flex items-center gap-2 ${isAutoTesting ? 'bg-indigo-600/50 cursor-wait' : 'bg-indigo-600 hover:bg-indigo-500'
