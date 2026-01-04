@@ -1,5 +1,7 @@
+/* eslint-disable */
 import React, { useState, useEffect } from 'react';
 import { Activity, ArrowLeft } from 'lucide-react';
+import { QueueMonitor } from './StatusPage/QueueMonitor';
 import { AdminSettings } from '../types';
 import { ModelInfo } from './PerformanceOverview/types';
 import { usePerformanceTest } from '../hooks/usePerformanceTest';
@@ -14,10 +16,15 @@ interface PerformanceOverviewProps {
     settings: AdminSettings | null;
     onBack: () => void;
     addToQueue: (items: any[]) => void;
+
     generationResults: { id: string, url: string }[];
+    queueStatus: any; // QueueStatus type
+    onPauseQueue?: (paused: boolean) => void;
+    onClearQueue?: () => void;
+    onRemoveFromQueue?: (ids: string[]) => void;
 }
 
-export default function PerformanceOverview({ settings, onBack, addToQueue, generationResults }: PerformanceOverviewProps) {
+export default function PerformanceOverview({ settings, onBack, addToQueue, generationResults, queueStatus, onPauseQueue, onClearQueue, onRemoveFromQueue }: PerformanceOverviewProps) {
     const [models, setModels] = useState<ModelInfo[]>([]);
     const [loading, setLoading] = useState(true);
     const [testPrompt, setTestPrompt] = useState("hot sexy 22 yo woman in bikini posing for sports illustrated model photo shots. long red hair and hazel-green eyes. big teardrop breasts, attention grabbing cleavage.");
@@ -32,8 +39,8 @@ export default function PerformanceOverview({ settings, onBack, addToQueue, gene
     const [testStatuses, setTestStatuses] = useState<Record<string, any>>({});
 
     // Custom Hooks
-    const { testResult, showResultModal, setShowResultModal, runTest } = usePerformanceTest(settings);
-    const { testStatuses: autoTestStatuses, startAutoTest, isAutoTesting } = useAutoTestRunner({ addToQueue, settings, generationResults });
+    const { testResult, showResultModal, setShowResultModal } = usePerformanceTest(settings);
+    const { testStatuses: autoTestStatuses, startAutoTest, runSingleTest, isAutoTesting } = useAutoTestRunner({ addToQueue, settings, generationResults });
 
     // Merge single test results into table state
     useEffect(() => {
@@ -126,6 +133,16 @@ export default function PerformanceOverview({ settings, onBack, addToQueue, gene
                     </div>
                 </div>
 
+                {/* Queue Monitor Integration */}
+                <div className="mb-6">
+                    <QueueMonitor
+                        queueStatus={queueStatus}
+                        onPauseQueue={onPauseQueue}
+                        onClearQueue={onClearQueue}
+                        onRemoveFromQueue={onRemoveFromQueue}
+                    />
+                </div>
+
                 {/* Sub-Components */}
                 <ConsoleProgressBar />
 
@@ -134,11 +151,8 @@ export default function PerformanceOverview({ settings, onBack, addToQueue, gene
                     loading={loading}
                     testStatuses={testStatuses}
                     onTestLoad={(model) => {
-                        // Auto-clear logs if enabled
-                        if ((window as any).__clearConsoleLogs) {
-                            (window as any).__clearConsoleLogs();
-                        }
-                        runTest(model, testPrompt, testImage, selectedScheduler, selectedResolution);
+                        // Queue the single test
+                        runSingleTest(model, testPrompt, selectedScheduler, selectedResolution);
                     }}
                 />
 

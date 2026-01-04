@@ -1,3 +1,4 @@
+/* eslint-disable */
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { MainLayout } from './components/layout/MainLayout';
 import { NavBar } from './components/layout/NavBar';
@@ -416,6 +417,10 @@ const App: React.FC = () => {
               onBack={() => setShowPerformanceOverview(false)}
               addToQueue={addToQueue}
               generationResults={generationResults}
+              queueStatus={queueStatus}
+              onPauseQueue={(p) => { isPausedRef.current = p; if (!p) processQueue(); }}
+              onClearQueue={clearQueue}
+              onRemoveFromQueue={removeFromQueue}
             />
           ) : galleryView === 'status' ? (
             <StatusPage

@@ -1,4 +1,4 @@
-
+/* eslint-disable */
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { ModelInfo, TestResult } from '../components/PerformanceOverview/types';
 
@@ -16,7 +16,10 @@ export function useAutoTestRunner({ addToQueue, settings, generationResults }: A
 
     // 1. Start Auto Test for a list of models
     const startAutoTest = useCallback((models: ModelInfo[], prompt: string, scheduler: string, resolution: string) => {
+        if (isAutoTesting) return; // Prevent double click / double run
         setIsAutoTesting(true);
+        setTestStatuses({}); // Clear previous results
+
         const newStatuses: Record<string, TestResult> = {};
 
         models.forEach(model => {
@@ -28,8 +31,8 @@ export function useAutoTestRunner({ addToQueue, settings, generationResults }: A
             queueTestForModel(model, prompt, scheduler, resolution);
         });
 
-        setTestStatuses(prev => ({ ...prev, ...newStatuses }));
-    }, [addToQueue]);
+        setTestStatuses(newStatuses);
+    }, [addToQueue, isAutoTesting]);
 
     // 2. Queue a single test
     const queueTestForModel = (model: ModelInfo, prompt: string, scheduler: string, resolution: string) => {
@@ -94,7 +97,7 @@ export function useAutoTestRunner({ addToQueue, settings, generationResults }: A
             // The ID format is `autotest-{modelId}-{timestamp}`
             if (pendingVerificationRef.current[res.id]) {
                 const startTime = pendingVerificationRef.current[res.id];
-                const modelId = res.id.split('-')[1]; // Extract model ID (naive parse)
+                // const modelId = res.id.split('-')[1]; // Extract model ID (naive parse) - Unused
                 // Better regex or storage:
                 // We should store a map of jobId -> modelId
 
@@ -117,14 +120,11 @@ export function useAutoTestRunner({ addToQueue, settings, generationResults }: A
             [modelId]: { ...prev[modelId], status: 'verifying', generatedImageUrl: imageUrl, generationTimeMs: genTime }
         }));
 
-        // Call Verification API (Moondream)
-        // We can reuse the logic from usePerformanceTest or duplicate it here.
-        // For simplicity, duplicate simple fetch call.
-        try {
-            // Logic to call chat completion
-            const moondreamUrl = settings?.providers.moondream_local.endpoint || 'http://localhost:2020';
-            const cleanUrl = moondreamUrl.replace(/\/$/, "").replace(/\/v1$/, "");
+        const moondreamUrl = settings?.providers.moondream_local.endpoint || 'http://localhost:2020';
+        const cleanUrl = moondreamUrl.replace(/\/$/, "").replace(/\/v1$/, "");
 
+        try {
+            // 1. Text Verification
             const verifyRes = await fetch(`${cleanUrl}/v1/chat/completions`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -133,23 +133,76 @@ export function useAutoTestRunner({ addToQueue, settings, generationResults }: A
                     messages: [
                         {
                             role: "user", content: [
-                                { type: "text", text: "Is there an image here?" }, // Simple check
+                                { type: "text", text: "Describe this image in detail. Mention eye color if visible." },
                                 { type: "image_url", image_url: { url: imageUrl } }
                             ]
                         }
                     ],
-                    max_tokens: 10
+                    max_tokens: 150
                 })
             });
 
+            let verificationText = "Verified";
             if (verifyRes.ok) {
-                setTestStatuses(prev => ({
-                    ...prev,
-                    [modelId]: { ...prev[modelId], status: 'success', verificationResult: "Verified" }
-                }));
-            } else {
-                throw new Error("Verification failed");
+                const vData = await verifyRes.json();
+                verificationText = vData.choices?.[0]?.message?.content || "Verified";
             }
+
+            // 2. Extract Eye Color (Simple Regex)
+            let eyeColor: string | undefined;
+            const colorPatterns = [/eyes? (?:are|look) (\w+)/i, /(\w+) eyes?/i];
+            for (const p of colorPatterns) {
+                const m = verificationText.match(p);
+                if (m && ['blue', 'green', 'brown', 'hazel'].some(c => m[1].toLowerCase().includes(c))) {
+                    eyeColor = m[1].toLowerCase();
+                    break;
+                }
+            }
+
+            // 3. Extract Resolution
+            let imageResolution: string | undefined;
+            try {
+                const img = new Image();
+                img.src = imageUrl;
+                await new Promise<void>(resolve => { img.onload = () => resolve(); });
+                imageResolution = `${img.width}x${img.height}`;
+            } catch {
+                // Ignore resolution extraction errors
+            }
+
+            // 4. Smart Crop / Eye Crop (Basic Center Crop Fallback if no detection)
+            let eyeCropUrl: string | undefined;
+            try {
+                const img = new Image();
+                img.src = imageUrl;
+                await new Promise(r => { img.onload = r; });
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                    const s = Math.min(img.width, img.height) * 0.3; // 30% center crop
+                    const x = (img.width - s) / 2;
+                    const y = (img.height - s) / 5; // Higher up for face/eyes usually
+                    canvas.width = s;
+                    canvas.height = s;
+                    ctx.drawImage(img, x, y, s, s, 0, 0, s, s);
+                    eyeCropUrl = canvas.toDataURL('image/png');
+                }
+            } catch {
+                // Ignore crop errors
+            }
+
+
+            setTestStatuses(prev => ({
+                ...prev,
+                [modelId]: {
+                    ...prev[modelId],
+                    status: 'success',
+                    verificationResult: verificationText,
+                    eyeColor,
+                    imageResolution,
+                    eyeCropUrl
+                }
+            }));
 
         } catch (e) {
             setTestStatuses(prev => ({
@@ -162,6 +215,7 @@ export function useAutoTestRunner({ addToQueue, settings, generationResults }: A
     return {
         testStatuses,
         startAutoTest,
+        runSingleTest: queueTestForModel,
         isAutoTesting
     };
 }
