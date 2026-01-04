@@ -8,6 +8,7 @@ import { ModelList } from './PerformanceOverview/ModelList';
 import { PromptConfig } from './PerformanceOverview/PromptConfig';
 import { ImageUpload } from './PerformanceOverview/ImageUpload';
 import { TestResultModal } from './PerformanceOverview/TestResultModal';
+import { ConsoleProgressBar } from './PerformanceOverview/ConsoleProgressBar';
 
 interface PerformanceOverviewProps {
     settings: AdminSettings | null;
@@ -21,21 +22,40 @@ export default function PerformanceOverview({ settings, onBack, addToQueue, gene
     const [loading, setLoading] = useState(true);
     const [testPrompt, setTestPrompt] = useState("hot sexy 22 yo woman in bikini posing for sports illustrated model photo shots. long red hair and hazel-green eyes. big teardrop breasts, attention grabbing cleavage.");
     const [testImage, setTestImage] = useState<string | null>(null);
-    const [schedulers, setSchedulers] = useState<string[]>([]);
-    const [selectedScheduler, setSelectedScheduler] = useState("dpm++");
+    const [selectedScheduler, setSelectedScheduler] = useState("euler");
+    const [selectedResolution, setSelectedResolution] = useState("512x896"); // Portrait default
 
     const moondreamUrl = settings?.providers.moondream_local.endpoint || 'http://localhost:2020';
     const cleanUrl = moondreamUrl.replace(/\/$/, "").replace(/\/v1$/, "");
 
+    // Unified test state management
+    const [testStatuses, setTestStatuses] = useState<Record<string, any>>({});
+
     // Custom Hooks
-
-
     const { testResult, showResultModal, setShowResultModal, runTest } = usePerformanceTest(settings);
-    const { testStatuses, startAutoTest, isAutoTesting } = useAutoTestRunner({ addToQueue, settings, generationResults });
+    const { testStatuses: autoTestStatuses, startAutoTest, isAutoTesting } = useAutoTestRunner({ addToQueue, settings, generationResults });
+
+    // Merge single test results into table state
+    useEffect(() => {
+        if (testResult && testResult.modelId) {
+            setTestStatuses(prev => ({
+                ...prev,
+                [testResult.modelId]: testResult
+            }));
+        }
+    }, [testResult]);
+
+    // Merge auto-test results into table state
+    useEffect(() => {
+        setTestStatuses(prev => ({
+            ...prev,
+            ...autoTestStatuses
+        }));
+    }, [autoTestStatuses]);
+
 
     useEffect(() => {
         fetchModels();
-        fetchSchedulers();
     }, [cleanUrl]);
 
     // Handle Escape key
@@ -52,20 +72,6 @@ export default function PerformanceOverview({ settings, onBack, addToQueue, gene
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [showResultModal, onBack]);
-
-    const fetchSchedulers = async () => {
-        try {
-            const res = await fetch(`${cleanUrl}/v1/schedulers`);
-            if (res.ok) {
-                const data = await res.json();
-                setSchedulers(data.schedulers || []);
-                if (data.schedulers?.includes("dpm++")) setSelectedScheduler("dpm++");
-                else if (data.schedulers?.length > 0) setSelectedScheduler(data.schedulers[0]);
-            }
-        } catch (e) {
-            console.warn("Failed to fetch schedulers", e);
-        }
-    };
 
     const fetchModels = async () => {
         try {
@@ -101,7 +107,13 @@ export default function PerformanceOverview({ settings, onBack, addToQueue, gene
                     </div>
                     <div className="flex items-center gap-3">
                         <button
-                            onClick={() => startAutoTest(models, testPrompt)}
+                            onClick={() => {
+                                // Auto-clear logs if enabled
+                                if ((window as any).__clearConsoleLogs) {
+                                    (window as any).__clearConsoleLogs();
+                                }
+                                startAutoTest(models, testPrompt);
+                            }}
                             disabled={loading || isAutoTesting}
                             className={`px-4 py-2 rounded-lg transition-colors flex items-center gap-2 ${isAutoTesting ? 'bg-indigo-600/50 cursor-wait' : 'bg-indigo-600 hover:bg-indigo-500'
                                 }`}
@@ -115,19 +127,28 @@ export default function PerformanceOverview({ settings, onBack, addToQueue, gene
                 </div>
 
                 {/* Sub-Components */}
+                <ConsoleProgressBar />
+
                 <ModelList
                     models={models}
                     loading={loading}
                     testStatuses={testStatuses}
-                    onTestLoad={(model) => runTest(model, testPrompt, testImage, selectedScheduler)}
+                    onTestLoad={(model) => {
+                        // Auto-clear logs if enabled
+                        if ((window as any).__clearConsoleLogs) {
+                            (window as any).__clearConsoleLogs();
+                        }
+                        runTest(model, testPrompt, testImage, selectedScheduler, selectedResolution);
+                    }}
                 />
 
                 <PromptConfig
                     prompt={testPrompt}
                     setPrompt={setTestPrompt}
-                    schedulers={schedulers}
                     selectedScheduler={selectedScheduler}
                     setSelectedScheduler={setSelectedScheduler}
+                    selectedResolution={selectedResolution}
+                    setSelectedResolution={setSelectedResolution}
                 />
 
                 <ImageUpload

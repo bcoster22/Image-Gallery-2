@@ -15,5 +15,10 @@ export interface TestResult {
     generatedImageUrl?: string;
     verificationResult?: string;
     eyeCropUrl?: string;
+    testImageUrl?: string;
+    eyeColor?: string;
+    imageResolution?: string;
     error?: string;
 }
+
+

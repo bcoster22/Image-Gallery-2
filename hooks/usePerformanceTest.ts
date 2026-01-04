@@ -9,7 +9,7 @@ export function usePerformanceTest(settings: AdminSettings | null) {
     const moondreamUrl = settings?.providers.moondream_local.endpoint || 'http://localhost:2020';
     const cleanUrl = moondreamUrl.replace(/\/$/, "").replace(/\/v1$/, "");
 
-    const runTest = async (model: ModelInfo, prompt: string, testImage: string | null, scheduler: string) => {
+    const runTest = async (model: ModelInfo, prompt: string, testImage: string | null, scheduler: string, resolution: string = "896x512") => {
         setTestResult({
             modelId: model.id,
             status: 'loading',
@@ -36,7 +36,7 @@ export function usePerformanceTest(settings: AdminSettings | null) {
                         model: model.id,
                         prompt: prompt,
                         n: 1,
-                        size: "896x512",
+                        size: resolution,  // Use selected resolution
                         response_format: "b64_json"
                     })
                 });
@@ -198,13 +198,56 @@ export function usePerformanceTest(settings: AdminSettings | null) {
                 }
             }
 
+            // 4. Extract Eye Color from Verification
+            let eyeColor: string | undefined;
+            if (verification && verification.toLowerCase().includes('eye')) {
+                // Try to extract eye color from verification text
+                const colorPatterns = [
+                    /eyes?\s+(?:are|is|appear|look)\s+(\w+(?:-\w+)?)/i,
+                    /(\w+(?:-\w+)?)\s+eyes?/i,
+                    /eye\s+color[:\s]+(\w+(?:-\w+)?)/i
+                ];
+
+                for (const pattern of colorPatterns) {
+                    const match = verification.match(pattern);
+                    if (match && match[1]) {
+                        const color = match[1].toLowerCase();
+                        // Validate it's actually a color word
+                        const validColors = ['blue', 'green', 'brown', 'hazel', 'gray', 'grey', 'amber', 'hazel-green', 'blue-green', 'blue-gray', 'grey-blue'];
+                        if (validColors.some(vc => color.includes(vc))) {
+                            eyeColor = color;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // 5. Extract Image Resolution
+            let imageResolution: string | undefined;
+            if (imageUrl) {
+                try {
+                    const img = new Image();
+                    img.src = imageUrl;
+                    await new Promise<void>((resolve) => {
+                        img.onload = () => resolve();
+                    });
+                    imageResolution = `${img.width}x${img.height}`;
+                } catch (e) {
+                    console.warn("Failed to extract image resolution", e);
+                    // Fallback to requested size
+                    imageResolution = "896x512";
+                }
+            }
+
             setTestResult({
                 modelId: model.id,
                 status: 'success',
                 generationTimeMs: genTime,
                 generatedImageUrl: imageUrl,
                 verificationResult: verification,
-                eyeCropUrl: cropUrl
+                eyeCropUrl: cropUrl,
+                eyeColor: eyeColor,
+                imageResolution: imageResolution
             });
 
         } catch (e: any) {
