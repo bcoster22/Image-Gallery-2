@@ -6,7 +6,7 @@ from pathlib import Path
 # Configuration
 MOONDREAM_DIR = Path.home() / ".moondream-station"
 VENV_PYTHON = MOONDREAM_DIR / "venv" / "bin" / "python3"
-BACKEND_DIR = MOONDREAM_DIR / "moondream-station"
+BACKEND_DIR = Path.home() / "Documents/Github_Projects/moondream-station"
 START_SCRIPT = BACKEND_DIR / "start_server.py"
 
 def main():
